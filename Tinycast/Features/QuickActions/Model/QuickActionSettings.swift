@@ -6,6 +6,8 @@ struct QuickActionSettings: Equatable, Sendable {
 
     /// BCP-47, e.g. `es-419`. Empty means the Mac's own language.
     var targetLanguage: String = ""
+    var usesOutlookContextForRewrite = false
+    var internalEmailDomains = ""
     private(set) var instructionOverrides: [BuiltInQuickAction: String] = [:]
 
     func previewsResult(_ action: QuickAction) -> Bool {

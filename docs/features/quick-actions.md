@@ -1,10 +1,11 @@
 # Quick Actions
 
-Act on whatever text is selected, in whatever app is frontmost. Four are shipped: Fix Grammar,
-Rewrite, Translate and Summarize, each with its own bindable shortcut **and its own launcher command**,
-both listed in **Settings → Quick Actions**. Three go through the AI provider layer; Translate goes to
-Apple's own translator. The result either replaces the selection or arrives in a floating panel, per
-action.
+Act on text in whichever app is frontmost. Four are shipped: Fix Grammar, Composer, Translate and
+Summarize, each with its own bindable shortcut **and its own launcher command**, both listed in
+**Settings → Quick Actions**. Three go through the AI provider layer; Translate goes to Apple's own
+translator. A selected-text result either replaces the selection or arrives in a floating panel, per
+action. Composer also accepts an insertion point: its panel collects the first writing request, then
+inserts the finished draft at that point.
 
 A **custom Quick Action** is a name, a glyph and a prompt, run through the same provider. It takes a
 shortcut and a launcher row like any other.
@@ -30,14 +31,15 @@ provider protocol and the connections behind it.
   through `DialogController` first and then calls `Permissions.ensureAccessibility()`, the pattern
   `SnippetCoordinator.setSnippetsEnabled` established. Everything else — a shortcut press, a
   delivery — uses `isAccessibilityTrusted()` and degrades to a HUD.
-- **Tinycast is never an event target.** `QuickActionRunner.selection(in:using:)` refuses our own
+- **Tinycast is never an event target.** `QuickActionRunner.input(for:in:using:)` refuses our own
   bundle identifier, and `TextInjector.targetAcceptsInjection` refuses it again before every event post,
   along with anything raised while Secure Event Input is up. A shortcut pressed with Settings
   frontmost, or in a password field, does nothing and says so.
 - **One run at a time.** Two overlapping runs would race for one selection, and the second would
-  replace text the first had already changed. `QuickActionCoordinator` holds a single task and
-  refuses a second while it lives; a generation token stops a task that finishes after being
-  replaced — by a retranslate, say — from clearing the newer handle.
+  replace text the first had already changed. `QuickActionCoordinator` holds a single task.
+  Pressing Composer's shortcut during generation reopens that conversation, even after dismissal.
+  Stop cancels generation and restores the request for editing. A generation token prevents a
+  cancelled task from appending to a later request or clearing its handle.
 - **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
   what keeps `FoundationModels`, `Translation` and `NaturalLanguage` in `Service/` and `UI/`.
 - **Quick Actions route themselves.** `quickActionModel` is a second routing decision, defaulting to
@@ -62,14 +64,51 @@ provider protocol and the connections behind it.
   `SystemLanguageModel.Guardrails.permissiveContentTransformations`. The default filter is tuned for
   a model writing fresh prose and refuses to transform text somebody already wrote, which is the
   whole feature.
-- **Built-in instructions treat the selection as untrusted input.** `QuickActionPrompt` tells the
-  model that the text is material to work on and never instructions to follow, and that only the
-  transformed text may come back — no preamble, no fences. Custom instructions replace these rules
-  too. The output is pasted into somebody's document.
+- **Built-in instructions distinguish source text from a writing request.** A selected draft is
+  untrusted material to transform, never an instruction to follow. In caret-first Composer, the first
+  panel entry is a writing request to follow. In both modes, the model returns only the finished body
+  text. Composer appends that body-only rule after any custom style prompt. `QuickActionOutput` also
+  removes a leading `Subject:` line before the panel, history, copy or delivery can use the draft.
+  The caret-first instruction still identifies the panel entry as the request.
+- **Outlook context is narrow and separately consented.** The optional Composer toggle reads the
+  current compose window only after the reader runs Composer in Outlook. It adds the To, Cc and Bcc
+  recipients, subject and at most the two newest quoted messages to the request, skips the draft signature and
+  older history, and captures that snapshot once when the shortcut is pressed. Selected-text Composer
+  captures the selected draft boundaries. Caret-first Composer captures the insertion point.
+  `ComposerDraftAnchor` stores fingerprints of the surrounding text so later replacements cover the
+  draft without duplicating it. The context is marked as untrusted reference material in the prompt.
+  Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
+  reads or sends.
+- **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc
+  address
+  with the internal domains configured in Quick Actions settings. When every address is an exact
+  match or a subdomain, the prompt asks for a relaxed, concise coworker tone. A mixed list, an
+  outside address, an unreadable recipient or an empty domain list uses the safer polished external
+  tone. The footer names the effective choice, marks a manual choice and its menu can override it for
+  one conversation;
+  that override follows the conversation through its seven-day history. The configured domains are
+  excluded from settings backups because they identify an organization and change model behavior.
+- **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
+  to `rewrite-history.json` under the bundle-specific Application Support directory. Opening Composer,
+  saving a transcript or launching the app removes records whose latest revision is older than seven
+  days. Running Composer again on the same Outlook email restores its transcript and latest completed
+  draft without another model request. Tinycast stores context and individual-message fingerprints
+  for matching, not a second copy of the quoted email thread. Overlapping quoted messages keep one
+  conversation together when a new reply changes the snapshot. A matched email keeps one conversation. If older records
+  contain duplicates, the first matching run keeps the transcript with the most messages and removes
+  the other rows. Reopening does not extend retention because only a revision updates the record's
+  timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
+  Typing does not extend retention. In-flight requests remain recoverable until generation succeeds.
+  New emails without quoted history match by the native Outlook editor identity and envelope.
+  Recreating that editor, including restarting Outlook, may prevent an automatic match.
+  Matching text alone in another app never restores an Outlook conversation.
+  The sidebar can display and copy an older draft, but only the active Composer conversation
+  can refine or replace the current target. Right-clicking a sidebar row opens its Delete
+  Conversation action. Deleting the active conversation also closes its panel.
 - **A custom prompt cannot drop that boundary.** An override on a shipped action may replace
-  `boundary`, because the sheet shows the whole prompt. A custom action *is* the prompt, so `boundary`
-  is prepended and no control removes it.
-- **Each model action owns its instructions and its route.** The pencil on Fix Grammar, Rewrite and
+  `boundary`, because the sheet shows the whole prompt. Composer keeps its body-only output rule after
+  an override. A custom action *is* the prompt, so `boundary` is prepended and no control removes it.
+- **Each model action owns its instructions and its route.** The pencil on Fix Grammar, Composer and
   Summarize opens a sheet prefilled with the exact built-in prompt and the action's model. Saving
   replaces both for only that action; Use Default restores the prompt. Translate has no editor because no model handles translation. The same
   pencil on a custom action opens its editor, which owns the name and glyph too.
@@ -93,7 +132,7 @@ started.
 | Action | Engine | Default result | Diff |
 | --- | --- | --- | --- |
 | Fix Grammar | provider | replaces directly | yes |
-| Rewrite | provider | panel | yes |
+| Composer | provider | panel | yes |
 | Translate | Apple Translation | panel | no |
 | Summarize | provider | panel, always | no |
 | a custom action | provider | panel | no |
@@ -176,15 +215,52 @@ Its footer speaks the same button language as a dialog's — `ModalActionButtonS
 as the `.primary` role — so every borderless surface answers in one voice rather than dropping Aqua
 controls onto vibrancy.
 
+`ComposerToolbar` shows the captured-context status and the effective audience tone together in the
+header. `ComposerModelControls` places model and reasoning controls in the footer, opposite the delivery buttons. The
+context inspector displays the
+actual recipient list, subject and bounded quoted text used by
+the request. Missing fields produce a partial or unavailable status. Saved conversations do not
+claim live context, because their quoted text is not retained. `OutlookComposeContextReader` aggregates
+all addresses exposed by the To, Cc and Bcc fields, deduplicates them and removes presence labels.
+
+The audience menu offers Automatic, Internal and External. Automatic shows the detected result;
+Internal or External is saved with that conversation. The model menu uses
+`AIModelOption.availableGroups` and persists only Composer's route override. Reasoning choices come
+from the selected provider's catalog. Changes apply to the next request, including refinements,
+without regenerating the draft or changing AI Chat's model. Footer controls are disabled during
+generation. Escape closes an open inspector or menu before closing Composer; Return chooses a
+highlighted menu item without replacing the Outlook draft.
+
 It could not have been built on `HUDPresenter`: `HUDPanel` sets `ignoresMouseEvents` and returns
 `false` from `canBecomeKey`, so it is click-through and hosts no buttons. Nor on `DialogAccessory`,
 which is a closed two-case enum measured once at present time — a growing stream would clip.
 
-Non-activating, so the target app keeps its selection while the panel holds key. Keys go through
-`sendEvent`: `↵` replaces, `⌘C` copies, `esc` dismisses; click-away dismisses like every other
-borderless surface. The panel is anchored by its **top-left** and re-measured as the reply arrives —
-centring on every measure would walk it up the screen. `MarkdownView` and `MarkdownBlock.parse` are
-reused from chat; neither takes palette state.
+Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
+Keys go through `sendEvent`: `⌘↵` delivers, `⌘C` copies, `esc` dismisses. Composer labels delivery
+**Replace** when Hyper+R captured selected text and **Insert** when it captured only the caret. In
+caret-first Composer, `↵` submits the first writing request. After a draft exists, it submits another
+refinement. Ordinary editing shortcuts stay in the field. Composer renders the first request, first
+draft, every refinement request and every revised draft as one chat transcript. The provider receives
+that same conversation with the bounded Outlook snapshot as its opening context, so a later request
+can refer to an earlier version. A left sidebar lists the active Composer conversation and the last
+seven days of saved transcripts. Older entries are view and copy only. Nothing reaches the target app
+until Insert or Replace. Generation errors appear in the transcript, and the failed request returns to
+the input field. Retrying excludes failed turns from the model conversation. Stop keeps the last
+completed draft available for Copy, Insert or Replace. Reopening an interrupted session marks
+unfinished responses as failed.
+
+Composer opens centered over the visible source editor, using bounds captured before its panel opens.
+`ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
+This geometry-only read also works with Outlook context disabled. `ComposerPanelPlacement` chooses
+the source display and keeps the panel clear of its edges. Other Quick Actions open near the pointer.
+Resizing uses the panel's current display, so moving the pointer cannot move Composer to another screen.
+
+Click-away dismisses like every other borderless surface. The panel is anchored by its **top-left**
+and re-measured as the reply arrives. A Composer panel may grow while it is open, but it keeps the
+largest height it has reached when the reader switches between saved conversations. Its larger
+minimum body leaves room for the first writing request before a transcript exists. Centring on every
+measure would walk it up the screen. `MarkdownView` and `MarkdownBlock.parse` are reused from chat;
+neither takes palette state.
 
 The body is a `ScrollView` with its height **set** rather than capped: a scroll view has no ideal
 height, so `NSHostingView.fittingSize` measures it as nothing and the body collapses to a slot. The
@@ -209,9 +285,10 @@ quadratic, so past `maxTokens` a side it degrades to whole-text rather than aski
 It keeps one rolling `UInt16` score row and one insert-or-delete bit per token pair — equality is
 re-checked during traceback — so the cap costs about 2 MB where a full score matrix cost 32 MB.
 
-## Reading the selection
+## Reading the input
 
-Two tiers, in order. `AccessibilityText.read` asks for `kAXSelectedTextAttribute`, then the
+For selected text, two tiers run in order. `AccessibilityText.read` asks for
+`kAXSelectedTextAttribute`, then the
 text-marker range browsers use instead. `AXManualAccessibility` is set on the application element
 first, because Chromium builds its accessibility tree only once something asks and Chrome, Electron
 apps and VS Code otherwise answer every attribute with nothing.
@@ -226,9 +303,14 @@ pasteboard's existing contents there would transform whatever the reader last co
 over their selection. Movement is the only proof a copy happened — never comparing content, which
 false-positives when the same text was already on the clipboard.
 
-Copying is the fallback and never the first try: it synthesises a keystroke into somebody else's app.
-When both tiers come back empty, only an Accessibility result of `.empty` justifies "nothing is
-selected"; otherwise the app told us nothing either way and says so.
+For Composer, an empty selection with a zero-length `kAXSelectedTextRangeAttribute` is a valid
+insertion point. The coordinator opens the panel without calling the provider. It captures Outlook
+context at that moment, and the first Send starts generation. Other actions still require selected
+text.
+
+Copying is the selected-text fallback and never the first try: it synthesises a keystroke into
+somebody else's app. When the selection tiers come back empty, only an Accessibility result of
+`.empty` justifies "nothing is selected"; otherwise the app told us nothing either way and says so.
 
 ## Delivery
 
@@ -249,7 +331,33 @@ now settles either way, so a delivery that returned early reports failure exactl
 put the generated text on the clipboard and raise a HUD rather than dropping it. Snippets pass no
 failure handler, so automatic expansion stays silent as before.
 
+An Outlook Composer draft that ends with `Best,` is delivered with two trailing line breaks. Outlook's
+existing signature starts after the resulting blank line. Other sign-offs, apps and Quick Actions keep
+the provider's output unchanged. Outlook delivery also separates a one-line, multi-sentence Composer
+draft into short paragraphs. Existing line breaks and lists remain unchanged. Composer strips a leading
+model-generated subject line before any app receives the draft.
+
+With Outlook context enabled, `ComposerTextTarget` verifies the captured editor and body inside the
+delivery queue, after activation. It selects the captured draft range and verifies that Outlook
+accepted the selection before replacement. A mismatch leaves the source untouched and copies the
+result instead. The event fallback checks the target again immediately before insertion.
+
+When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
+Outlook edits become a new draft in the conversation and supply the starting text for further changes.
+If the surrounding text changed or no saved boundary exists, an explicit selection supplies the range.
+Without either, Replace is disabled with a request to select the draft and reopen Composer.
+
 ### Manual sweep
+
+- Open Composer in an Outlook reply with several To recipients. Inspect Email context captured and
+  confirm every address appears once, with the subject and bounded quoted text. Check partial context
+  in a new email, unavailable context outside Outlook, and the saved-conversation notice in history.
+- Configure an internal domain, then open an internal email, an external email and a mixed-recipient
+  email. Confirm the footer reports Internal only when every captured recipient matches. Override an
+  internal conversation to External, leave it, reopen the same email, and confirm the override stays.
+- Change Composer's model and reasoning from its footer. Confirm the next refinement uses that route,
+  the choice survives reopening, and AI Chat's route remains unchanged. During generation, confirm
+  both controls are disabled. Open a menu, use arrows and Return, and confirm Outlook stays untouched.
 
 - Select text in Safari, Chrome, Brave, Slack, Mail, Notes, VS Code and Terminal, press Fix Grammar,
   and confirm the selection is **replaced** rather than appended to.
@@ -270,8 +378,37 @@ failure handler, so automatic expansion stays silent as before.
 - Press one in a password field: refused.
 - Summarize a long selection: the panel streams, grows without the title drifting, and scrolls past
   `quickActionPanelBody`.
-- Replace Rewrite's instructions, confirm only Rewrite follows them after relaunch, then use the
+- Replace Composer's instructions, confirm only Composer follows them after relaunch, then use the
   modal's default and confirm the shipped behaviour returns.
+- Enable Outlook context, select a rough draft at the top of an Outlook reply, and run Composer.
+  Confirm the result reflects the recipient, subject and newest exchange, while the signature and
+  older quoted history are absent from the request and only the selected draft is replaced.
+- Place the caret in an empty Outlook reply and run Composer without selecting text. Confirm the panel
+  opens before any model request, the first field is focused, and the email context reflects the
+  moment the shortcut was pressed. Enter a writing request, press Return, refine the result, then use
+  Insert. Confirm the finished draft is inserted at the original caret.
+- Type part of a caret-first writing request, dismiss the panel, navigate away, then return to the
+  same Outlook email and run Composer. Confirm the unsent request reappears and a different thread with
+  the same recipient does not inherit it.
+- In Composer's panel, ask for a warmer version, then a shorter one. Confirm both requests and all three
+  drafts remain in the transcript, a reference to an earlier version works, and Outlook remains
+  untouched until Insert or Replace is clicked.
+- Replace an Outlook Composer draft that ends with `Best,`. Confirm one blank line remains between the
+  sign-off and the existing Outlook signature.
+- Replace a one-line Outlook Composer draft with three sentences. Confirm each sentence lands as a
+  separate paragraph, then replace a draft with existing line breaks and confirm they remain
+  unchanged.
+- Dismiss the panel, run Composer on another email, and select the first email in Recent drafts.
+  Confirm its full transcript remains available to copy, delivery is unavailable, and the active tab
+  restores the current draft. Switch between short and long conversations and confirm the panel does
+  not shrink. Move the stored clock past seven days and confirm the old tab is gone.
+- Dismiss Composer, navigate to another message, then return to the same Outlook email and run Composer
+  again. Confirm the saved transcript and latest draft reopen without generating a new first draft.
+  If the sidebar contained duplicate rows for that email, confirm they collapse into one conversation.
+- Type an unfinished refinement, dismiss Composer, then return to the same email. Confirm the input
+  reappears, submit it, dismiss again, and confirm the field reopens empty.
+- Right-click a saved Composer conversation and choose Delete Conversation. Confirm it disappears
+  and stays absent after relaunch. Delete the active conversation and confirm its panel closes.
 - Give Summarize its own model and effort: the row names them, only Summarize uses them, and they
   survive a relaunch. Turn that provider off in AI Settings and Summarize follows the shared model.
 - Save a custom action with its own model, delete it, and confirm no route is left in
@@ -279,6 +416,8 @@ failure handler, so automatic expansion stays silent as before.
 - Translate into a language that has not been downloaded: the panel names the language, and its
   button closes the panel and opens Language & Region.
 - Revoke Accessibility while enabled: a HUD explains instead of failing silently.
-- Harnesses: `quick-action-test` (action metadata, prompt boundaries, preview choices, routes and
-  their repair, diffs) and
+- Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
+  seven-day Composer history, preview choices, routes and their repair, diffs),
+  `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, scoped
+  history matching and newest quoted messages), and
   `text-diff-test` (exact chunks, Unicode, ties, token boundaries and fast paths).

@@ -86,5 +86,7 @@ enum AppSettingsKey: String, CaseIterable {
     case quickActionPreviews = "quickActionPreviews"
     case quickActionInstructions = "quickActionInstructions"
     case quickActionLanguage = "quickActionLanguage"
+    case quickActionOutlookContext = "quickActionOutlookContext"
+    case quickActionInternalDomains = "quickActionInternalDomains"
     case supportReminders = "supportReminders"
 }

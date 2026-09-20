@@ -60,7 +60,8 @@ release feed the website already reads is the feed the app reads.
 - **`@handle` and `#304` are linked by the app, never by the release body.** GitHub autolinks both on
   the web, and a bare mention is what notifies the contributor, so the published body keeps them
   plain and `ReleaseNotes` spells them as Markdown links on the way to the window. Both point at
-  `ReleaseFeed.repository`, the one place the repo is named.
+  `ReleaseFeed.repository`. Official builds read `abue-ammar/tinycast`; fork workflows stamp their
+  own repository into `TinycastUpdateRepository` at build time.
 
 ## Channel and version
 

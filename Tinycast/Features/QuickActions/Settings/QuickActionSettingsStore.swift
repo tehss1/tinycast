@@ -27,6 +27,10 @@ final class QuickActionSettingsStore {
             as? [String: Bool] ?? [:]
         loaded.targetLanguage =
             defaults.string(forKey: AppSettingsKey.quickActionLanguage.rawValue) ?? ""
+        loaded.usesOutlookContextForRewrite =
+            defaults.bool(forKey: AppSettingsKey.quickActionOutlookContext.rawValue)
+        loaded.internalEmailDomains =
+            defaults.string(forKey: AppSettingsKey.quickActionInternalDomains.rawValue) ?? ""
         loaded.storedInstructionOverrides =
             defaults.dictionary(forKey: AppSettingsKey.quickActionInstructions.rawValue)
             as? [String: String] ?? [:]
@@ -119,6 +123,12 @@ final class QuickActionSettingsStore {
         defaults.set(
             settings.storedPreviewChoices, forKey: AppSettingsKey.quickActionPreviews.rawValue)
         defaults.set(settings.targetLanguage, forKey: AppSettingsKey.quickActionLanguage.rawValue)
+        defaults.set(
+            settings.usesOutlookContextForRewrite,
+            forKey: AppSettingsKey.quickActionOutlookContext.rawValue)
+        defaults.set(
+            settings.internalEmailDomains,
+            forKey: AppSettingsKey.quickActionInternalDomains.rawValue)
         defaults.set(
             settings.storedInstructionOverrides,
             forKey: AppSettingsKey.quickActionInstructions.rawValue)

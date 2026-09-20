@@ -69,6 +69,26 @@ It builds on a `macos-26` runner with Xcode 26 and publishes a GitHub Release ta
 `v<full-version>` with a versioned DMG and zip asset, marked prerelease for beta. On success it also
 bumps the matching cask in the tap and announces the release on Discord.
 
+### Customized release feed
+
+A customized build keeps its changes while receiving official Tinycast improvements through a fork.
+The fork's `main` branch owns the custom code. `.github/workflows/sync-upstream.yml` checks the
+official repository every Monday and opens or refreshes a merge request when `upstream/main` moves.
+The merge request runs `.github/workflows/verify.yml`; review and merge it before publishing.
+
+The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
+The in-app updater then reads releases from the repository that built the app. The official workflow
+still stamps `abue-ammar/tinycast`, while a fork stamps its own `owner/repository` value. Both paths
+retain the existing bundle, version, architecture, and signature checks.
+
+Publish a stable fork release with the same version as the official release it includes. Before the
+first release, add `SIGNING_P12_BASE64` and `SIGNING_P12_PASSWORD` as repository secrets using the
+certificate that signed the installed custom app. A different certificate makes the installed app
+reject the download. Do not relax `BundleSignature` to work around a mismatch.
+
+The fork does not update the official Homebrew tap or send official Discord announcements. Install
+the first customized release manually. Later customized releases arrive through Check for Updates.
+
 A stable run then fans out to a second job, `universal`, which rebuilds the same commit with
 `ARCHS="arm64 x86_64"` and attaches `Tinycast-Universal-<version>.dmg` / `.zip` to the release the
 first job created, then bumps `tinycast-universal`. macOS 26 is the last release that boots on Intel,

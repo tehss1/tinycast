@@ -8,6 +8,9 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
     private var state: QuickActionPanelState?
     private var onReplace: ((String) -> Void)?
     private var onRetranslate: ((Locale.Language) -> Void)?
+    private var onDismiss: (() -> Void)?
+    private var selectedOutput = ""
+    private var isViewingActiveConversation = true
 
     /// Clear of the pointer, so the panel never opens under the hand that summoned it.
     private static let cursorOffset: CGFloat = 12
@@ -16,45 +19,80 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
 
     func present(
         _ state: QuickActionPanelState,
+        coordinator: QuickActionCoordinator,
+        history: RewriteHistoryStore,
+        palette: PaletteState,
         metrics: InterfaceMetrics,
         languages: [Locale.Language],
+        sourceFrame: CGRect?,
         onRetranslate: @escaping (Locale.Language) -> Void,
+        onRefine: @escaping () -> Void,
+        onStop: @escaping () -> Void,
+        onInstructionChange: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        onDeleteHistory: @escaping (UUID) -> Bool,
         onReplace: @escaping (String) -> Void
     ) {
         dismiss()
         self.state = state
         self.onReplace = onReplace
         self.onRetranslate = onRetranslate
+        self.onDismiss = onDismiss
 
         let hosting = NSHostingView(
             rootView: QuickActionResultView(
                 state: state,
+                history: history,
                 languages: languages,
+                onRefine: onRefine,
+                onStop: onStop,
+                onInstructionChange: onInstructionChange,
                 onReplace: { [weak self] in self?.replace(state.output) },
-                onCopy: { [weak self] in self?.copyOutput() },
+                onCopy: { [weak self] in self?.copyOutput($0) },
+                onDeleteHistory: onDeleteHistory,
+                onSelectionChange: { [weak self] text, isViewingActive in
+                    self?.selectedOutput = text
+                    self?.isViewingActiveConversation = isViewingActive
+                },
                 onCancel: { [weak self] in self?.dismiss() },
                 onRetranslate: { [weak self] in self?.onRetranslate?($0) },
                 onOpenLanguageSettings: { [weak self] in self?.openLanguageSettings() },
                 onHeight: { [weak self] in self?.resize(toHeight: $0) }
-            ).environment(\.metrics, metrics))
+            )
+            .environment(\.metrics, metrics)
+            .environment(coordinator)
+            .environment(palette))
         // The controller owns the frame; without this the top edge drifts as the reply grows.
         hosting.sizingOptions = []
         // Its tallest, so the first frame is never short; the view reports the real height at once.
-        hosting.setFrameSize(
-            NSSize(width: metrics.size.quickActionPanel, height: metrics.size.quickActionPanelBody))
+        let width = metrics.size.quickActionPanel
+            + (state.action == .rewrite
+                ? metrics.size.quickActionHistorySidebar + Theme.Size.hairline : 0)
+        hosting.setFrameSize(NSSize(width: width, height: metrics.size.quickActionPanelBody))
 
         let panel = QuickActionPanel(content: hosting)
+        panel.onAccessoryKey = { [weak state, weak coordinator] event in
+            guard let state, let coordinator else { return nil }
+            return ComposerToolbar.handleKey(event, state: state, coordinator: coordinator)
+        }
         panel.delegate = self
         panel.onKey = { [weak self] key in
             guard let self, let state = self.state else { return }
             switch key {
-            case .replace: if state.canReplace { self.replace(state.output) }
-            case .copy: if state.canReplace { self.copyOutput() }
+            case .replace:
+                if state.canDeliver(isViewingActive: self.isViewingActiveConversation) {
+                    self.replace(state.output)
+                }
+            case .copy: self.copyOutput(self.selectedOutput)
             case .cancel: self.dismiss()
             }
         }
         self.panel = panel
-        placeAtCursor(panel)
+        if state.action == .rewrite {
+            placeOverSource(panel, sourceFrame: sourceFrame)
+        } else {
+            placeAtCursor(panel)
+        }
         // Non-activating like the palette: key focus without pulling the reader out of their app.
         panel.fadeIn(duration: Theme.Duration.enter) {
             panel.makeKeyAndOrderFront(nil)
@@ -62,20 +100,26 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    func dismiss() {
+    func dismiss(preservingDraft: Bool = true) {
         guard let closing = panel else { return }
+        let preserveDraft = preservingDraft ? onDismiss : nil
         panel = nil
         state = nil
         onReplace = nil
         onRetranslate = nil
+        onDismiss = nil
+        selectedOutput = ""
+        isViewingActiveConversation = true
         closing.delegate = nil
         closing.onKey = nil
+        closing.onAccessoryKey = nil
+        preserveDraft?()
         closing.fadeOut(duration: Theme.Duration.exit)
     }
 
-    private func copyOutput() {
-        guard let state else { return }
-        Paster.copyPlainText(state.output)
+    private func copyOutput(_ text: String) {
+        guard !text.isEmpty else { return }
+        Paster.copyPlainText(text)
     }
 
     private func openLanguageSettings() {
@@ -110,18 +154,25 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         clampOnScreen(panel)
     }
 
+    private func placeOverSource(_ panel: NSPanel, sourceFrame: CGRect?) {
+        let screens = NSScreen.screens
+        let source = sourceFrame ?? NSScreen.main?.visibleFrame ?? NSScreen.primary?.visibleFrame
+        guard let source,
+            let index = ComposerPanelPlacement.screenIndex(for: source, screens: screens.map(\.frame))
+        else { return }
+        panel.setFrame(
+            ComposerPanelPlacement.centeredFrame(
+                size: panel.frame.size, source: source, visibleScreen: screens[index].visibleFrame,
+                margin: Self.screenMargin),
+            display: false)
+    }
+
     private func clampOnScreen(_ panel: NSPanel) {
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
-        guard let visible = (screen ?? NSScreen.main)?.visibleFrame else { return }
+        guard let visible = (panel.screen ?? NSScreen.main)?.visibleFrame else { return }
         let frame = panel.frame
-        let x = min(
-            max(frame.minX, visible.minX + Self.screenMargin),
-            max(visible.maxX - frame.width - Self.screenMargin, visible.minX + Self.screenMargin))
-        let y = min(
-            max(frame.minY, visible.minY + Self.screenMargin),
-            max(visible.maxY - frame.height - Self.screenMargin, visible.minY + Self.screenMargin))
-        guard x != frame.minX || y != frame.minY else { return }
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        let clamped = ComposerPanelPlacement.clamped(frame, to: visible, margin: Self.screenMargin)
+        guard clamped.origin != frame.origin else { return }
+        panel.setFrameOrigin(clamped.origin)
     }
 
     // MARK: - NSWindowDelegate

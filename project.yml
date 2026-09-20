@@ -16,6 +16,9 @@ settings:
     # Stable self-signed identity so macOS keeps the Accessibility grant across rebuilds.
     # Create it once — see docs/signing.md.
     CODE_SIGN_IDENTITY: "Tinycast Self-Signed"
+    # Official builds use the upstream feed. Fork release workflows override this with their own
+    # repository so a customized app receives merged, equivalently signed releases.
+    TINYCAST_UPDATE_REPOSITORY: "abue-ammar/tinycast"
     SWIFT_STRICT_CONCURRENCY: complete
   configs:
     Release:

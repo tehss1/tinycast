@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A minimal MCP server over stdio. `TC_MCP_MODE` picks which way it misbehaves.
 
-import fs from "node:fs";
+const fs = require("node:fs");
 
 const MODE = process.env.TC_MCP_MODE ?? "normal";
 

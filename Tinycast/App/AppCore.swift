@@ -59,6 +59,7 @@ final class AppCore {
     let mcp = MCPServerManager()
     let quickActionSettings = QuickActionSettingsStore()
     let customQuickActions = CustomQuickActionStore()
+    let rewriteHistory: RewriteHistoryStore
     let chatGPTSubscription = ChatGPTSubscriptionManager()
     let installedAI = InstalledAIManager()
 
@@ -182,7 +183,8 @@ final class AppCore {
     @ObservationIgnored private(set) lazy var supportCoordinator = SupportCoordinator(
         store: supportReminders, core: self)
     @ObservationIgnored private(set) lazy var quickActionCoordinator = QuickActionCoordinator(
-        settings: settings, store: quickActionSettings, customActions: customQuickActions,
+        settings: settings, store: quickActionSettings, history: rewriteHistory,
+        customActions: customQuickActions,
         injector: textInjector, appIndex: appIndex, hotKeys: hotKeys, favorites: favorites,
         visibility: visibility, ranking: launcherRanking, aliases: aliases,
         paletteCoordinator: paletteCoordinator, core: self)
@@ -213,6 +215,7 @@ final class AppCore {
         self.launcherRanking = launcherRanking
         self.settings = settings
         self.chatHistory = chatHistory
+        rewriteHistory = RewriteHistoryStore(directory: AppPaths.applicationSupport())
         supportReminders = SupportReminderStore(settings: settings)
         aiChat = AIChatState(history: chatHistory)
         appIndex = AppIndex(ranking: launcherRanking, aliases: aliases)
@@ -260,6 +263,7 @@ final class AppCore {
             }
             // Before `hotKeys.start` even when off: the prune reads it.
             customQuickActions.load()
+            rewriteHistory.load()
             quickActionCoordinator.applyEnabled()
             customCommands.onChange = { [weak self] _ in
                 self?.customCommandCoordinator.applyCustomCommandsPresence()
@@ -471,6 +475,7 @@ final class AppCore {
         windowLayoutCoordinator.prepareForTermination()
         inputSourceSwitcher.endSession()
         textInjector.prepareForTermination()
+        quickActionCoordinator.cancel()
         snippetListener.stop()
         snippetsStore.stop()
         aiChat.cancel()

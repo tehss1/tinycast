@@ -23,6 +23,31 @@ struct QuickActionsSettingsView: View {
                     SettingsRowTitle(.quickActionsQuickActions, "Enable Quick Actions")
                     Text("Act on selected text. Nothing is read until you press a shortcut.")
                 }
+                if appSettings.quickActionsEnabled {
+                    Toggle(isOn: outlookContextBinding) {
+                        SettingsRowTitle(.quickActionsQuickActions, "Use Outlook context for Composer")
+                        Text(
+                            "Include the recipients, subject, and two newest quoted messages when "
+                                + "Composer runs in Outlook.")
+                    }
+                    LabeledContent {
+                        VStack(alignment: .trailing, spacing: Theme.Spacing.xs) {
+                            TextField(
+                                "company.com, subsidiary.com",
+                                text: internalDomainsBinding)
+                                .multilineTextAlignment(.trailing)
+                            if !invalidInternalDomains.isEmpty {
+                                Text("Ignored: \(invalidInternalDomains.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.Colors.destructive)
+                            }
+                        }
+                    } label: {
+                        SettingsRowTitle(.quickActionsQuickActions, "Internal email domains")
+                        Text("Composer uses a more relaxed tone when every recipient matches.")
+                    }
+                    .settingsEnabled(store.settings.usesOutlookContextForRewrite)
+                }
                 if appSettings.quickActionsEnabled, !isTrusted {
                     // Every shortcut fails without it; better said here than found one press later.
                     SettingsRow(
@@ -218,6 +243,22 @@ struct QuickActionsSettingsView: View {
         Binding(
             get: { appSettings.quickActionsEnabled },
             set: { core.quickActionCoordinator.setEnabled($0) })
+    }
+
+    private var outlookContextBinding: Binding<Bool> {
+        Binding(
+            get: { store.settings.usesOutlookContextForRewrite },
+            set: { core.quickActionCoordinator.setOutlookContextEnabled($0) })
+    }
+
+    private var internalDomainsBinding: Binding<String> {
+        Binding(
+            get: { store.settings.internalEmailDomains },
+            set: { store.settings.internalEmailDomains = $0 })
+    }
+
+    private var invalidInternalDomains: [String] {
+        ComposerAudience.invalidDomains(in: store.settings.internalEmailDomains)
     }
 
     private func previewBinding(_ action: BuiltInQuickAction) -> Binding<Bool> {

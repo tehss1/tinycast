@@ -21,6 +21,7 @@ struct UpdatesTests {
         ordersVersions()
         roundTripsVersionsThroughJSON()
         derivesChannels()
+        resolvesReleaseRepositories()
         picksNewestForChannel()
         picksTheZipThisMacCanRun()
         rejectsUnusableFeeds()
@@ -122,6 +123,41 @@ struct UpdatesTests {
     }
 
     // MARK: - ReleaseFeed
+
+    static func resolvesReleaseRepositories() {
+        expect(
+            ReleaseFeed.repository(in: nil) == ReleaseFeed.defaultRepository,
+            "a build without an override uses the official release feed")
+        expect(
+            ReleaseFeed.repository(
+                in: [ReleaseFeed.repositoryInfoKey: "example-fork/tinycast"])
+                == "example-fork/tinycast",
+            "a custom release can stamp its own repository into the app")
+        expect(
+            ReleaseFeed.repository(
+                in: [ReleaseFeed.repositoryInfoKey: "  example-fork/tinycast  "])
+                == "example-fork/tinycast",
+            "surrounding whitespace is ignored")
+        expect(
+            ReleaseFeed.repository(
+                in: [ReleaseFeed.repositoryInfoKey: "https://example.invalid/releases"])
+                == ReleaseFeed.defaultRepository,
+            "a URL cannot escape the GitHub repository path")
+        expect(
+            ReleaseFeed.repository(
+                in: [ReleaseFeed.repositoryInfoKey: "owner/repo/extra"])
+                == ReleaseFeed.defaultRepository,
+            "only an owner and repository pair is accepted")
+        expect(
+            ReleaseFeed.repository(
+                in: [ReleaseFeed.repositoryInfoKey: "$(TINYCAST_UPDATE_REPOSITORY)"])
+                == ReleaseFeed.defaultRepository,
+            "an unresolved build setting falls back to the official feed")
+        expect(
+            ReleaseFeed.endpoint(for: "example-fork/tinycast").absoluteString
+                == "https://api.github.com/repos/example-fork/tinycast/releases?per_page=20",
+            "the selected repository owns the GitHub Releases endpoint")
+    }
 
     /// Shaped like GitHub's `/releases` payload, down to the snake-cased keys.
     static func feed(_ entries: String...) -> Data {

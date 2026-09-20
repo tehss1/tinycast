@@ -25,6 +25,8 @@ final class CodexTurnRunner {
     private var activeToken: TurnToken?
     private var activeThreadID: String?
     private var activeTurnID: String?
+    /// Completion events repeat the final text, which recovers any deltas the transport omitted.
+    private var activeAgentText: [String: String] = [:]
     /// A Stop that beat the turn's ID arms its thread; the first ID to name it spends the Stop.
     private var pendingInterruptThreadID: String?
 
@@ -67,6 +69,9 @@ final class CodexTurnRunner {
         switch method {
         case "item/agentMessage/delta":
             guard let delta = params["delta"]?.stringValue, !delta.isEmpty else { return }
+            if let itemID = params["itemId"]?.stringValue {
+                activeAgentText[itemID, default: ""] += delta
+            }
             activeContinuation?.yield(.text(delta))
         case "item/started":
             guard let item = params["item"]?.objectValue else { return }
@@ -76,9 +81,12 @@ final class CodexTurnRunner {
             default: break
             }
         case "item/completed":
-            guard let item = params["item"]?.objectValue, item["type"]?.stringValue == "webSearch"
-            else { return }
-            activeContinuation?.yield(.searched(item["query"]?.stringValue))
+            guard let item = params["item"]?.objectValue else { return }
+            switch item["type"]?.stringValue {
+            case "agentMessage": yieldMissingAgentText(from: item)
+            case "webSearch": activeContinuation?.yield(.searched(item["query"]?.stringValue))
+            default: break
+            }
         case "turn/started":
             // Captured eagerly so Stop can interrupt even when the turn/start response never lands.
             if let id = params["turn"]?.objectValue?["id"]?.stringValue { activeTurnID = id }
@@ -86,6 +94,12 @@ final class CodexTurnRunner {
             guard let turn = params["turn"]?.objectValue else { return }
             switch turn["status"]?.stringValue {
             case "completed":
+                for item in turn["items"]?.arrayValue ?? [] {
+                    guard let message = item.objectValue,
+                        message["type"]?.stringValue == "agentMessage"
+                    else { continue }
+                    yieldMissingAgentText(from: message)
+                }
                 activeContinuation?.yield(.finished)
                 activeContinuation?.finish()
             case "failed":
@@ -157,6 +171,7 @@ final class CodexTurnRunner {
                     "A newer request replaced this response."))
             activeContinuation = continuation
             activeToken = token
+            activeAgentText.removeAll(keepingCapacity: true)
             tookOwnership = true
 
             guard models.isEmpty || models.contains(where: { $0.id == model }) else {
@@ -292,6 +307,20 @@ final class CodexTurnRunner {
         }
     }
 
+    /// Notifications are ordered, so completed text can safely append only the unstreamed suffix.
+    private func yieldMissingAgentText(from item: [String: JSONValue]) {
+        guard let itemID = item["id"]?.stringValue,
+            let completed = item["text"]?.stringValue,
+            !completed.isEmpty
+        else { return }
+        let streamed = activeAgentText[itemID] ?? ""
+        guard completed.hasPrefix(streamed) else { return }
+        let missing = String(completed.dropFirst(streamed.count))
+        guard !missing.isEmpty else { return }
+        activeAgentText[itemID] = completed
+        activeContinuation?.yield(.text(missing))
+    }
+
     /// Finishing ends a stream the server abandoned; ending a live turn re-arms idle shutdown.
     private func clearActiveTurn() {
         let wasLive = activeContinuation != nil
@@ -301,6 +330,7 @@ final class CodexTurnRunner {
         activeToken = nil
         activeThreadID = nil
         activeTurnID = nil
+        activeAgentText.removeAll(keepingCapacity: false)
         if wasLive { onTurnEnded?() }
     }
 }

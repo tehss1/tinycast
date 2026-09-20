@@ -3,13 +3,18 @@ import AppKit
 /// Reads the selection and transforms it; replacing the text is the coordinator's call, not this.
 @MainActor
 final class QuickActionRunner {
+    enum Input: Equatable {
+        case selection(String)
+        case insertionPoint
+    }
+
     /// The ceiling lives here, not at the provider, where it returns as an opaque context error.
     static let maxSelectionBytes = 32_768
 
     /// A borrowed ⌘C synthesises a keystroke into somebody's app, so it is never the first try.
-    static func selection(
-        in targetApp: NSRunningApplication?, using injector: TextInjector
-    ) async throws -> String {
+    static func input(
+        for action: QuickAction, in targetApp: NSRunningApplication?, using injector: TextInjector
+    ) async throws -> Input {
         // A shortcut press is an explicit gesture, so it may prompt, as snippet expansion does.
         guard Permissions.ensureAccessibility() else { throw QuickActionFailure.needsAccessibility }
         guard let targetApp,
@@ -17,9 +22,14 @@ final class QuickActionRunner {
         else { throw QuickActionFailure.noTarget }
 
         let reported = AccessibilityText.read(in: targetApp)
-        if case .text(let text) = reported { return try accepted(text) }
+        if case .text(let text) = reported { return .selection(try accepted(text)) }
+        if action == .rewrite, reported == .empty,
+            AccessibilityText.hasInsertionPoint(in: targetApp)
+        {
+            return .insertionPoint
+        }
         if let copied = await injector.copySelection(from: targetApp) {
-            return try accepted(copied)
+            return .selection(try accepted(copied))
         }
         // Only when Accessibility saw a text element is "nothing is selected" the honest answer.
         throw reported == .empty
@@ -38,18 +48,56 @@ final class QuickActionRunner {
     /// No transcript to grow, so a caller showing progress reads `onDelta` and the rest just await.
     static func run(
         _ action: QuickAction, selection: String, using provider: any AIProvider,
-        instructionOverride: String?,
+        instructionOverride: String?, context: QuickActionContext? = nil,
+        selectionIsWritingInstruction: Bool = false, audience: ComposerAudience? = nil,
         onDelta: @MainActor (String) -> Void = { _ in }
     ) async throws -> String {
+        let instructions =
+            selectionIsWritingInstruction
+            ? QuickActionPrompt.compositionInstructions(
+                override: instructionOverride, audience: audience)
+            : QuickActionPrompt.instructions(
+                for: action, override: instructionOverride, audience: audience)
+        let message =
+            selectionIsWritingInstruction
+            ? QuickActionPrompt.compositionMessage(instruction: selection, context: context)
+            : QuickActionPrompt.message(for: action, selection: selection, context: context)
         let request = AIRequest(
-            instructions: QuickActionPrompt.instructions(
-                for: action, override: instructionOverride),
-            messages: [
-                AIMessage(
-                    role: .user,
-                    text: QuickActionPrompt.message(for: action, selection: selection))
-            ],
-            maxOutputTokens: maxOutputTokens(for: action, selection: selection))
+            instructions: instructions,
+            messages: [AIMessage(role: .user, text: message)],
+            maxOutputTokens: selectionIsWritingInstruction
+                ? max(maxOutputTokens(for: action, selection: selection), 512)
+                : maxOutputTokens(for: action, selection: selection))
+        return try await stream(request, using: provider, onDelta: onDelta)
+    }
+
+    static func refineRewrite(
+        original: String, latestDraft: String, messages: [AIMessage],
+        context: QuickActionContext?, using provider: any AIProvider,
+        instructionOverride: String?, originalIsWritingInstruction: Bool = false,
+        audience: ComposerAudience? = nil,
+        onDelta: @MainActor (String) -> Void = { _ in }
+    ) async throws -> String {
+        let originalMessage = AIMessage(
+            role: .user,
+            text: originalIsWritingInstruction
+                ? QuickActionPrompt.compositionMessage(instruction: original, context: context)
+                : QuickActionPrompt.message(
+                    for: .rewrite, selection: original, context: context))
+        let request = AIRequest(
+            instructions: QuickActionPrompt.refinementInstructions(
+                override: instructionOverride,
+                originalIsWritingInstruction: originalIsWritingInstruction,
+                audience: audience),
+            messages: [originalMessage] + messages,
+            maxOutputTokens: maxOutputTokens(for: .rewrite, selection: latestDraft))
+        return try await stream(request, using: provider, onDelta: onDelta)
+    }
+
+    private static func stream(
+        _ request: AIRequest, using provider: any AIProvider,
+        onDelta: @MainActor (String) -> Void
+    ) async throws -> String {
         var text = ""
         for try await event in provider.stream(request) {
             guard case .text(let delta) = event else { continue }

@@ -10,6 +10,7 @@ final class QuickActionPanel: NSPanel {
     }
 
     var onKey: ((Key) -> Void)?
+    var onAccessoryKey: ((NSEvent) -> Bool?)?
 
     init(content: NSView) {
         super.init(
@@ -40,6 +41,24 @@ final class QuickActionPanel: NSPanel {
             super.sendEvent(event)
             return
         }
+        if let handled = onAccessoryKey?(event) {
+            if !handled { super.sendEvent(event) }
+            return
+        }
+        if Int(event.keyCode) == kVK_Escape {
+            onKey(.cancel)
+            return
+        }
+        let isReturn = Int(event.keyCode) == kVK_Return
+            || Int(event.keyCode) == kVK_ANSI_KeypadEnter
+        if isReturn, event.modifierFlags.contains(.command) {
+            onKey(.replace)
+            return
+        }
+        if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
+            super.sendEvent(event)
+            return
+        }
         // ⌘C before the plain keys: the modifier is what separates Copy from anything else here.
         if event.modifierFlags.contains(.command) {
             guard Int(event.keyCode) == kVK_ANSI_C else {
@@ -49,14 +68,7 @@ final class QuickActionPanel: NSPanel {
             onKey(.copy)
             return
         }
-        switch Int(event.keyCode) {
-        case kVK_Escape:
-            onKey(.cancel)
-        case kVK_Return, kVK_ANSI_KeypadEnter:
-            onKey(.replace)
-        default:
-            super.sendEvent(event)
-        }
+        if isReturn { onKey(.replace) } else { super.sendEvent(event) }
     }
 
     override var canBecomeKey: Bool { true }

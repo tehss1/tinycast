@@ -11,7 +11,7 @@ enum BuiltInQuickAction: String, CaseIterable, Codable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .fixGrammar: return "Fix Grammar"
-        case .rewrite: return "Rewrite"
+        case .rewrite: return "Composer"
         case .translate: return "Translate"
         case .summarize: return "Summarize"
         }
@@ -29,7 +29,7 @@ enum BuiltInQuickAction: String, CaseIterable, Codable, Identifiable, Sendable {
     var progressTitle: String {
         switch self {
         case .fixGrammar: return "Fixing Grammar…"
-        case .rewrite: return "Rewriting…"
+        case .rewrite: return "Composing…"
         case .translate: return "Translating…"
         case .summarize: return "Summarizing…"
         }

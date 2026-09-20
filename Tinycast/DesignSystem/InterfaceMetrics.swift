@@ -106,10 +106,16 @@ struct InterfaceMetrics: Equatable, Sendable {
         var chatAttachmentInset: CGFloat { scaledPoints(Theme.Size.chatAttachmentInset, scale) }
 
         var quickActionPanel: CGFloat { scaledPoints(Theme.Size.quickActionPanel, scale) }
+        var quickActionHistorySidebar: CGFloat {
+            scaledPoints(Theme.Size.quickActionHistorySidebar, scale)
+        }
         var quickActionHeaderIcon: CGFloat { scaledPoints(Theme.Size.quickActionHeaderIcon, scale) }
         var quickActionScrollFade: CGFloat { scaledPoints(Theme.Size.quickActionScrollFade, scale) }
         var quickActionPanelBody: CGFloat { scaledPoints(Theme.Size.quickActionPanelBody, scale) }
         var quickActionPanelMinBody: CGFloat { scaledPoints(Theme.Size.quickActionPanelMinBody, scale) }
+        var quickActionRewriteMinBody: CGFloat {
+            scaledPoints(Theme.Size.quickActionRewriteMinBody, scale)
+        }
 
         var dialogCompactWidth: CGFloat { scaledPoints(Theme.Size.dialogCompactWidth, scale) }
         var dialogWidth: CGFloat { scaledPoints(Theme.Size.dialogWidth, scale) }

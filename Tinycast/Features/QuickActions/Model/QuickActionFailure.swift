@@ -12,9 +12,9 @@ enum QuickActionFailure: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .needsAccessibility:
-            return "Tinycast needs the Accessibility permission to read the selected text."
+            return "Tinycast needs Accessibility permission to read text in other apps."
         case .noTarget:
-            return "Select text in another app first."
+            return "Focus a text field in another app first."
         case .unreadableApp(let name):
             return "\(name) doesn't share its text with Tinycast."
         case .noSelection:

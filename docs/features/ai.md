@@ -315,7 +315,8 @@ and `MCPCoordinator` the twentieth.
   Codex framing, on-device routing), `ai-chat-test` (`ChatSession`, `MarkdownBlock`,
   `ChatHistoryStore`, `AIToolLoopProvider`),
   `codex-turn-test` (the Stop path, driven against a stub app-server stalled where Stop races the
-  turn ID, plus the no-config-mutation boundary), `installed-ai-test` (Claude/Grok/OpenCode/Cursor flags, prompt
+  turn ID, the no-config-mutation boundary and completed-message recovery), `installed-ai-test`
+  (Claude/Grok/OpenCode/Cursor flags, prompt
   framing, streaming and cleanup) and `apple-intelligence-test` (status copy, snapshot deltas,
   transcript assembly, error mapping, plus one real generation when this Mac can run one), all in
   `run-tests.sh`.
@@ -342,7 +343,9 @@ windows come from the supported app-server protocol.
 
 It creates an ephemeral thread for each request, injects prior user/assistant messages, and
 streams agent-message deltas, plus `item/started` for the reasoning and web-search items that feed the
-bubble's status line. System messages become developer instructions alongside Tinycast's fixed
+bubble's status line. The authoritative text repeated by `item/completed` and `turn/completed`
+backfills only an unstreamed suffix, so a dropped or coalesced delta cannot turn a valid answer into
+an empty response or duplicate text already shown. System messages become developer instructions alongside Tinycast's fixed
 no-tools boundary. Cancellation interrupts the active turn, including one the server has started but
 not yet named: Stop arms that thread, and whichever of `turn/started` or the `turn/start` response
 names the turn first spends a single `turn/interrupt` on it.

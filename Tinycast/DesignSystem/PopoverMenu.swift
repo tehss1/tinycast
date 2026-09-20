@@ -107,6 +107,7 @@ struct PopoverMenu: View {
     @Binding var selection: Int
     /// Fixed, never intrinsic: a width tracking the longest row would jitter as rows change.
     var width: CGFloat?
+    var maximumHeight: CGFloat?
     let onActivate: (Int) -> Void
     var attachment = Attachment.none
     let search: Search
@@ -273,7 +274,8 @@ struct PopoverMenu: View {
 
     /// Exact, because every row is one known height: no measuring pass, and no greedy scroll view.
     private var viewportHeight: CGFloat {
-        min(contentHeight, viewportCapacity)
+        min(contentHeight, viewportCapacity, maximumHeight.map { max(0, $0 - metrics.spacing.sm * 2) }
+            ?? viewportCapacity)
     }
 
     private var viewportCapacity: CGFloat { metrics.size.menuRowsMaxHeight + headerExtent }

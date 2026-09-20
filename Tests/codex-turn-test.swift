@@ -19,6 +19,8 @@ struct CodexTurnTests {
     static func main() async {
         await stopBeforeTurnStartedStillInterrupts()
         await aTurnNamedTwiceIsInterruptedOnce()
+        await completedMessageRecoversMissingDeltas()
+        await completedMessageAppendsOnlyMissingSuffix()
 
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
@@ -78,6 +80,32 @@ struct CodexTurnTests {
         _ = await server.awaitCondition(timeout: .milliseconds(400)) { server.interrupts > 1 }
         expect(server.interrupts == 1, "the turn's second name spends no second interrupt")
     }
+
+    /// A completed message is the authoritative fallback when no incremental events arrive.
+    static func completedMessageRecoversMissingDeltas() async {
+        guard let server = StubServer(mode: "completed-only") else {
+            expect(false, "the completed-message stub app-server installs")
+            return
+        }
+        defer { server.tearDown() }
+
+        let text = await server.collectTurn().value
+        expect(text == "Recovered response.",
+            "completed agent text recovers a response whose deltas were omitted")
+    }
+
+    /// Completion must fill a partial stream without repeating the prefix already shown.
+    static func completedMessageAppendsOnlyMissingSuffix() async {
+        guard let server = StubServer(mode: "partial-completed") else {
+            expect(false, "the partial-message stub app-server installs")
+            return
+        }
+        defer { server.tearDown() }
+
+        let text = await server.collectTurn().value
+        expect(text == "Recovered response.",
+            "completed agent text appends only a delta stream's missing suffix")
+    }
 }
 
 /// A real client against the stub server in `Tests/ai-fixtures/codex-stub.js`.
@@ -111,7 +139,8 @@ final class StubServer {
 
         let client = CodexAppServerClient(
             codexHome: root.appending(path: "home", directoryHint: .isDirectory),
-            workspace: root.appending(path: "work", directoryHint: .isDirectory))
+            workspace: root.appending(path: "work", directoryHint: .isDirectory),
+            executable: executable)
         let runner = CodexTurnRunner(client: client)
         runner.connect = {
             try await client.start()
@@ -135,6 +164,21 @@ final class StubServer {
             do {
                 for try await _ in stream {}
             } catch {}
+        }
+    }
+
+    func collectTurn() -> Task<String, Never> {
+        let stream = runner.stream(
+            AIRequest(messages: [AIMessage(role: .user, text: "Hello")]),
+            model: "gpt-5-codex", effort: nil)
+        return Task {
+            var text = ""
+            do {
+                for try await event in stream {
+                    if case .text(let delta) = event { text += delta }
+                }
+            } catch {}
+            return text
         }
     }
 

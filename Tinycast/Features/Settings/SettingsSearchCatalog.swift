@@ -302,10 +302,16 @@ enum SettingsSearchCatalog {
     private static let quickActions: [SettingsSearchEntry] = [
         .init(
             pane: .quickActions,
-            keywords: ["selected text", "rewrite", "translate", "summarize"]),
+            keywords: ["selected text", "composer", "rewrite", "translate", "summarize"]),
         .init(
             .quickActionsQuickActions, "Enable Quick Actions",
             keywords: ["selected text", "accessibility"]),
+        .init(
+            .quickActionsQuickActions, "Use Outlook context for Composer",
+            keywords: ["email", "recipient", "subject", "thread", "draft"]),
+        .init(
+            .quickActionsQuickActions, "Internal email domains",
+            keywords: ["audience", "tone", "coworker", "client", "vendor", "external"]),
         .init(
             group: .quickActionsActions, "Actions",
             keywords: ["shortcut", "replace", "preview", "customize"]),

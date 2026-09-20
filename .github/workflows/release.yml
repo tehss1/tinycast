@@ -94,6 +94,7 @@ jobs:
           DISPLAY_NAME: ${{ steps.meta.outputs.display_name }}
           BUNDLE_ID: ${{ steps.meta.outputs.bundle_id }}
           BUILD_NUMBER: ${{ github.run_number }}
+          UPDATE_REPOSITORY: ${{ github.repository }}
         run: |
           # ARCHS pinned to what this channel has always shipped: trusting ARCHS_STANDARD is what
           # let a thin arm64 build reach Intel users once already (compat/README.md).
@@ -103,6 +104,7 @@ jobs:
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Tinycast Self-Signed" \
             OTHER_CODE_SIGN_FLAGS="--timestamp=none" \
             PRODUCT_NAME="$DISPLAY_NAME" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            TINYCAST_UPDATE_REPOSITORY="$UPDATE_REPOSITORY" \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             build
 
@@ -185,6 +187,7 @@ jobs:
             $PRERELEASE_FLAG
 
       - name: Update Homebrew cask
+        if: github.repository == 'abue-ammar/tinycast'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           CASK: ${{ steps.meta.outputs.cask_name }}
@@ -219,7 +222,7 @@ jobs:
       # channel-tinted container, title + right-aligned Download button, changelog, Homebrew block.
       # No-ops with a warning if the webhook secret isn't set.
       - name: Announce on Discord
-        if: success()
+        if: success() && github.repository == 'abue-ammar/tinycast'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           CHANNEL: ${{ github.event.inputs.channel }}
@@ -278,6 +281,7 @@ jobs:
       DISPLAY_NAME: ${{ needs.build.outputs.display_name }}
       BUNDLE_ID: ${{ needs.build.outputs.bundle_id }}
       CASK: tinycast-universal
+      UPDATE_REPOSITORY: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v7
 
@@ -324,6 +328,7 @@ jobs:
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Tinycast Self-Signed" \
             OTHER_CODE_SIGN_FLAGS="--timestamp=none" \
             PRODUCT_NAME="$DISPLAY_NAME" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            TINYCAST_UPDATE_REPOSITORY="$UPDATE_REPOSITORY" \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             build
 
@@ -385,6 +390,7 @@ jobs:
             "dist/Tinycast-Universal-${VERSION}.zip"
 
       - name: Update Homebrew cask
+        if: github.repository == 'abue-ammar/tinycast'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |

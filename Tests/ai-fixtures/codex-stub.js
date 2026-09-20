@@ -8,8 +8,8 @@
 // `TC_STUB_ROOT` is the scratch directory the harness and this process signal through;
 // `TC_STUB_MODE` picks which half of the turn ID to withhold.
 
-import fs from "node:fs";
-import path from "node:path";
+const fs = require("node:fs");
+const path = require("node:path");
 
 const ROOT = process.env.TC_STUB_ROOT;
 const MODE = process.env.TC_STUB_MODE ?? "hold-turn";
@@ -69,6 +69,36 @@ for (const line of lines()) {
     } else if (method === "turn/start") {
         record(`turn-params:${JSON.stringify(message.params ?? {})}`);
         mark("turn-start-received");
+        if (MODE === "completed-only" || MODE === "partial-completed") {
+            const item = {
+                type: "agentMessage",
+                id: "message-1",
+                text: "Recovered response.",
+                phase: "final_answer",
+            };
+            emit({ id: requestID, result: { turn: { id: TURN } } });
+            emit({ method: "turn/started", params: { threadId: THREAD, turn: { id: TURN } } });
+            if (MODE === "partial-completed") {
+                emit({
+                    method: "item/agentMessage/delta",
+                    params: {
+                        threadId: THREAD,
+                        turnId: TURN,
+                        itemId: item.id,
+                        delta: "Recovered ",
+                    },
+                });
+            }
+            emit({ method: "item/completed", params: { threadId: THREAD, turnId: TURN, item } });
+            emit({
+                method: "turn/completed",
+                params: {
+                    threadId: THREAD,
+                    turn: { id: TURN, status: "completed", items: [item] },
+                },
+            });
+            continue;
+        }
         awaitMark("stop-landed");
         emit({ method: "turn/started", params: { threadId: THREAD, turn: { id: TURN } } });
         // `hold-turn` never answers the request: the interrupt has to come from the notification

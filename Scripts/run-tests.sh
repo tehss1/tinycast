@@ -525,6 +525,22 @@ run quick-action-test      Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/AI/Model/InstalledAI.swift \
                            Tinycast/Features/QuickActions/Model/*.swift \
                            Tinycast/Features/QuickActions/Settings/QuickActionSettingsStore.swift
+run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \
+                           Tinycast/Features/AI/Model/AITool.swift \
+                           Tinycast/Features/AI/Model/AIRequest.swift \
+                           Tinycast/Features/QuickActions/Model/BuiltInQuickAction.swift \
+                           Tinycast/Features/QuickActions/Model/QuickAction.swift \
+                           Tinycast/Features/QuickActions/Model/CustomQuickAction.swift \
+                           Tinycast/Features/QuickActions/Model/ComposerAudience.swift \
+                           Tinycast/Features/QuickActions/Model/QuickActionContext.swift \
+                           Tinycast/Features/QuickActions/Model/ComposerDraftAnchor.swift \
+                           Tinycast/Features/QuickActions/Model/ComposerPanelPlacement.swift \
+                           Tinycast/Features/QuickActions/Model/QuickActionPrompt.swift \
+                           Tinycast/Features/QuickActions/Model/RewriteConversationMessage.swift \
+                           Tinycast/Features/QuickActions/Model/RewriteHistoryRecord.swift \
+                           Tinycast/Features/QuickActions/Model/RewriteHistoryStore.swift \
+                           Tinycast/Features/QuickActions/Model/TextDiffEngine.swift \
+                           Tinycast/Features/QuickActions/UI/QuickActionPanelState.swift
 run apple-intelligence-test Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/AI/Model/*.swift \
                            Tinycast/Features/AI/Service/AIProvider.swift \

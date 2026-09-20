@@ -141,6 +141,10 @@ enum SettingsBackupCoverage {
         AppSettingsKey.quickActionInstructions.rawValue:
             "Custom model instructions change transformed results and must not move unseen.",
         AppSettingsKey.quickActionLanguage.rawValue:
-            "Follows the language the person at this Mac reads, not the one who wrote the backup."
+            "Follows the language the person at this Mac reads, not the one who wrote the backup.",
+        AppSettingsKey.quickActionOutlookContext.rawValue:
+            "Expands Composer beyond selected text to nearby email context, so each Mac must opt in.",
+        AppSettingsKey.quickActionInternalDomains.rawValue:
+            "Organization-specific domains change Composer's audience classification and tone."
     ]
 }

@@ -4,8 +4,6 @@ import Foundation
 @MainActor
 @Observable
 final class UpdateCheckStore {
-    private nonisolated static let endpoint = URL(
-        string: "https://api.github.com/repos/\(ReleaseFeed.repository)/releases?per_page=20")!
     /// Daily, measured from `lastCheckedAt`, so relaunching never re-asks GitHub.
     private static let refreshInterval: TimeInterval = 24 * 3600
     /// Shorter retry, so a machine offline at launch sees a release soon after it reconnects.
@@ -28,19 +26,24 @@ final class UpdateCheckStore {
     @ObservationIgnored var onUpdateAvailable: (@MainActor (AvailableRelease) -> Bool)?
 
     private let fileURL: URL
+    private let repository: String
+    private let endpoint: URL
     private var skippedVersion: AppVersion?
     /// At most one uninvited appearance per version per launch.
     @ObservationIgnored private var announcedVersion: AppVersion?
     @ObservationIgnored private var withheldRetries = 0
     @ObservationIgnored private var pump: Task<Void, Never>?
 
-    init() {
+    init(repository: String = ReleaseFeed.repository) {
+        self.repository = repository
+        endpoint = ReleaseFeed.endpoint(for: repository)
         channel = ReleaseChannel(bundleID: Bundle.main.bundleIdentifier)
         runningVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
             .flatMap(AppVersion.init)
         fileURL = AppPaths.caches().appendingPathComponent("update-check.json")
         guard let data = try? Data(contentsOf: fileURL),
-            let cache = try? JSONDecoder().decode(Cache.self, from: data)
+            let cache = try? JSONDecoder().decode(Cache.self, from: data),
+            cache.repository == repository
         else { return }
         latest = cache.latest
         lastCheckedAt = cache.lastCheckedAt
@@ -81,7 +84,7 @@ final class UpdateCheckStore {
         guard channel.updatesItself, !isChecking else { return false }
         isChecking = true
         defer { isChecking = false }
-        guard let data = await Self.body() else { return false }
+        guard let data = await Self.body(from: endpoint) else { return false }
         latest = ReleaseFeed.newest(from: data, channel: channel, architecture: .current)
         lastCheckedAt = Date()
         persist()
@@ -122,12 +125,14 @@ final class UpdateCheckStore {
 
     private func persist() {
         let cache = Cache(
-            lastCheckedAt: lastCheckedAt, latest: latest, skippedVersion: skippedVersion)
+            repository: repository, lastCheckedAt: lastCheckedAt, latest: latest,
+            skippedVersion: skippedVersion)
         guard let data = try? JSONEncoder().encode(cache) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
     private struct Cache: Codable {
+        var repository: String?
         var lastCheckedAt: Date?
         var latest: AvailableRelease?
         var skippedVersion: AppVersion?
@@ -140,7 +145,7 @@ final class UpdateCheckStore {
         return URLSession(configuration: config)
     }()
 
-    private nonisolated static func body() async -> Data? {
+    private nonisolated static func body(from endpoint: URL) async -> Data? {
         var request = URLRequest(url: endpoint, timeoutInterval: 20)
         // GitHub rejects an API request carrying no User-Agent outright.
         request.setValue("Tinycast", forHTTPHeaderField: "User-Agent")

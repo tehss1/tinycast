@@ -1733,7 +1733,7 @@
     {
       "key": "command:rewrite",
       "kind": "command",
-      "name": "Rewrite",
+      "name": "Composer",
       "strongNames": [],
       "translations": [],
       "ownerName": null,

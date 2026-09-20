@@ -52,6 +52,26 @@ enum AccessibilityText {
         return text
     }
 
+    /// A zero-length range proves this is an insertion point, not merely an empty control.
+    static func hasInsertionPoint(in app: NSRunningApplication) -> Bool {
+        guard let element = focusedElement(in: app) else { return false }
+        var value: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(
+                element,
+                kAXSelectedTextRangeAttribute as CFString,
+                &value) == .success,
+            let value,
+            CFGetTypeID(value) == AXValueGetTypeID()
+        else { return false }
+
+        // swiftlint:disable:next force_cast
+        let rangeValue = value as! AXValue
+        guard AXValueGetType(rangeValue) == .cfRange else { return false }
+        var range = CFRange()
+        return AXValueGetValue(rangeValue, .cfRange, &range) && range.length == 0
+    }
+
     /// Chromium builds its tree only once asked, so Chrome and Electron answer nothing until this.
     private static func activateManualAccessibility(of application: AXUIElement) {
         AXUIElementSetAttributeValue(

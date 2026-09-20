@@ -12,8 +12,30 @@ struct AvailableRelease: Codable, Hashable, Sendable {
 
 /// Nothing throws: an unusable body means nothing to install, and the pump retries.
 enum ReleaseFeed {
+    /// Where official builds come from when no release feed is stamped into the app.
+    static let defaultRepository = "abue-ammar/tinycast"
+    static let repositoryInfoKey = "TinycastUpdateRepository"
+
     /// Where releases come from, and what every `@handle` and `#304` in their notes points at.
-    static let repository = "abue-ammar/tinycast"
+    /// Fork release workflows stamp their own repository into Info.plist at build time.
+    static var repository: String { repository(in: Bundle.main.infoDictionary) }
+
+    static func repository(in info: [String: Any]?) -> String {
+        guard let raw = info?[repositoryInfoKey] as? String else { return defaultRepository }
+        let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = candidate.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }),
+            candidate.unicodeScalars.allSatisfy({ repositoryCharacters.contains($0) })
+        else { return defaultRepository }
+        return candidate
+    }
+
+    static func endpoint(for repository: String) -> URL {
+        URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=20")!
+    }
+
+    private static let repositoryCharacters = CharacterSet.alphanumerics.union(
+        CharacterSet(charactersIn: "-._/"))
 
     /// The only artifact with an x86_64 slice, so the only one an Intel Mac can install.
     private static let universalMarker = "-Universal-"
