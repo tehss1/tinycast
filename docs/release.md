@@ -37,8 +37,9 @@ Three things a release must keep true, or the updater skips it:
 
 - **It carries a `.zip` asset this Mac can run.** A DMG-only release is not installable and is not
   offered, and an Intel build is offered nothing rather than a thin arm64 zip.
-- **The tag parses as `vMAJOR.MINOR.PATCH` or `vMAJOR.MINOR.PATCH-beta.N`,** and agrees with the
-  `prerelease` flag. A tag of any other shape is treated as mis-published and skipped.
+- **The tag parses as `vMAJOR.MINOR.PATCH`, `vMAJOR.MINOR.PATCH-beta.N`, or
+  `vMAJOR.MINOR.PATCH-composer.N`,** and agrees with the `prerelease` flag. Composer versions are
+  stable customized releases. A tag of any other shape is treated as mis-published and skipped.
 - **It is not a draft.**
 
 **Both casks declare `auto_updates true`.** That is Homebrew's flag for an app that manages its own
@@ -81,10 +82,12 @@ The in-app updater then reads releases from the repository that built the app. T
 still stamps `abue-ammar/tinycast`, while a fork stamps its own `owner/repository` value. Both paths
 retain the existing bundle, version, architecture, and signature checks.
 
-Publish a stable fork release with the same version as the official release it includes. Before the
-first release, add `SIGNING_P12_BASE64` and `SIGNING_P12_PASSWORD` as repository secrets using the
-certificate that signed the installed custom app. A different certificate makes the installed app
-reject the download. Do not relax `BundleSignature` to work around a mismatch.
+Publish a stable fork release using the base version of the official release it includes. The fork
+adds `-composer.<Actions run number>` automatically, so its tag never collides with the official tag
+and every rebuild is newer than the previous customized build. Before the first release, add
+`SIGNING_P12_BASE64` and `SIGNING_P12_PASSWORD` as repository secrets using the certificate that
+signed the installed custom app. A different certificate makes the installed app reject the
+download. Do not relax `BundleSignature` to work around a mismatch.
 
 The fork does not update the official Homebrew tap or send official Discord announcements. Install
 the first customized release manually. Later customized releases arrive through Check for Updates.

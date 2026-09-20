@@ -110,7 +110,8 @@ struct PopoverMenu: View {
     var maximumHeight: CGFloat?
     let onActivate: (Int) -> Void
     var attachment = Attachment.none
-    let search: Search
+    /// Compact action menus omit filtering; palette menus opt in with a search model.
+    var search: Search? = nil
 
     /// The palette arms this only once the pointer has moved of its own accord.
     @Environment(PaletteState.self) private var palette
@@ -131,12 +132,12 @@ struct PopoverMenu: View {
 
     private var surfaceContent: some View {
         VStack(spacing: 0) {
-            if search.placement == .top {
+            if search?.placement == .top {
                 searchField
                 searchSeparator
             }
             menuContent
-            if search.placement == .bottom {
+            if search?.placement == .bottom {
                 searchSeparator
                 searchField
             }
@@ -165,7 +166,7 @@ struct PopoverMenu: View {
 
     private var searchField: some View {
         @Bindable var palette = palette
-        let placeholder = search.placeholder
+        let placeholder = search?.placeholder ?? "Search"
         return TextField("", text: $palette.menuQuery)
             .textFieldStyle(.plain)
             .font(metrics.typography.menuRow)
@@ -185,7 +186,7 @@ struct PopoverMenu: View {
             }
             .padding(.horizontal, metrics.spacing.xl + metrics.spacing.sm)
             .frame(height: metrics.size.menuRowHeight)
-            .offset(y: search.placement == .bottom ? -metrics.spacing.xxs / 2 : 0)
+            .offset(y: search?.placement == .bottom ? -metrics.spacing.xxs / 2 : 0)
             .padding(.vertical, metrics.spacing.xxs / 2)
             .accessibilityLabel(placeholder)
             .onAppear { searchFocused = true }

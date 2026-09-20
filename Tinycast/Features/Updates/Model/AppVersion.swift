@@ -1,12 +1,15 @@
 import Foundation
 
-/// A released version: `MAJOR.MINOR.PATCH`, optionally `-beta.N`, ordered by semver precedence.
+/// A released version: `MAJOR.MINOR.PATCH`, optionally `-beta.N` or `-composer.N`.
+/// Composer builds are stable customized releases and sort above their matching official release.
 struct AppVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
     let major: Int
     let minor: Int
     let patch: Int
     /// Nil on a stable release, which outranks every prerelease of the same triple.
     let beta: Int?
+    /// A stable customized build. It is not a GitHub prerelease.
+    let composer: Int?
 
     init?(_ text: String) {
         var body = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -22,13 +25,22 @@ struct AppVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
         else { return nil }
 
         if halves.count == 2 {
-            // `beta` is the only prerelease channel that ships, so anything else is unreadable.
             let suffix = halves[1].split(separator: ".", omittingEmptySubsequences: false)
-            guard suffix.count == 2, suffix[0] == "beta", let count = Self.number(suffix[1])
+            guard suffix.count == 2, let count = Self.number(suffix[1])
             else { return nil }
-            beta = count
+            switch suffix[0] {
+            case "beta":
+                beta = count
+                composer = nil
+            case "composer":
+                beta = nil
+                composer = count
+            default:
+                return nil
+            }
         } else {
             beta = nil
+            composer = nil
         }
         self.major = major
         self.minor = minor
@@ -39,20 +51,28 @@ struct AppVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
 
     var description: String {
         let triple = "\(major).\(minor).\(patch)"
-        return beta.map { "\(triple)-beta.\($0)" } ?? triple
+        if let beta { return "\(triple)-beta.\(beta)" }
+        if let composer { return "\(triple)-composer.\(composer)" }
+        return triple
     }
 
     static func < (lhs: Self, rhs: Self) -> Bool {
         if lhs.major != rhs.major { return lhs.major < rhs.major }
         if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
         if lhs.patch != rhs.patch { return lhs.patch < rhs.patch }
-        switch (lhs.beta, rhs.beta) {
-        case (nil, nil): return false
-        // A prerelease leads to its release, so it sorts below one and never above it.
-        case (.some, nil): return true
-        case (nil, .some): return false
-        case (.some(let left), .some(let right)): return left < right
-        }
+        let leftRank = lhs.variantRank
+        let rightRank = rhs.variantRank
+        if leftRank != rightRank { return leftRank < rightRank }
+        if let left = lhs.beta, let right = rhs.beta { return left < right }
+        if let left = lhs.composer, let right = rhs.composer { return left < right }
+        return false
+    }
+
+    /// beta < official stable < customized stable for one matching base version.
+    private var variantRank: Int {
+        if beta != nil { return 0 }
+        if composer != nil { return 2 }
+        return 1
     }
 
     /// Rejects a signed or padded field, which `Int` would silently reinterpret.

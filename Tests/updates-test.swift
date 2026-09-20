@@ -44,8 +44,15 @@ struct UpdatesTests {
         expect(AppVersion(" 0.2.1 ")?.description == "0.2.1", "tolerates surrounding whitespace")
         expect(AppVersion("0.2.0-beta.42")?.beta == 42, "reads the beta counter")
         expect(AppVersion("0.2.0-beta.42")?.description == "0.2.0-beta.42", "round-trips a beta")
+        expect(AppVersion("0.2.1-composer.7")?.composer == 7, "reads a Composer counter")
+        expect(
+            AppVersion("v0.2.1-composer.7")?.description == "0.2.1-composer.7",
+            "round-trips a customized stable version")
         expect(AppVersion("0.2.1")?.isPrerelease == false, "a plain triple is not a prerelease")
         expect(AppVersion("0.2.0-beta.1")?.isPrerelease == true, "a beta is a prerelease")
+        expect(
+            AppVersion("0.2.1-composer.1")?.isPrerelease == false,
+            "a customized stable build is not a prerelease")
 
         expect(AppVersion("0.2") == nil, "rejects a two-part version")
         expect(AppVersion("0.2.1.3") == nil, "rejects a four-part version")
@@ -70,6 +77,12 @@ struct UpdatesTests {
         expect(version("2.0.0") > version("1.99.99"), "major outranks everything below it")
         expect(version("0.2.1") > version("0.2.0"), "patch breaks a tie")
         expect(version("1.0.0") > version("1.0.0-beta.5"), "a release outranks its own prerelease")
+        expect(
+            version("1.0.0-composer.1") > version("1.0.0"),
+            "a customized stable build outranks its official base")
+        expect(
+            version("1.0.0-composer.12") > version("1.0.0-composer.9"),
+            "Composer counters compare numerically")
         expect(
             version("0.2.0-beta.10") > version("0.2.0-beta.9"),
             "beta counters compare numerically, not lexically")
