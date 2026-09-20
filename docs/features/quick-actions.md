@@ -69,7 +69,11 @@ provider protocol and the connections behind it.
   panel entry is a writing request to follow. In both modes, the model returns only the finished body
   text. Composer appends that body-only rule after any custom style prompt. `QuickActionOutput` also
   removes a leading `Subject:` line before the panel, history, copy or delivery can use the draft.
-  The caret-first instruction still identifies the panel entry as the request.
+  Composer also appends a natural-voice rule that forbids em dashes, stock AI phrasing, inflated
+  formality, filler and invented warmth. A narrow output guard removes any em dash or familiar AI
+  boilerplate that a provider returns despite those instructions, without paraphrasing names,
+  technical details or the substantive message. The caret-first instruction still identifies the
+  panel entry as the request.
 - **Outlook context is narrow and separately consented.** The optional Composer toggle reads the
   current compose window only after the reader runs Composer in Outlook. It adds the To, Cc and Bcc
   recipients, subject and at most the two newest quoted messages to the request, skips the draft signature and
@@ -105,9 +109,10 @@ provider protocol and the connections behind it.
   The sidebar can display and copy an older draft, but only the active Composer conversation
   can refine or replace the current target. Right-clicking a sidebar row opens its Delete
   Conversation action. Deleting the active conversation also closes its panel.
-- **A custom prompt cannot drop that boundary.** An override on a shipped action may replace
+- **A custom prompt cannot drop those boundaries.** An override on a shipped action may replace
   `boundary`, because the sheet shows the whole prompt. Composer keeps its body-only output rule after
-  an override. A custom action *is* the prompt, so `boundary` is prepended and no control removes it.
+  an override, along with its natural-voice and no-em-dash rules. A custom action *is* the prompt, so
+  `boundary` is prepended and no control removes it.
 - **Each model action owns its instructions and its route.** The pencil on Fix Grammar, Composer and
   Summarize opens a sheet prefilled with the exact built-in prompt and the action's model. Saving
   replaces both for only that action; Use Default restores the prompt. Translate has no editor because no model handles translation. The same

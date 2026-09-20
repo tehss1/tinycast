@@ -274,6 +274,12 @@ struct QuickActionTests {
             QuickActionPrompt.instructions(for: BuiltInQuickAction.rewrite, override: "My instructions")
                 .hasPrefix("My instructions\n\nReturn only email body text."),
             "an override replaces the writing style but keeps Composer's body boundary")
+        let customComposerPrompt = QuickActionPrompt.instructions(
+            for: BuiltInQuickAction.rewrite, override: "Use my instructions.")
+        expect(
+            customComposerPrompt.contains("Never use an em dash")
+                && customComposerPrompt.contains("Avoid stock AI wording"),
+            "a custom style cannot remove Composer's natural-voice guard")
         expect(
             QuickActionPrompt.instructions(for: BuiltInQuickAction.rewrite, override: "")
                 .contains("Never include a subject line"),
@@ -501,6 +507,21 @@ struct QuickActionTests {
             QuickActionOutput.composerBody(in: "Regarding the subject: please call today.")
                 == "Regarding the subject: please call today.",
             "Composer preserves body text that merely mentions a subject")
+        expect(
+            QuickActionOutput.composerBody(
+                in: "This is all set—we assigned the Copilot license to Janna.")
+                == "This is all set. We assigned the Copilot license to Janna.",
+            "Composer removes an em dash even when the provider ignores its instructions")
+        expect(
+            QuickActionOutput.composerBody(
+                in: "I hope this message finds you well.\n\nThe license is assigned.")
+                == "The license is assigned.",
+            "Composer removes a stock AI opener without changing the substantive message")
+        expect(
+            QuickActionOutput.composerBody(
+                in: "Please do not hesitate to reach out if you have any questions.")
+                == "Let me know if you have any questions.",
+            "Composer replaces an obvious AI closing with direct language")
 
         let oneLine = """
             You can pass this to MJ directly. There is little else we can try. Let me know if needed.

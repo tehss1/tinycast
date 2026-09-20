@@ -72,10 +72,21 @@ enum QuickActionPrompt {
         "Subject:" because Tinycast inserts the result into the existing email body.
         """
 
+    private static let composerNaturalVoiceBoundary = """
+        Write like a real person at work: concise, direct and natural. Never use an em dash (—); \
+        use a period, comma, colon or parentheses instead. Avoid stock AI wording, inflated \
+        formality, filler, repetitive summaries, unnecessary headings and manufactured enthusiasm. \
+        Do not open with phrases such as "I hope this email finds you well" or "I trust this \
+        message finds you well." Prefer ordinary words and natural contractions when appropriate. \
+        Do not invent rapport, gratitude or urgency that the user did not request or the email \
+        context does not support.
+        """
+
     private static func composerInstructions(
         style: String, audience: ComposerAudience?
     ) -> String {
-        [style, audience?.instructions, composerBodyBoundary].compactMap(\.self)
+        [style, audience?.instructions, composerBodyBoundary, composerNaturalVoiceBoundary]
+            .compactMap(\.self)
             .joined(separator: "\n\n")
     }
 
@@ -166,17 +177,59 @@ enum QuickActionOutput {
     /// Composer inserts into an existing body, so a model-generated subject has nowhere valid to go.
     static func composerBody(in text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let colon = trimmed.firstIndex(of: ":") else { return text }
+        guard let colon = trimmed.firstIndex(of: ":") else {
+            return guardedNaturalVoice(in: text)
+        }
         let lineBreak = trimmed.firstIndex(where: \.isNewline)
-        if let lineBreak, colon >= lineBreak { return text }
+        if let lineBreak, colon >= lineBreak { return guardedNaturalVoice(in: text) }
 
         let markers = CharacterSet.whitespacesAndNewlines
             .union(CharacterSet(charactersIn: "#*_"))
         let label = String(trimmed[..<colon]).trimmingCharacters(in: markers).lowercased()
-        guard label == "subject" || label == "subject line" else { return text }
+        guard label == "subject" || label == "subject line" else {
+            return guardedNaturalVoice(in: text)
+        }
         guard let lineBreak else { return "" }
-        return String(trimmed[trimmed.index(after: lineBreak)...])
+        let body = String(trimmed[trimmed.index(after: lineBreak)...])
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        return guardedNaturalVoice(in: body)
+    }
+
+    /// Prompt rules are the first line of defense. These narrow repairs also protect pasted output
+    /// when a provider ignores them, without paraphrasing technical details or changing names.
+    private static func guardedNaturalVoice(in text: String) -> String {
+        var result = text
+        let clauseStarters = [
+            ("i", "I"), ("we", "We"), ("you", "You"), ("he", "He"), ("she", "She"),
+            ("they", "They"), ("it", "It"), ("this", "This"), ("that", "That"),
+            ("these", "These"), ("those", "Those"), ("there", "There"),
+        ]
+        for (word, capitalized) in clauseStarters {
+            result = result.replacingOccurrences(
+                of: "[ \\t]*—[ \\t]*(?i:\\b\(word)\\b)", with: ". \(capitalized)",
+                options: .regularExpression)
+        }
+        result = result.replacingOccurrences(
+            of: "[ \\t]*—[ \\t]*", with: ", ", options: .regularExpression)
+
+        let openers = [
+            "I hope this email finds you well.",
+            "I hope this message finds you well.",
+            "I trust this email finds you well.",
+            "I trust this message finds you well.",
+        ]
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let opener = openers.first(where: {
+            trimmed.lowercased().hasPrefix($0.lowercased())
+        }) {
+            result = String(trimmed.dropFirst(opener.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        result = result.replacingOccurrences(
+            of: "Please do not hesitate to reach out if you have any questions.",
+            with: "Let me know if you have any questions.", options: .caseInsensitive)
+        return result
     }
 
     static func preparedForDelivery(
