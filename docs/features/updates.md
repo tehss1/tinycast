@@ -73,10 +73,11 @@ release feed the website already reads is the feed the app reads.
 | `com.tinycast.app.beta` | `.beta` | prereleases |
 | anything else | `.development` | nothing |
 
-`AppVersion` parses `MAJOR.MINOR.PATCH` and `MAJOR.MINOR.PATCH-beta.N` with semver precedence: a
-prerelease sorts below the release it leads to, and `beta.10` above `beta.9`. Everything else parses
-to nil, so an off-shape tag can never be offered as an update. A release whose tag disagrees with
-its `prerelease` flag is treated as mis-published and skipped.
+`AppVersion` parses `MAJOR.MINOR.PATCH`, `MAJOR.MINOR.PATCH-beta.N`, and customized stable
+`MAJOR.MINOR.PATCH-composer.N` versions. Ordering is beta, official stable, then Composer for one
+matching base version; counters compare numerically. Everything else parses to nil, so an off-shape
+tag can never be offered as an update. A release whose tag disagrees with its `prerelease` flag is
+treated as mis-published and skipped.
 
 The Intel build is *not* a channel. It shares the stable tag, version, bundle id and signature, so it
 resolves to `.stable` like any other; `ReleaseArchitecture` picks its asset, and nothing about

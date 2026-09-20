@@ -50,10 +50,10 @@ Removing that line would reintroduce exactly those three problems. See
 
 ## Pull request review
 
-There is no CI workflow. CodeRabbit reviews every PR against `.coderabbit.yaml`: it runs SwiftLint
-with `.swiftlint.yml`, annotates the diff and applies the pre-merge checks. It is a reviewer, not a
-gate — it neither runs the harnesses nor builds the app, so the whole bar in
-[testing.md](testing.md#definition-of-done) is run locally before a PR is opened.
+`.github/workflows/verify.yml` runs the complete harness suite on pull requests and pushes to `main`.
+CodeRabbit also reviews every PR against `.coderabbit.yaml`: it runs SwiftLint with
+`.swiftlint.yml`, annotates the diff, and applies the pre-merge checks. CI is a backstop, so run the
+whole bar in [testing.md](testing.md#definition-of-done) locally before opening a PR.
 
 ## Releasing
 
@@ -62,8 +62,8 @@ needed. Run it from the **Actions** tab (`Release` → **Run workflow**) and pic
 
 - **channel** — `beta` or `stable`. Each builds a distinct app (`Tinycast Beta.app` / `Tinycast.app`)
   with its own bundle id, alongside the local `Tinycast Dev.app`. Beta gets an auto-incrementing
-  `-beta.N` suffix (`N` = the Actions run number) so re-running never collides; stable ships the
-  version as-is.
+  `-beta.N` suffix (`N` = the Actions run number) so re-running never collides. Official stable
+  releases ship the version as-is; fork stable releases add the Composer suffix described below.
 - **version** — base semver, e.g. `0.2.0`.
 
 It builds on a `macos-26` runner with Xcode 26 and publishes a GitHub Release tagged
