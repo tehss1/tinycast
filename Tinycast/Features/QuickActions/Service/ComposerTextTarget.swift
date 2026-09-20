@@ -21,7 +21,8 @@ final class ComposerTextTarget {
         self.editor = editor
         self.body = body
         self.selectedRange = selectedRange
-        replacementRange = selectedRange
+        replacementRange = ComposerDraftAnchor.deliveryRange(
+            in: body, selectedRange: selectedRange)
     }
 
     func restore(_ record: RewriteHistoryRecord) {

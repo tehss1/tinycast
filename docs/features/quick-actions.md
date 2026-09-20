@@ -331,11 +331,12 @@ now settles either way, so a delivery that returned early reports failure exactl
 put the generated text on the clipboard and raise a HUD rather than dropping it. Snippets pass no
 failure handler, so automatic expansion stays silent as before.
 
-An Outlook Composer draft that ends with `Best,` is delivered with two trailing line breaks. Outlook's
-existing signature starts after the resulting blank line. Other sign-offs, apps and Quick Actions keep
-the provider's output unchanged. Outlook delivery also separates a one-line, multi-sentence Composer
-draft into short paragraphs. Existing line breaks and lists remain unchanged. Composer strips a leading
-model-generated subject line before any app receives the draft.
+An Outlook Composer **Insert** consumes the empty paragraph Outlook leaves before its signature and
+puts back one line break, so the sign-off sits directly above the signature. A selected-text Replace
+that ends with `Best,` retains its two-line signature separation. Other sign-offs, apps and Quick
+Actions keep the provider's output unchanged. Outlook delivery also separates a one-line,
+multi-sentence Composer draft into short paragraphs. Existing line breaks and lists remain unchanged.
+Composer strips a leading model-generated subject line before any app receives the draft.
 
 With Outlook context enabled, `ComposerTextTarget` verifies the captured editor and body inside the
 delivery queue, after activation. It selects the captured draft range and verifies that Outlook

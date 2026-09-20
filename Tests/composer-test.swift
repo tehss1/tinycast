@@ -64,6 +64,22 @@ struct ComposerTests {
             "boundary fingerprints survive a relaunch")
         expect(String(data: encoded, encoding: .utf8)?.contains("Customer") == false,
             "anchors do not persist quoted email content")
+
+        expect(
+            ComposerDraftAnchor.deliveryRange(
+                in: "\n\nSignature", selectedRange: NSRange(location: 0, length: 0))
+                == NSRange(location: 0, length: 2),
+            "Insert consumes Outlook's empty signature paragraph")
+        expect(
+            ComposerDraftAnchor.deliveryRange(
+                in: "\nSignature", selectedRange: NSRange(location: 0, length: 0))
+                == NSRange(location: 0, length: 1),
+            "Insert also normalizes a single existing signature boundary")
+        expect(
+            ComposerDraftAnchor.deliveryRange(
+                in: "Draft\n\nSignature", selectedRange: NSRange(location: 5, length: 0))
+                == NSRange(location: 5, length: 0),
+            "a caret inside an existing draft does not consume its paragraph breaks")
     }
 
     static func makeState(caret: Bool = true) -> QuickActionPanelState {

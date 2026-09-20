@@ -469,6 +469,15 @@ struct QuickActionTests {
             "delivery normalizes a trailing line break instead of adding uneven spacing")
         expect(
             QuickActionOutput.preparedForDelivery(
+                "Please take a look.\n\nThanks,\n\n", action: .rewrite, toOutlook: true,
+                insertsAtCaret: true) == "Please take a look.\n\nThanks,\n",
+            "an Outlook insertion leaves no blank line before the existing signature")
+        expect(
+            QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true) == draft + "\n",
+            "an Outlook insertion uses one line break even for Best")
+        expect(
+            QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: false) == draft,
             "another app keeps the model output unchanged")
         expect(

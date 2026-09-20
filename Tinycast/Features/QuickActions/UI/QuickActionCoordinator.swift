@@ -408,7 +408,9 @@ final class QuickActionCoordinator {
                 present(state, target: target)
                 return
             }
-            deliver(text, to: target, action: state.action, textTarget: composerTarget)
+            deliver(
+                text, to: target, action: state.action, textTarget: composerTarget,
+                insertsAtCaret: state.insertsAtCaret)
         } catch is CancellationError {
             return
         } catch let error as TextTranslator.Failure where error.needsDownload {
@@ -455,10 +457,11 @@ final class QuickActionCoordinator {
     /// A replacement that never lands would otherwise lose the reply, so the clipboard keeps it.
     private func deliver(
         _ text: String, to target: NSRunningApplication?, action: QuickAction,
-        textTarget: ComposerTextTarget? = nil
+        textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false
     ) {
         let deliveredText = QuickActionOutput.preparedForDelivery(
-            text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target))
+            text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target),
+            insertsAtCaret: insertsAtCaret)
         injector.replaceSelection(
             with: deliveredText, in: target,
             prepareTarget: { textTarget?.prepare(in: target) ?? true },
@@ -510,7 +513,9 @@ final class QuickActionCoordinator {
                 self?.deleteHistory(id, currentID: state.historyID) ?? false
             },
             onReplace: { [weak self] text in
-                self?.deliver(text, to: target, action: state.action, textTarget: textTarget)
+                self?.deliver(
+                    text, to: target, action: state.action, textTarget: textTarget,
+                    insertsAtCaret: state.insertsAtCaret)
             })
     }
 

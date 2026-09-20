@@ -180,12 +180,16 @@ enum QuickActionOutput {
     }
 
     static func preparedForDelivery(
-        _ text: String, action: QuickAction, toOutlook: Bool
+        _ text: String, action: QuickAction, toOutlook: Bool,
+        insertsAtCaret: Bool = false
     ) -> String {
         let body = action.builtInAction == .rewrite ? composerBody(in: text) : text
         guard toOutlook, action.builtInAction == .rewrite else { return body }
         let formatted = outlookParagraphs(in: body)
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
+        // Outlook already leaves an empty paragraph in front of its signature. Insert replaces that
+        // boundary and supplies exactly one line break, so the sign-off sits directly above it.
+        if insertsAtCaret { return withoutTrailingNewlines + "\n" }
         guard
             withoutTrailingNewlines.split(separator: "\n", omittingEmptySubsequences: false)
                 .last?.trimmingCharacters(in: .whitespaces).lowercased() == "best,"
