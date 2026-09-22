@@ -17,16 +17,24 @@ final class ComposerTextTarget {
         return String(body[range])
     }
 
+    var hasFollowingLineBreak: Bool {
+        guard let replacementRange, let range = Range(replacementRange, in: body),
+            range.upperBound < body.endIndex
+        else {
+            return false
+        }
+        return body[range.upperBound].isNewline
+    }
+
     init(editor: AXUIElement, body: String, selectedRange: NSRange) {
         self.editor = editor
         self.body = body
         self.selectedRange = selectedRange
-        replacementRange = ComposerDraftAnchor.deliveryRange(
-            in: body, selectedRange: selectedRange)
+        replacementRange = selectedRange
     }
 
     func restore(_ record: RewriteHistoryRecord) {
-        if let range = record.draftAnchor?.range(in: body) {
+        if let range = record.draftAnchor?.rangePreservingTrailingLineBreaks(in: body) {
             replacementRange = range
         } else if selectedRange.length > 0 {
             replacementRange = selectedRange

@@ -461,7 +461,8 @@ final class QuickActionCoordinator {
     ) {
         let deliveredText = QuickActionOutput.preparedForDelivery(
             text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target),
-            insertsAtCaret: insertsAtCaret)
+            insertsAtCaret: insertsAtCaret,
+            hasFollowingLineBreak: textTarget?.hasFollowingLineBreak ?? false)
         injector.replaceSelection(
             with: deliveredText, in: target,
             prepareTarget: { textTarget?.prepare(in: target) ?? true },

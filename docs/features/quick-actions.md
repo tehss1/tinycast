@@ -80,7 +80,9 @@ provider protocol and the connections behind it.
   older history, and captures that snapshot once when the shortcut is pressed. Selected-text Composer
   captures the selected draft boundaries. Caret-first Composer captures the insertion point.
   `ComposerDraftAnchor` stores fingerprints of the surrounding text so later replacements cover the
-  draft without duplicating it. The context is marked as untrusted reference material in the prompt.
+  draft without duplicating it. Caret-first Insert keeps Outlook's signature boundary untouched,
+  including rich content such as a logo, and adds a line break only when none follows the caret.
+  The context is marked as untrusted reference material in the prompt.
   Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
   reads or sends.
 - **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc

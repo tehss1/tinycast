@@ -481,7 +481,12 @@ struct QuickActionTests {
         expect(
             QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, insertsAtCaret: true) == draft + "\n",
-            "an Outlook insertion uses one line break even for Best")
+            "an Outlook insertion separates text when no boundary follows the caret")
+        expect(
+            QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true,
+                hasFollowingLineBreak: true) == draft,
+            "an Outlook insertion leaves existing signature line breaks untouched")
         expect(
             QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: false) == draft,

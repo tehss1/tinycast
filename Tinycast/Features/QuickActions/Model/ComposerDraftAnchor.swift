@@ -35,13 +35,17 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return range
     }
 
-    /// A blank Outlook draft starts with the line breaks separating the caret from its signature.
-    /// Consume that run only at the start of an insertion; delivery puts one normal break back.
-    static func deliveryRange(in body: String, selectedRange: NSRange) -> NSRange {
-        guard selectedRange.location == 0, selectedRange.length == 0 else { return selectedRange }
-        var end = body.startIndex
-        while end < body.endIndex, body[end].isNewline { end = body.index(after: end) }
-        return NSRange(body.startIndex..<end, in: body)
+    func rangePreservingTrailingLineBreaks(in body: String) -> NSRange? {
+        guard let range = range(in: body), let selection = Range(range, in: body) else {
+            return nil
+        }
+        var end = selection.upperBound
+        while end > selection.lowerBound {
+            let previous = body.index(before: end)
+            guard body[previous].isNewline else { break }
+            end = previous
+        }
+        return NSRange(selection.lowerBound..<end, in: body)
     }
 
     private static func fingerprint(_ text: String) -> String {
