@@ -17,6 +17,7 @@ struct ComposerTests {
     static func main() throws {
         try replacementBoundaries()
         deliveryLabelMatchesInvocation()
+        blankInitialRequestUsesEmailContext()
         firstFailureCanRetry()
         stopKeepsCompletedDraft()
         manualEditsJoinConversation()
@@ -104,6 +105,36 @@ struct ComposerTests {
             "a resumed conversation keeps the action from the current caret invocation")
         expect(restoredFromSelection.deliveryActionTitle == "Replace",
             "a resumed conversation keeps the action from the current selection invocation")
+    }
+
+    static func blankInitialRequestUsesEmailContext() {
+        let context = QuickActionContext(
+            recipient: "Client <client@example.com>", subject: "Question",
+            recentThread: "From: Client\nCould you confirm whether this is ready?")
+        let state = QuickActionPanelState(
+            action: .rewrite, original: "", context: context,
+            targetLanguage: Locale.Language(identifier: "en"), awaitsWritingInstruction: true)
+
+        expect(state.canRefine, "captured email context enables a blank first request")
+        let instruction = state.beginInitialRewrite()
+        expect(instruction == QuickActionPanelState.contextOnlyInstruction,
+            "blank Return asks for a response based only on the captured email")
+        expect(state.conversation.first?.text == QuickActionPanelState.contextOnlyInstruction,
+            "the context-only request remains visible in the Composer conversation")
+
+        let envelopeOnly = QuickActionPanelState(
+            action: .rewrite, original: "",
+            context: QuickActionContext(
+                recipient: "client@example.com", subject: "Question", recentThread: nil),
+            targetLanguage: Locale.Language(identifier: "en"), awaitsWritingInstruction: true)
+        expect(!envelopeOnly.canRefine,
+            "a recipient and subject alone cannot silently produce an invented reply")
+        expect(envelopeOnly.beginInitialRewrite() == nil,
+            "blank Return stays inert when no email body was captured")
+
+        state.finish("Could you confirm whether this is ready?")
+        expect(!state.canRefine,
+            "a blank later refinement never resubmits or regenerates the draft")
     }
 
     static func firstFailureCanRetry() {

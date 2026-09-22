@@ -439,7 +439,7 @@ struct QuickActionResultView: View {
         HStack(spacing: metrics.spacing.md) {
             TextField(
                 state.isAwaitingInstruction
-                    ? "Describe what you want this email to say…"
+                    ? "Describe what you want this email to say, or press Return…"
                     : "Describe another change…",
                 text: $state.refinementInstruction,
                 axis: .vertical)

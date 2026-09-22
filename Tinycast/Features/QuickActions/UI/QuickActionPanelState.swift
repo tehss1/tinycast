@@ -5,6 +5,10 @@ import Observation
 @MainActor
 @Observable
 final class QuickActionPanelState {
+    static let contextOnlyInstruction =
+        "Draft an appropriate response based only on the email context. Do not invent facts, "
+        + "commitments, decisions or completed actions."
+
     enum Accessory { case context, audience, model, reasoning }
     var accessory: Accessory?
     var accessorySelection = 0
@@ -73,7 +77,12 @@ final class QuickActionPanelState {
 
     var canRefine: Bool {
         action == .rewrite && (phase == .finished || needsInitialRequest)
-            && !refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || canDraftFromContext)
+    }
+
+    private var canDraftFromContext: Bool {
+        originalIsWritingInstruction && needsInitialRequest && context?.recentThread != nil
     }
 
     init(
@@ -167,7 +176,8 @@ final class QuickActionPanelState {
 
     func beginInitialRewrite() -> String? {
         guard needsInitialRequest, canRefine else { return nil }
-        let instruction = refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typedInstruction = refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instruction = typedInstruction.isEmpty ? Self.contextOnlyInstruction : typedInstruction
         if originalIsWritingInstruction { original = instruction }
         submittedInstruction = instruction
         conversation.append(

@@ -243,8 +243,11 @@ which is a closed two-case enum measured once at present time — a growing stre
 Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
 Keys go through `sendEvent`: `⌘↵` delivers, `⌘C` copies, `esc` dismisses. Composer labels delivery
 **Replace** when Hyper+R captured selected text and **Insert** when it captured only the caret. In
-caret-first Composer, `↵` submits the first writing request. After a draft exists, it submits another
-refinement. Ordinary editing shortcuts stay in the field. Composer renders the first request, first
+caret-first Composer, `↵` submits the first writing request. When that first field is blank and the
+captured context includes a quoted email message, `↵` visibly adds a context-only request and drafts
+the reply without another instruction. A subject and recipient alone are not enough. After a draft
+exists, `↵` submits another non-empty refinement. Ordinary editing shortcuts stay in the field.
+Composer renders the first request, first
 draft, every refinement request and every revised draft as one chat transcript. The provider receives
 that same conversation with the bounded Outlook snapshot as its opening context, so a later request
 can refer to an earlier version. A left sidebar lists the active Composer conversation and the last
