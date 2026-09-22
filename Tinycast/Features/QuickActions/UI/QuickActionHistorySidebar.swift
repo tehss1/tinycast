@@ -8,14 +8,25 @@ struct QuickActionHistorySidebar: View {
     let height: CGFloat
     let onSelect: (UUID) -> Void
     let onActions: (UUID) -> Void
+    let onCollapse: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Recent drafts")
-                .font(metrics.typography.panelTitle)
-                .padding(.horizontal, metrics.spacing.xl)
-                .padding(.top, metrics.spacing.xl)
-                .padding(.bottom, metrics.spacing.md)
+            HStack(spacing: metrics.spacing.sm) {
+                Text("Recent drafts")
+                    .font(metrics.typography.panelTitle)
+                Spacer(minLength: 0)
+                Button(action: onCollapse) {
+                    Image(systemName: "sidebar.left")
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide recent drafts")
+                .accessibilityLabel("Hide recent drafts")
+            }
+            .padding(.horizontal, metrics.spacing.xl)
+            .padding(.top, metrics.spacing.xl)
+            .padding(.bottom, metrics.spacing.md)
             ScrollView {
                 LazyVStack(spacing: metrics.spacing.xs) {
                     ForEach(records) { record in

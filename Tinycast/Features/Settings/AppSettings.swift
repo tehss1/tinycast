@@ -5,6 +5,7 @@ enum SettingsKey {
     /// The launcher icon's visibility — read by its `MenuBarExtra` and the General toggle.
     static let showInMenuBar = "showInMenuBar"
     static let calendarMenuBarDisplay = "calendarMenuBarDisplay"
+    static let composerHistoryExpanded = "composerHistoryExpanded"
 }
 
 /// Delay before a closed palette pops to root; an unset key reads as `.immediately`.

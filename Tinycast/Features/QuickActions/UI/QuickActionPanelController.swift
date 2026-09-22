@@ -57,7 +57,8 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
                 onCancel: { [weak self] in self?.dismiss() },
                 onRetranslate: { [weak self] in self?.onRetranslate?($0) },
                 onOpenLanguageSettings: { [weak self] in self?.openLanguageSettings() },
-                onHeight: { [weak self] in self?.resize(toHeight: $0) }
+                onHeight: { [weak self] in self?.resize(toHeight: $0) },
+                onWidth: { [weak self] in self?.resize(toWidth: $0) }
             )
             .environment(\.metrics, metrics)
             .environment(coordinator)
@@ -67,6 +68,7 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         // Its tallest, so the first frame is never short; the view reports the real height at once.
         let width = metrics.size.quickActionPanel
             + (state.action == .rewrite
+                && UserDefaults.standard.bool(forKey: SettingsKey.composerHistoryExpanded)
                 ? metrics.size.quickActionHistorySidebar + Theme.Size.hairline : 0)
         hosting.setFrameSize(NSSize(width: width, height: metrics.size.quickActionPanelBody))
 
@@ -141,6 +143,14 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         panel.setFrame(
             NSRect(x: topLeft.x, y: topLeft.y - height, width: width, height: height),
             display: true)
+        clampOnScreen(panel)
+    }
+
+    private func resize(toWidth width: CGFloat) {
+        guard let panel, width > 0, abs(width - panel.frame.width) > 0.5 else { return }
+        var frame = panel.frame
+        frame.size.width = width
+        panel.setFrame(frame, display: true)
         clampOnScreen(panel)
     }
 

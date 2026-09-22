@@ -17,7 +17,9 @@ struct QuickActionResultView: View {
     let onRetranslate: (Locale.Language) -> Void
     let onOpenLanguageSettings: () -> Void
     let onHeight: (CGFloat) -> Void
+    let onWidth: (CGFloat) -> Void
 
+    @AppStorage(SettingsKey.composerHistoryExpanded) private var historyExpanded = false
     @State private var contentHeight: CGFloat = 0
     @State private var headerHeight: CGFloat = 0
     @State private var footerHeight: CGFloat = 0
@@ -88,6 +90,7 @@ struct QuickActionResultView: View {
                 }
                 onHeight(height)
             }
+            .onChange(of: panelWidth, initial: true) { _, width in onWidth(width) }
             .onChange(of: state.phase) {
                 refinementFocused = isViewingActive && shouldFocusInstruction
             }
@@ -103,7 +106,7 @@ struct QuickActionResultView: View {
 
     @ViewBuilder
     private var panelContent: some View {
-        if state.action == .rewrite {
+        if state.action == .rewrite, historyExpanded {
             HStack(spacing: 0) {
                 QuickActionHistorySidebar(
                     records: historyEntries,
@@ -111,7 +114,8 @@ struct QuickActionResultView: View {
                     currentID: state.historyID,
                     height: panelHeight,
                     onSelect: selectHistory,
-                    onActions: openHistoryMenu)
+                    onActions: openHistoryMenu,
+                    onCollapse: toggleHistory)
                 Rectangle()
                     .fill(Theme.Colors.separator)
                     .frame(width: Theme.Size.hairline)
@@ -214,12 +218,13 @@ struct QuickActionResultView: View {
 
     private var panelWidth: CGFloat {
         metrics.size.quickActionPanel
-            + (state.action == .rewrite
+            + (state.action == .rewrite && historyExpanded
                 ? metrics.size.quickActionHistorySidebar + Theme.Size.hairline : 0)
     }
 
     private var composerContentLeadingInset: CGFloat {
-        metrics.size.quickActionHistorySidebar + Theme.Size.hairline + metrics.spacing.xxl
+        (historyExpanded ? metrics.size.quickActionHistorySidebar + Theme.Size.hairline : 0)
+            + metrics.spacing.xxl
     }
 
     /// Clears the bar and its ramp, so the first line is opaque until it scrolls into the gradient.
@@ -281,6 +286,18 @@ struct QuickActionResultView: View {
             }
             .windowDraggable(true)
             if state.action == .translate, !languages.isEmpty { languageMenu }
+            if state.action == .rewrite, !historyExpanded {
+                Button {
+                    toggleHistory()
+                } label: {
+                    Label("Recent drafts", systemImage: "sidebar.left")
+                        .font(metrics.typography.rowTrailing)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                .help("Show recent drafts")
+                .accessibilityLabel("Show recent drafts")
+            }
         }
         if state.action == .rewrite {
             ComposerToolbar(state: state, isViewingActive: isViewingActive)
@@ -562,6 +579,12 @@ struct QuickActionResultView: View {
 
     private func closeHistoryMenu() {
         historyMenuID = nil
+    }
+
+    private func toggleHistory() {
+        closeHistoryMenu()
+        if historyExpanded { selectedHistoryID = state.historyID }
+        historyExpanded.toggle()
     }
 
     private func deleteHistory(_ id: UUID) {

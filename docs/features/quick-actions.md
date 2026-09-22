@@ -253,8 +253,10 @@ Composer renders the first request, first
 draft, every refinement request and every revised draft as one chat transcript. The provider receives
 that same conversation with the bounded Outlook snapshot as its opening context, so a later request
 can refer to an earlier version. A left sidebar lists the active Composer conversation and the last
-seven days of saved transcripts. Older entries are view and copy only. Nothing reaches the target app
-until Insert or Replace. Generation errors appear in the transcript, and the failed request returns to
+seven days of saved transcripts. It starts collapsed and remembers the reader's last choice across
+Composer sessions. The header opens it, and its own header hides it again, returning to the active
+conversation. Older entries are view and copy only. Nothing reaches the target app until Insert or
+Replace. Generation errors appear in the transcript, and the failed request returns to
 the input field. Retrying excludes failed turns from the model conversation. Stop keeps the last
 completed draft available for Copy, Insert or Replace. Reopening an interrupted session marks
 unfinished responses as failed.
