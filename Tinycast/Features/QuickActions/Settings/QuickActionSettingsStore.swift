@@ -1,6 +1,34 @@
 import Foundation
 import Observation
 
+/// Composer's concise Codex selection. Only offer models the connected CLI actually reports.
+enum ComposerModelPolicy {
+    static let modelIDs: Set<String> = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+
+    static func available(_ catalog: [ChatGPTSubscription.Model]) -> [ChatGPTSubscription.Model] {
+        catalog.filter { modelIDs.contains($0.id) }
+    }
+
+    static func resolve(
+        _ selection: AIModelSelection?, catalog: [ChatGPTSubscription.Model]
+    ) -> AIModelSelection? {
+        guard case .codex(let id, let effort) = selection else { return selection }
+        let offered = available(catalog)
+        // An older CLI must keep its working selection until it can serve GPT-6.
+        guard !offered.isEmpty else { return selection }
+        let preferred: String
+        switch id {
+        case "gpt-5.6-luna": preferred = "gpt-6-luna"
+        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5": preferred = "gpt-6-sol"
+        default: preferred = id
+        }
+        guard let model = offered.first(where: { $0.id == preferred })
+            ?? offered.first(where: { $0.id == "gpt-6-sol" }) ?? offered.first
+        else { return selection }
+        return .codex(model: model.id, effort: model.resolvedEffort(effort))
+    }
+}
+
 /// Apart from `AISettingsStore`: a peer of chat, with its own switch, route and settings pane.
 @MainActor
 @Observable

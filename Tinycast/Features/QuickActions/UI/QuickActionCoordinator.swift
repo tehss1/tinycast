@@ -23,13 +23,24 @@ final class QuickActionCoordinator {
     private static let launcherCommands = Set(BuiltInQuickAction.allCases.map(CommandID.init))
 
     var composerModel: AIModelSelection? {
-        store.model(for: .rewrite) ?? core.aiSettings.defaultModel
+        ComposerModelPolicy.resolve(
+            store.model(for: .rewrite) ?? core.aiSettings.defaultModel,
+            catalog: core.chatGPTSubscription.models)
     }
 
     var composerModelGroups: [AIModelOptionGroup] {
         AIModelOption.availableGroups(
             settings: core.aiSettings, subscription: core.chatGPTSubscription,
-            installedAI: core.installedAI)
+            installedAI: core.installedAI).compactMap { group in
+                guard group.source == .codex,
+                    !ComposerModelPolicy.available(core.chatGPTSubscription.models).isEmpty
+                else { return group }
+                let options = group.options.filter {
+                    ComposerModelPolicy.modelIDs.contains($0.selection.model)
+                }
+                return options.isEmpty ? nil : AIModelOptionGroup(
+                    source: group.source, title: group.title, options: options)
+            }
     }
 
     var composerModelTitle: String {

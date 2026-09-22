@@ -511,7 +511,10 @@ final class AppCore {
     func quickActionProvider(for action: QuickAction) throws -> any AIProvider {
         quickActionSettings.repairModel(
             against: aiSettings.connections, fallback: aiSettings.defaultModel)
-        guard let selection = quickActionSettings.model(for: action) ?? aiSettings.defaultModel
+        let stored = quickActionSettings.model(for: action) ?? aiSettings.defaultModel
+        let effective = action == .rewrite
+            ? ComposerModelPolicy.resolve(stored, catalog: chatGPTSubscription.models) : stored
+        guard let selection = effective
         else {
             throw AIProviderError.unavailable("Choose a model in Settings \u{2192} Quick Actions.")
         }

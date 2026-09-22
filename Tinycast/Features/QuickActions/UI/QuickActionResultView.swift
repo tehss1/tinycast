@@ -275,33 +275,35 @@ struct QuickActionResultView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: metrics.spacing.sm) {
-        HStack(spacing: metrics.spacing.md) {
-            // Only the title run drags: the handle is an overlay, and would eat the menu's clicks.
-            HStack(spacing: metrics.spacing.sm) {
-                SymbolImage(name: state.action.symbol, size: metrics.size.quickActionHeaderIcon)
+            HStack(spacing: metrics.spacing.md) {
+                if state.action == .rewrite, !historyExpanded {
+                    Button {
+                        toggleHistory()
+                    } label: {
+                        SymbolImage(name: "sidebar.left", size: metrics.size.quickActionHeaderIcon)
+                            .frame(
+                                width: metrics.size.barButtonHeight,
+                                height: metrics.size.barButtonHeight)
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(Theme.Colors.textSecondary)
-                Text(state.action.title)
-                    .font(metrics.typography.panelTitle)
-                Spacer(minLength: metrics.spacing.md)
-            }
-            .windowDraggable(true)
-            if state.action == .translate, !languages.isEmpty { languageMenu }
-            if state.action == .rewrite, !historyExpanded {
-                Button {
-                    toggleHistory()
-                } label: {
-                    Label("Recent drafts", systemImage: "sidebar.left")
-                        .font(metrics.typography.rowTrailing)
+                    .help("Show recent drafts")
+                    .accessibilityLabel("Show recent drafts")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.Colors.textSecondary)
-                .help("Show recent drafts")
-                .accessibilityLabel("Show recent drafts")
+                // Only the title run drags: the handle is an overlay, and would eat the menu's clicks.
+                HStack(spacing: metrics.spacing.sm) {
+                    SymbolImage(name: state.action.symbol, size: metrics.size.quickActionHeaderIcon)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                    Text(state.action.title)
+                        .font(metrics.typography.panelTitle)
+                    Spacer(minLength: metrics.spacing.md)
+                }
+                .windowDraggable(true)
+                if state.action == .translate, !languages.isEmpty { languageMenu }
             }
-        }
-        if state.action == .rewrite {
-            ComposerToolbar(state: state, isViewingActive: isViewingActive)
-        }
+            if state.action == .rewrite {
+                ComposerToolbar(state: state, isViewingActive: isViewingActive)
+            }
         }
         .padding(.horizontal, metrics.spacing.xxl)
         .padding(.top, metrics.spacing.xl)

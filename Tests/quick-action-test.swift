@@ -19,6 +19,7 @@ struct QuickActionTests {
 
     static func main() {
         everyActionDescribesItself()
+        composerModelsPreferAvailableGPT6()
         promptsForbidCommentaryAndInjection()
         composerAudienceChoosesTone()
         outlookContextUsesOnlyRecentThread()
@@ -240,6 +241,38 @@ struct QuickActionTests {
         expect(
             BuiltInQuickAction.summarize.showsDiff == false,
             "a summary is not the input edited, so a diff would be noise")
+    }
+
+    static func composerModelsPreferAvailableGPT6() {
+        let efforts = [ChatGPTSubscription.Effort(id: "low", detail: nil),
+                       ChatGPTSubscription.Effort(id: "medium", detail: nil)]
+        let catalog = ["gpt-6-astra", "gpt-5.6-terra", "gpt-6-sol", "gpt-6-luna"].map {
+            ChatGPTSubscription.Model(
+                id: $0, name: $0, efforts: efforts, defaultEffort: "medium", isDefault: false)
+        }
+        expect(
+            ComposerModelPolicy.available(catalog).map(\.id)
+                == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
+            "Composer offers the three supported GPT-6 models, not legacy Codex models")
+        expect(
+            ComposerModelPolicy.resolve(
+                .codex(model: "gpt-5.6-terra", effort: "low"), catalog: catalog)
+                == .codex(model: "gpt-6-sol", effort: "low"),
+            "a saved Terra route migrates to Sol without losing supported reasoning")
+        expect(
+            ComposerModelPolicy.resolve(
+                .codex(model: "gpt-5.6-luna", effort: "ultra"), catalog: catalog)
+                == .codex(model: "gpt-6-luna", effort: "medium"),
+            "a saved Luna route uses the new model's supported default reasoning")
+        expect(
+            ComposerModelPolicy.resolve(
+                .codex(model: "gpt-5.6-terra", effort: "low"), catalog: [])
+                == .codex(model: "gpt-5.6-terra", effort: "low"),
+            "an old CLI keeps its working route until GPT-6 appears")
+        expect(
+            ComposerModelPolicy.resolve(.appleIntelligence, catalog: catalog)
+                == .appleIntelligence,
+            "Composer's GPT-6 policy does not replace on-device choices")
     }
 
     static func promptsForbidCommentaryAndInjection() {
