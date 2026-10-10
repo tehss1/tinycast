@@ -16,8 +16,8 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         let suffix = String(body[selection.upperBound...])
         prefixLength = prefix.utf16.count
         suffixLength = suffix.utf16.count
-        prefixFingerprint = Self.fingerprint(prefix)
-        suffixFingerprint = Self.fingerprint(suffix)
+        prefixFingerprint = TextFingerprint.of(prefix)
+        suffixFingerprint = TextFingerprint.of(suffix)
     }
 
     func range(in body: String) -> NSRange? {
@@ -29,8 +29,8 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         guard let selection = Range(range, in: body),
             selection.lowerBound.samePosition(in: body.unicodeScalars) != nil,
             selection.upperBound.samePosition(in: body.unicodeScalars) != nil,
-            Self.fingerprint(String(body[..<selection.lowerBound])) == prefixFingerprint,
-            Self.fingerprint(String(body[selection.upperBound...])) == suffixFingerprint
+            TextFingerprint.of(String(body[..<selection.lowerBound])) == prefixFingerprint,
+            TextFingerprint.of(String(body[selection.upperBound...])) == suffixFingerprint
         else { return nil }
         return range
     }
@@ -48,8 +48,7 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return NSRange(selection.lowerBound..<end, in: body)
     }
 
-    /// A caret invocation is an explicit Insert, even when the saved draft boundary went stale.
-    /// Replace still needs a matched boundary or a fresh selection to avoid overwriting other text.
+    /// A caret invocation always inserts; Replace needs a matched boundary or a fresh selection.
     static func restoredRange(
         in body: String, anchor: ComposerDraftAnchor?, selectedRange: NSRange,
         insertsAtCaret: Bool
@@ -57,14 +56,5 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         if let range = anchor?.rangePreservingTrailingLineBreaks(in: body) { return range }
         guard Range(selectedRange, in: body) != nil else { return nil }
         return selectedRange.length > 0 || insertsAtCaret ? selectedRange : nil
-    }
-
-    private static func fingerprint(_ text: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in text.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
     }
 }

@@ -71,6 +71,8 @@ struct UpdateCheckTests {
         store.stop()
         let manual = Task { await store.check() }
         await waitUntil { fixture.requests == 3 }
+        expect(await store.check() == .busy, "a second check reports the one already running")
+        expect(fixture.requests == 3, "a busy check makes no request of its own")
         store.stop()
         fixture.respond(feed(version: "1.3.0"))
         let answered = await manual.value

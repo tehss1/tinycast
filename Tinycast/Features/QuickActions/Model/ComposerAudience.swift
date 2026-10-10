@@ -76,13 +76,6 @@ enum ComposerAudience: String, Codable, CaseIterable, Equatable, Sendable {
     }
 
     private static func recipientDomains(in value: String) -> [String] {
-        let pattern = #"[\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-]+@([\p{L}\p{N}](?:[\p{L}\p{N}.-]*[\p{L}\p{N}])?)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
-        return expression.matches(in: value, range: NSRange(value.startIndex..., in: value))
-            .compactMap { match in
-                guard match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: value)
-                else { return nil }
-                return value[range].lowercased()
-            }
+        EmailAddressPattern.matches(in: value).map(\.domain)
     }
 }

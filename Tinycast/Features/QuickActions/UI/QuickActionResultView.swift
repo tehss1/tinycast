@@ -337,11 +337,12 @@ struct QuickActionResultView: View {
     }
 
     private func conversation(for phase: QuickActionPanelState.Phase) -> some View {
-        VStack(alignment: .leading, spacing: metrics.spacing.xl) {
-            ForEach(displayedConversation) { message in
+        let messages = displayedConversation
+        return VStack(alignment: .leading, spacing: metrics.spacing.xl) {
+            ForEach(messages) { message in
                 ConversationRow(message: message)
             }
-            if displayedConversation.isEmpty {
+            if messages.isEmpty {
                 switch phase {
                 case .awaitingInstruction:
                     EmptyView()

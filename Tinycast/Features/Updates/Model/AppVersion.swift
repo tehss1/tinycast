@@ -1,7 +1,6 @@
 import Foundation
 
-/// A released version: `MAJOR.MINOR.PATCH`, optionally `-beta.N` or `-composer.N`.
-/// Composer builds are stable customized releases and sort above their matching official release.
+/// `MAJOR.MINOR.PATCH`, optionally `-beta.N` or `-composer.N`; a composer build sorts above its base.
 struct AppVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
     let major: Int
     let minor: Int

@@ -4,6 +4,9 @@ import Foundation
 enum UpdateFailure: LocalizedError, Equatable {
     case downloadFailed(String)
     case accessRefused
+    case feedMissing
+    case rateLimited
+    case checkInProgress
     case extractFailed(String)
     case noAppInArchive
     case quarantined
@@ -18,6 +21,12 @@ enum UpdateFailure: LocalizedError, Equatable {
             return "The download did not finish. \(detail)"
         case .accessRefused:
             return "GitHub refused access to this build's releases."
+        case .feedMissing:
+            return "GitHub has no public releases for this build."
+        case .rateLimited:
+            return "GitHub is limiting update checks from this network."
+        case .checkInProgress:
+            return "Tinycast is already checking for updates."
         case .extractFailed(let detail):
             return "The downloaded archive could not be expanded. \(detail)"
         case .noAppInArchive:
@@ -47,6 +56,12 @@ enum UpdateFailure: LocalizedError, Equatable {
             return "Nothing was installed."
         case .accessRefused:
             return "Add or replace the update token in Settings › General."
+        case .feedMissing:
+            return "If its repository is private, add an update token in Settings › General."
+        case .rateLimited:
+            return "Try again later, or add an update token in Settings › General."
+        case .checkInProgress:
+            return "Try again in a moment."
         default:
             return nil
         }

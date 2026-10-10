@@ -26,6 +26,7 @@ struct UpdatesTests {
         picksTheZipThisMacCanRun()
         rejectsUnusableFeeds()
         tellsARefusalFromAnOutage()
+        sendsTheTokenOnlyToGitHub()
         offersOnlyWhatIsWorthInstalling()
         pinsTheDeveloperIDRequirement()
         keepsOnlyTheChangelog()
@@ -222,15 +223,26 @@ struct UpdatesTests {
 
     static func tellsARefusalFromAnOutage() {
         let body = Data("[]".utf8)
-        expect(ReleaseFeed.Response(status: 200, data: body) == .body(body), "200 carries the feed")
-        expect(ReleaseFeed.Response(status: 401, data: body) == .refused, "a bad token is a refusal")
+        func response(_ status: Int, authorized: Bool = false) -> ReleaseFeed.Response {
+            ReleaseFeed.Response(status: status, data: body, authorized: authorized)
+        }
+        expect(response(200) == .body(body), "200 carries the feed")
+        expect(response(401, authorized: true) == .refused, "a bad token is a refusal")
         expect(
-            ReleaseFeed.Response(status: 404, data: body) == .refused,
-            "a private repository hidden from the request is a refusal")
+            response(404, authorized: true) == .refused,
+            "a repository hidden from the stored token is a refusal")
+        expect(response(404) == .missing, "without a token a 404 never blames one")
+        expect(response(403) == .limited, "a rate limit is neither an outage nor a missing token")
+        expect(response(429, authorized: true) == .limited, "a secondary rate limit reads the same")
+        expect(response(503) == .unreachable, "a server error is an outage")
         expect(
-            ReleaseFeed.Response(status: 403, data: body) == .unreachable,
-            "a rate limit is an outage, not a missing token")
-        expect(ReleaseFeed.Response(status: 503, data: body) == .unreachable, "a server error is an outage")
+            ReleaseFeed.repository(in: [ReleaseFeed.repositoryInfoKey: "../tinycast"])
+                == ReleaseFeed.defaultRepository,
+            "a path-traversing repository is ignored")
+        expect(
+            ReleaseFeed.repository(in: [ReleaseFeed.repositoryInfoKey: "owné/tinycast"])
+                == ReleaseFeed.defaultRepository,
+            "a repository outside GitHub's ASCII names is ignored")
         expect(
             ReleaseFeed.newest(
                 from: feed(entry(tag: "v0.3.0", prerelease: false, assets: ["Tinycast-0.3.0.zip"])),
@@ -311,6 +323,20 @@ struct UpdatesTests {
             ReleaseFeed.newest(from: universalOnly, channel: .stable, architecture: .appleSilicon)?
                 .version == AppVersion("0.3.0"),
             "Apple silicon falls back to the universal zip when it is the only one published")
+    }
+
+    static func sendsTheTokenOnlyToGitHub() {
+        let asset = URL(string: "https://api.github.com/repos/o/r/releases/assets/1")!
+        expect(ReleaseFeed.acceptsToken(asset), "the API's asset address may carry the token")
+        expect(
+            !ReleaseFeed.acceptsToken(URL(string: "http://api.github.com/repos/o/r/releases/assets/1")!),
+            "a cleartext address never carries the token")
+        expect(
+            !ReleaseFeed.acceptsToken(URL(string: "https://api.github.com.example.invalid/a.zip")!),
+            "a host merely starting with GitHub's never carries the token")
+        expect(
+            !ReleaseFeed.acceptsToken(URL(string: "https://example.invalid/a.zip")!),
+            "another host never carries the token")
     }
 
     static func offersOnlyWhatIsWorthInstalling() {

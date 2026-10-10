@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 @main
@@ -550,20 +551,25 @@ struct QuickActionTests {
                 == "Regarding the subject: please call today.",
             "Composer preserves body text that merely mentions a subject")
         expect(
-            QuickActionOutput.composerBody(
+            QuickActionOutput.naturalVoice(
                 in: "This is all set—we assigned the Copilot license to Janna.")
                 == "This is all set. We assigned the Copilot license to Janna.",
             "Composer removes an em dash even when the provider ignores its instructions")
         expect(
-            QuickActionOutput.composerBody(
+            QuickActionOutput.naturalVoice(
                 in: "I hope this message finds you well.\n\nThe license is assigned.")
                 == "The license is assigned.",
             "Composer removes a stock AI opener without changing the substantive message")
         expect(
-            QuickActionOutput.composerBody(
+            QuickActionOutput.naturalVoice(
                 in: "Please do not hesitate to reach out if you have any questions.")
                 == "Let me know if you have any questions.",
             "Composer replaces an obvious AI closing with direct language")
+
+        expect(
+            QuickActionOutput.composerBody(in: "This is all set—we assigned the license.")
+                == "This is all set—we assigned the license.",
+            "delivery never rewrites the reader's own punctuation")
 
         let oneLine = """
             You can pass this to MJ directly. There is little else we can try. Let me know if needed.
@@ -785,7 +791,7 @@ struct QuickActionTests {
 
         let firstDate = Date(timeIntervalSince1970: 1_000_000)
         var clock = firstDate
-        let store = RewriteHistoryStore(directory: directory, now: { clock })
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         let old = RewriteHistoryRecord(
             id: UUID(), createdAt: firstDate, updatedAt: firstDate,
             subject: "Old subject", recipient: "Old recipient", original: "old notes",
@@ -819,7 +825,7 @@ struct QuickActionTests {
             store.records.first?.updatedAt == clock,
             "typing an unfinished refinement does not extend history retention")
 
-        let reopened = RewriteHistoryStore(directory: directory, now: { clock })
+        let reopened = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         reopened.load()
         expect(reopened.records.map(\.id) == [current.id], "the retained tab survives a relaunch")
         expect(
@@ -835,21 +841,60 @@ struct QuickActionTests {
             reopened.savePendingInstruction(nil, id: current.id)
                 && reopened.records.first?.pendingInstruction == nil,
             "sending a refinement clears the saved input")
+        let saved = directory.appendingPathComponent("rewrite-history.sealed")
+        let draftBytes = (try? Data(contentsOf: saved)) ?? Data()
+        expect(
+            draftBytes.count > 100 && draftBytes.range(of: Data("Warmer draft".utf8)) == nil
+                && draftBytes.range(of: Data("subject".utf8)) == nil,
+            "the history file holds no readable email text")
         expect(reopened.remove(id: current.id), "a Composer conversation can be deleted")
-        let afterDeletion = RewriteHistoryStore(directory: directory, now: { clock })
+        let afterDeletion = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         afterDeletion.load()
         expect(afterDeletion.records.isEmpty, "a deleted conversation stays deleted after relaunch")
 
-        try? Data("{ not the history we wrote".utf8)
-            .write(to: directory.appendingPathComponent("rewrite-history.json"))
-        let afterCorruption = RewriteHistoryStore(directory: directory, now: { clock })
+        let sealedBytes = (try? Data(contentsOf: saved)) ?? Data()
+        let locked = RewriteHistoryStore(directory: directory, key: { nil }, now: { clock })
+        locked.load()
+        expect(
+            locked.records.isEmpty && !locked.save(current)
+                && (try? Data(contentsOf: saved)) == sealedBytes,
+            "without its key the history is neither read, replaced nor deleted")
+
+        let unsealed = directory.appendingPathComponent("rewrite-history.json")
+        try? Data("[]".utf8).write(to: unsealed)
+        let otherKey = RewriteHistoryStore(
+            directory: directory, key: { SymmetricKey(size: .bits256) }, now: { clock })
+        otherKey.load()
+        expect(
+            !FileManager.default.fileExists(atPath: unsealed.path),
+            "a history file left in the clear by an earlier build is removed")
+        expect(
+            !FileManager.default.fileExists(atPath: saved.path),
+            "history sealed with a lost key is deleted rather than kept past its retention")
+
+        try? Data("{ not the history we wrote".utf8).write(to: saved)
+        let afterCorruption = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         afterCorruption.load()
         expect(
+            !FileManager.default.fileExists(atPath: saved.path),
+            "an unreadable history file is deleted rather than kept past its retention")
+        expect(
             afterCorruption.records.isEmpty && afterCorruption.save(current),
-            "an unreadable history file does not block the next save")
-        let recovered = RewriteHistoryStore(directory: directory, now: { clock })
+            "and it does not block the next save")
+        let recovered = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         recovered.load()
         expect(recovered.records.map(\.id) == [current.id], "and that save replaces the file")
+        let mode = (try? FileManager.default.attributesOfItem(atPath: saved.path))?[.posixPermissions] as? NSNumber
+        let excluded = (try? saved.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup
+        expect(mode?.intValue == 0o600, "the history file is readable only by its owner")
+        expect(excluded == true, "and backups do not keep drafts past their retention")
+
+        let stale = clock.addingTimeInterval(-RewriteHistoryStore.retention - 1)
+        try? FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: saved.path)
+        RewriteHistoryStore(directory: directory, key: { nil }, now: { clock }).load()
+        expect(
+            !FileManager.default.fileExists(atPath: saved.path),
+            "history last written over a week ago is deleted even when its key is unavailable")
     }
 
     static func rewriteHistoryFindsTheSameEmail() {
@@ -873,7 +918,7 @@ struct QuickActionTests {
                     state: .complete)
             ],
             pendingInstruction: "Mention our scheduling link")
-        let store = RewriteHistoryStore(directory: directory)
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
         expect(store.save(record), "the resumable rewrite is saved")
         expect(
             store.resumableRecord(selection: record.original, context: context)?.id == record.id,
@@ -931,7 +976,7 @@ struct QuickActionTests {
             "matching headers alone do not reopen an unrelated draft")
 
         let legacyStore = RewriteHistoryStore(
-            directory: directory.appendingPathComponent("legacy"))
+            directory: directory.appendingPathComponent("legacy"), key: { historyKey })
         let simpleLegacy = RewriteHistoryRecord(
             id: UUID(), createdAt: Date(), updatedAt: Date().addingTimeInterval(2),
             subject: context.subject, recipient: context.recipient,
@@ -966,10 +1011,12 @@ struct QuickActionTests {
             "duplicate rows for the same email collapse into one conversation")
 
         let reopenedLegacy = RewriteHistoryStore(
-            directory: directory.appendingPathComponent("legacy"))
+            directory: directory.appendingPathComponent("legacy"), key: { historyKey })
         reopenedLegacy.load()
         expect(
             reopenedLegacy.records.map(\.id) == [richerLegacy.id],
             "the consolidated email conversation survives a relaunch")
     }
 }
+
+private let historyKey = SymmetricKey(size: .bits256)

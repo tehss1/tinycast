@@ -95,13 +95,17 @@ final class UpdateCheckStore {
     enum Outcome: Sendable, Equatable {
         case answered
         case refused
+        case missing
+        case limited
         case unreachable
+        case busy
     }
 
     /// The manual path: ignores freshness, and reports what GitHub made of the request.
     @discardableResult
     func check() async -> Outcome {
-        guard channel.updatesItself, !isChecking else { return .unreachable }
+        guard channel.updatesItself else { return .unreachable }
+        guard !isChecking else { return .busy }
         isChecking = true
         defer { isChecking = false }
         let response = await fetch()
@@ -113,6 +117,8 @@ final class UpdateCheckStore {
             persist()
             return .answered
         case .refused: return .refused
+        case .missing: return .missing
+        case .limited: return .limited
         case .unreachable: return .unreachable
         }
     }
@@ -184,6 +190,6 @@ final class UpdateCheckStore {
         guard let (data, response) = try? await session.data(for: request),
             let http = response as? HTTPURLResponse
         else { return .unreachable }
-        return ReleaseFeed.Response(status: http.statusCode, data: data)
+        return ReleaseFeed.Response(status: http.statusCode, data: data, authorized: token != nil)
     }
 }

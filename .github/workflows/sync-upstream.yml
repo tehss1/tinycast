@@ -20,6 +20,7 @@ concurrency:
 env:
   UPSTREAM_REPO: abue-ammar/tinycast
   SYNC_BRANCH: automation/upstream-sync
+  SYNC_LABEL: upstream-sync
 
 jobs:
   merge:
@@ -117,7 +118,6 @@ jobs:
         run: |
           git fetch origin "$SYNC_BRANCH"
           git push origin "FETCH_HEAD:refs/heads/main"
-          git push origin --delete "$SYNC_BRANCH"
 
       - name: Publish the Composer release
         env:
@@ -127,15 +127,20 @@ jobs:
         run: |
           gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main \
             -f channel=stable -f version="$VERSION"
-          gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title \
-            --jq ".[] | select(.title == \"Official Tinycast ${TAG} was not published automatically\") | .number" |
+          gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$SYNC_LABEL" \
+            --json number --jq '.[].number' |
             while read -r NUMBER; do
-              gh issue close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment "Published by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+              gh issue close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment "${TAG} landed on main in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}; the Release workflow reports its own failures."
             done
+
+      # Kept until the release is dispatched, so a failed dispatch leaves the merge to inspect.
+      - name: Delete the sync branch
+        if: needs.merge.outputs.merged == 'true'
+        run: git push origin --delete "$SYNC_BRANCH"
 
   notify:
     needs: [merge, verify, land]
-    if: ${{ failure() && github.repository != 'abue-ammar/tinycast' }}
+    if: ${{ always() && github.repository != 'abue-ammar/tinycast' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-latest
     steps:
       # One issue per official release, so a conflict that waits a week mails its owner once.
@@ -145,13 +150,19 @@ jobs:
           TAG: ${{ needs.merge.outputs.tag }}
           PROBLEM: ${{ needs.merge.outputs.problem }}
         run: |
-          TITLE="Official Tinycast ${TAG:-release} was not published automatically"
+          if [ -n "$TAG" ]; then
+            TITLE="Official Tinycast ${TAG} was not published automatically"
+          else
+            TITLE="The upstream sync failed before it found a release"
+          fi
           RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title \
-            --jq "[.[] | select(.title == \"${TITLE}\")] | length")"
+          gh label create "$SYNC_LABEL" --repo "$GITHUB_REPOSITORY" --force \
+            --description "Opened by the upstream sync"
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label "$SYNC_LABEL" \
+            --json title --jq "[.[] | select(.title == \"${TITLE}\")] | length")"
           if [ "$EXISTING" != "0" ]; then exit 0; fi
           gh issue create --repo "$GITHUB_REPOSITORY" --assignee "$GITHUB_REPOSITORY_OWNER" \
-            --title "$TITLE" \
+            --label "$SYNC_LABEL" --title "$TITLE" \
             --body "${PROBLEM:-The merged build failed its tests or could not reach main.}
 
           Run: ${RUN_URL}

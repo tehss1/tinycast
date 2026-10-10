@@ -83,8 +83,11 @@ and published by dispatching the Release workflow with the official base version
 already contains the release but has no matching `-composer` release is published the same way.
 
 A merge conflict, a failing test or a `main` that moved stops the run before anything reaches
-`main`, and opens one issue per official release, assigned to the fork's owner. Merge that release
-into `main` locally and push; the next run publishes it and closes the issue. The default Actions
+`main`, and opens one issue per official release, labelled `upstream-sync` and assigned to the
+fork's owner. A cancelled run reports the same way. Merge that release into `main` locally and push;
+the next run publishes it and closes the issue. The sync branch is deleted only after the Release
+workflow is dispatched. A Release run that then fails or is cancelled opens its own issue, labelled
+`release-failure`, since nobody is watching a build the sync started. The default Actions
 token may not push a change under `.github/workflows/`, so a release that carries one stops the same
 way unless the fork has a `SYNC_TOKEN` secret: a token with contents and workflows write access.
 

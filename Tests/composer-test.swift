@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 
 @main
@@ -24,6 +25,7 @@ struct ComposerTests {
         try historyIsScopedAndRecoversInput()
         try updatedThreadKeepsConversation()
         newestQuoteIsIncluded()
+        localizedQuoteIsIncluded()
         allRecipientsAreCaptured()
         contextIndicatorIsHonest()
         audienceOverrideSurvivesHistory()
@@ -192,6 +194,24 @@ struct ComposerTests {
         selection.fail("No provider")
         expect(selection.canRefine && selection.conversation.last?.state == .failed,
             "selected-text failures are also retryable and visible")
+        expect(selection.retriesOriginalRequest, "a failed selection retries without new words")
+
+        let contextOnly = QuickActionPanelState(
+            action: .rewrite, original: "",
+            context: QuickActionContext(
+                recipient: "client@example.com", subject: "Question",
+                recentThread: "From: Client\nIs this ready?"),
+            targetLanguage: Locale.Language(identifier: "en"), awaitsWritingInstruction: true)
+        expect(contextOnly.beginInitialRewrite() != nil, "a blank request drafts from the thread")
+        contextOnly.fail("No provider")
+        expect(contextOnly.refinementInstruction.isEmpty,
+            "the stand-in request never appears in the field")
+        expect(contextOnly.canRefine, "a failed blank request can be retried")
+
+        let voiced = makeState()
+        voiced.finish("This is all set—we assigned the license.")
+        expect(voiced.output == "This is all set. We assigned the license.",
+            "a finished model draft loses its em dash")
     }
 
     static func stopKeepsCompletedDraft() {
@@ -232,6 +252,14 @@ struct ComposerTests {
         expect(state.output == "Generated draft", "unchanged rough notes do not replace the saved draft")
         state.adoptSourceDraft("I edited this in Outlook.")
         expect(state.output == "I edited this in Outlook.", "manual edits become the current draft")
+        let own = "Ready—send it. Thanks for reaching out."
+        state.adoptSourceDraft(own)
+        expect(state.output == own, "the reader's own wording is adopted untouched")
+        expect(state.historyRecord()?.latestDraft == own, "history keeps the reader's own wording")
+        let delivered = QuickActionOutput.preparedForDelivery(
+            state.output, action: .rewrite, toOutlook: false)
+        expect(delivered == own, "delivery returns the reader's own wording")
+        state.adoptSourceDraft("I edited this in Outlook.")
         let count = state.conversation.count
         state.adoptSourceDraft("I edited this in Outlook.\n")
         expect(state.conversation.count == count, "formatting-only differences do not duplicate turns")
@@ -250,7 +278,7 @@ struct ComposerTests {
             .appendingPathComponent("ComposerTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         var clock = Date(timeIntervalSince1970: 1_000_000)
-        let store = RewriteHistoryStore(directory: directory, now: { clock })
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         let context = QuickActionContext(recipient: "Client", subject: "Question", recentThread: nil,
             documentIdentity: "outlook-editor-A")
         let state = QuickActionPanelState(action: .rewrite, original: "", context: context,
@@ -274,7 +302,7 @@ struct ComposerTests {
         if let completed = state.historyRecord(now: clock) { _ = store.save(completed) }
         expect(store.resumableRecord(selection: "Saved draft", context: nil) == nil,
             "matching text in another app cannot resume an Outlook conversation")
-        let reloaded = RewriteHistoryStore(directory: directory, now: { clock })
+        let reloaded = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         reloaded.load()
         expect(reloaded.resumableRecord(selection: "", context: context)?.id == state.historyID,
             "same-editor history matching survives a Tinycast relaunch")
@@ -305,11 +333,27 @@ struct ComposerTests {
             "history matching fingerprints the full quote without sending older messages")
     }
 
+    static func localizedQuoteIsIncluded() {
+        let body = """
+            Signature
+            Am Donnerstag, Kundin schrieb:
+            Neueste Frage
+            Von: Kollege
+            Zweite Frage
+            """
+        let context = QuickActionContext.outlook(body: body, selectedRange: NSRange(location: 0, length: 0),
+            recipient: nil, subject: nil)
+        expect(context?.recentThread?.contains("Neueste Frage") == true,
+            "a reply attribution in another language begins the newest message")
+        expect(context?.recentThread?.contains("Signature") == false,
+            "the draft signature stays out of a localized thread")
+    }
+
     static func updatedThreadKeepsConversation() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ComposerThreadTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = RewriteHistoryStore(directory: directory)
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
         let originalContext = QuickActionContext(
             recipient: "Client <client@example.com>", subject: "Project update",
             recentThread: "From: Client\nFirst question\nFrom: Alex\nEarlier reply")
@@ -453,3 +497,5 @@ struct ComposerTests {
             "vertically arranged displays use the same coordinate space")
     }
 }
+
+private let historyKey = SymmetricKey(size: .bits256)

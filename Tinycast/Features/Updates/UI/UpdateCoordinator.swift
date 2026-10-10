@@ -84,6 +84,9 @@ final class UpdateCoordinator {
             switch outcome {
             case .answered: stage = .upToDate
             case .refused: stage = .failed(.accessRefused)
+            case .missing: stage = .failed(.feedMissing)
+            case .limited: stage = .failed(.rateLimited)
+            case .busy: stage = .failed(.checkInProgress)
             case .unreachable: stage = .failed(.downloadFailed("Tinycast could not reach GitHub."))
             }
         }

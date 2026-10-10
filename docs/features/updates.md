@@ -104,11 +104,16 @@ It holds `lastCheckedAt`, the newest release seen, and the version the user dism
 measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 24 h, dropping to
 2 h after a failed attempt, and the first check waits 30 s so it never lands in the login rush. The
 request carries a `User-Agent`, which the GitHub API rejects requests without, and the update token
-as a bearer credential when one is stored.
+as a bearer credential when one is stored. The download sends the token only when the asset address
+is `https` on `api.github.com`, since that address is read back from this file, and drops it on the
+redirect to signed storage.
 
 GitHub answers 401 for a bad token and 404 for a private repository the request may not read. Both
 are a refusal rather than an outage: Check for Updates reports that access was refused and points at
-the token, where any other failure says GitHub could not be reached.
+the token. A 404 without a stored token means the repository publishes no releases, and says so
+instead of blaming a token the build never had. A 403 or 429 is GitHub's rate limit and asks the
+reader to try again later. A manual check made while another is still in flight reports that a
+check is already running. Any other failure says GitHub could not be reached.
 
 Disabling automatic checks takes effect immediately and survives relaunch. Turning them back on
 resumes the same schedule, with the startup delay and cached check time respected. Check for Updates

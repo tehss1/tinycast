@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 
@@ -6,24 +7,61 @@ import Observation
 final class RewriteHistoryStore {
     private(set) var records: [RewriteHistoryRecord] = []
 
-    static let retention: TimeInterval = 7 * 24 * 60 * 60
+    static let retentionDays = 7
+    static let retention = TimeInterval(retentionDays * 24 * 60 * 60)
 
     @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private let unsealedURL: URL
+    @ObservationIgnored private let keySource: () -> SymmetricKey?
+    /// Asked once: a key arriving after a failed load would let a save replace unread history.
+    @ObservationIgnored private lazy var key: SymmetricKey? = keySource()
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var dayObserver: NotificationToken?
 
-    init(directory: URL, now: @escaping () -> Date = Date.init) {
-        fileURL = directory.appendingPathComponent("rewrite-history.json")
+    init(directory: URL, key: @escaping () -> SymmetricKey?, now: @escaping () -> Date = Date.init) {
+        fileURL = directory.appendingPathComponent("rewrite-history.sealed")
+        unsealedURL = directory.appendingPathComponent("rewrite-history.json")
+        keySource = key
         self.now = now
     }
 
-    /// An unreadable file is a week of drafts at most, so the next save replaces it.
+    /// An unreadable file can never be pruned by age, so it is deleted rather than left to expire.
     func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-            let decoded = try? JSONDecoder().decode([RewriteHistoryRecord].self, from: data)
-        else { return }
+        observeDayChange()
+        try? FileManager.default.removeItem(at: unsealedURL)
+        if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
+        guard let key, let sealed = try? Data(contentsOf: fileURL) else { return }
+        guard let decoded = Self.opened(sealed, with: key) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
         let retained = Self.retained(decoded, now: now())
         records = retained
         if retained.count != decoded.count { _ = persist(retained) }
+    }
+
+    /// Every save rewrites the file, so one this old holds only expired records, key or no key.
+    private var isExpiredOnDisk: Bool {
+        guard let written = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+        else { return false }
+        return now().timeIntervalSince(written) > Self.retention
+    }
+
+    private static func opened(_ sealed: Data, with key: SymmetricKey) -> [RewriteHistoryRecord]? {
+        guard let box = try? AES.GCM.SealedBox(combined: sealed),
+            let data = try? AES.GCM.open(box, using: key)
+        else { return nil }
+        return try? JSONDecoder().decode([RewriteHistoryRecord].self, from: data)
+    }
+
+    private func observeDayChange() {
+        guard dayObserver == nil else { return }
+        let center = NotificationCenter.default
+        let token = center.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.prune() }
+        }
+        dayObserver = NotificationToken(token, center: center)
     }
 
     @discardableResult
@@ -98,16 +136,30 @@ final class RewriteHistoryStore {
     }
 
     private func persist(_ values: [RewriteHistoryRecord]) -> Bool {
+        guard let key else { return false }
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            try encoder.encode(values).write(to: fileURL, options: .atomic)
+            guard let sealed = try AES.GCM.seal(encoder.encode(values), using: key).combined else {
+                return false
+            }
+            try sealed.write(to: fileURL, options: .atomic)
+            try seal()
             return true
         } catch {
             return false
         }
+    }
+
+    /// An atomic write replaces the file, so both attributes are set again after every save.
+    private func seal() throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        var excluded = URLResourceValues()
+        excluded.isExcludedFromBackup = true
+        var url = fileURL
+        try url.setResourceValues(excluded)
     }
 
     private static func retained(

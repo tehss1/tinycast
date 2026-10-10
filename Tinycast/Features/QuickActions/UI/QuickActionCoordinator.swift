@@ -14,6 +14,8 @@ final class QuickActionCoordinator {
     private struct Target {
         var app: NSRunningApplication?
         var note: NoteSelection?
+        var text: ComposerTextTarget?
+        var frame: CGRect?
     }
 
     private let settings: AppSettings
@@ -93,8 +95,8 @@ final class QuickActionCoordinator {
     }
 
     func selectComposerModel(_ option: AIModelOption) {
-        guard running == nil, composerModelGroups.flatMap(\.options).contains(where: { $0.id == option.id })
-        else { return }
+        let offered = composerModelGroups.flatMap(\.options).contains { $0.id == option.id }
+        guard running == nil, offered else { return }
         store.setModelOverride(
             AIModelOption.withDefaultEffort(
                 option.selection, settings: core.aiSettings, subscription: core.chatGPTSubscription,
@@ -112,8 +114,6 @@ final class QuickActionCoordinator {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activeComposer: QuickActionPanelState?
     @ObservationIgnored private var composerApp: Target?
-    @ObservationIgnored private var composerTarget: ComposerTextTarget?
-    @ObservationIgnored private var composerFrame: CGRect?
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
     @ObservationIgnored private var progressOwner: Int?
 
@@ -174,6 +174,7 @@ final class QuickActionCoordinator {
                     symbol: "wand.and.sparkles", confirmTitle: "Continue", tone: .neutral,
                     confirmRole: .standard)
             else { return }
+            guard !settings.quickActionsEnabled else { return }
             settings.quickActionsEnabled = true
             // The one prompt for this feature, raised from the gesture that asked for it.
             Permissions.ensureAccessibility()
@@ -199,6 +200,7 @@ final class QuickActionCoordinator {
                     symbol: "envelope.badge", confirmTitle: "Enable", tone: .neutral,
                     confirmRole: .standard)
             else { return }
+            guard !store.settings.usesOutlookContextForRewrite else { return }
             store.settings.usesOutlookContextForRewrite = true
         }
     }
@@ -302,25 +304,29 @@ final class QuickActionCoordinator {
     }
 
     func cancel() {
-        stopComposer()
-        generation += 1
-        running?.cancel()
-        running = nil
+        halt()
         hideProgress(ownedBy: progressOwner)
         panels.dismiss()
-        activeComposer = nil
-        composerTarget = nil
-        composerFrame = nil
-        composerApp = nil
+        forgetComposer()
     }
 
     private func stopComposer() {
-        guard let activeComposer, activeComposer.isRunning else { return }
+        guard activeComposer?.isRunning == true else { return }
+        halt()
+    }
+
+    private func halt() {
         generation += 1
         running?.cancel()
         running = nil
+        guard let activeComposer, activeComposer.isRunning else { return }
         activeComposer.fail("Stopped. You can edit and send your request again.")
         saveHistory(activeComposer)
+    }
+
+    private func forgetComposer() {
+        activeComposer = nil
+        composerApp = nil
     }
 
     /// The generation stops a superseded task from clearing the newer handle as it finishes.
@@ -335,7 +341,8 @@ final class QuickActionCoordinator {
         }
     }
 
-    private func begin(_ action: QuickAction, target: Target) async {
+    private func begin(_ action: QuickAction, target invoked: Target) async {
+        var target = invoked
         if action == .rewrite { history.prune() }
         let input: QuickActionRunner.Input
         do {
@@ -358,11 +365,11 @@ final class QuickActionCoordinator {
             ? OutlookComposeContextReader.read(in: target.app)
             : nil
         let context = capture?.context
-        composerTarget = capture?.target
-        composerFrame = action == .rewrite
-            ? ComposerPlacementReader.frame(in: target.app, editor: capture?.target.editor) : nil
-        composerApp = target
-        activeComposer = nil
+        if action == .rewrite {
+            target.text = capture?.target
+            target.frame = ComposerPlacementReader.frame(
+                in: target.app, editor: capture?.target.editor)
+        }
         let selection = switch input {
         case .selection(let text): text
         case .insertionPoint: ""
@@ -379,7 +386,8 @@ final class QuickActionCoordinator {
                 if let draft = textTarget.draft {
                     state.adoptSourceDraft(draft)
                 } else {
-                    state.replacementIssue = "Select the draft in Outlook and reopen Composer to replace it."
+                    state.replacementIssue =
+                        "Select the draft in Outlook and reopen Composer to replace it."
                 }
             } else {
                 state.replacementIssue = "Reopen Composer in the Outlook draft before replacing it."
@@ -402,7 +410,8 @@ final class QuickActionCoordinator {
         if action == .rewrite, store.settings.usesOutlookContextForRewrite,
             OutlookComposeContextReader.isOutlook(target.app), capture == nil
         {
-            state.replacementIssue = "Couldn't capture this Outlook draft. Reopen Composer to try again."
+            state.replacementIssue =
+                "Couldn't capture this Outlook draft. Reopen Composer to try again."
         }
         if input == .insertionPoint {
             present(state, target: target)
@@ -449,7 +458,7 @@ final class QuickActionCoordinator {
                 return
             }
             deliver(
-                text, to: target, action: state.action, textTarget: composerTarget,
+                state.output, to: target, action: state.action, textTarget: target.text,
                 insertsAtCaret: state.insertsAtCaret)
         } catch is CancellationError {
             return
@@ -471,7 +480,7 @@ final class QuickActionCoordinator {
         guard !previewing else { return try await generate(state, streaming: true) }
         let owner = generation
         progressOwner = owner
-        core.showProgress(state.action.progressTitle)
+        core.showProgress(state.action.progressTitle, onCancel: { [weak self] in self?.cancel() })
         defer { hideProgress(ownedBy: owner) }
         return try await generate(state, streaming: false)
     }
@@ -497,7 +506,8 @@ final class QuickActionCoordinator {
             selectionIsWritingInstruction: state.originalIsWritingInstruction,
             audience: state.action == .rewrite ? composerAudience(for: state) : nil,
             onDelta: { delta in
-                guard streaming, requestGeneration == self.generation, state.isRunning else { return }
+                guard streaming, requestGeneration == self.generation, state.isRunning
+                else { return }
                 state.append(delta)
             })
     }
@@ -524,6 +534,7 @@ final class QuickActionCoordinator {
             core.showMessage("\(action.title) applied")
             return
         }
+        let verb = insertsAtCaret ? "insert" : "replace"
         injector.replaceSelection(
             with: deliveredText, in: target.app,
             prepareTarget: { textTarget?.prepare(in: target.app) ?? true },
@@ -532,7 +543,7 @@ final class QuickActionCoordinator {
                 Paster.copyPlainText(deliveredText)
                 self?.core.showMessage(
                     textTarget?.preparationFailure?.message
-                        ?? "\(action.title) couldn't \(insertsAtCaret ? "insert" : "replace") the draft. Draft copied.",
+                        ?? "\(action.title) couldn't \(verb) the draft. Draft copied.",
                     tone: .danger)
             })
     }
@@ -547,11 +558,7 @@ final class QuickActionCoordinator {
     }
 
     private func present(_ state: QuickActionPanelState, target: Target) {
-        if state.action == .rewrite {
-            activeComposer = state
-            composerApp = target
-        }
-        let textTarget = composerTarget
+        if state.action == .rewrite { track(state, target: target) } else { forgetComposer() }
         panels.present(
             state,
             coordinator: self,
@@ -559,7 +566,7 @@ final class QuickActionCoordinator {
             palette: core.palette,
             metrics: settings.interfaceSize.metrics,
             languages: offeredLanguages,
-            sourceFrame: state.action == .rewrite ? composerFrame : nil,
+            sourceFrame: target.frame,
             onRetranslate: { [weak self] language in
                 state.targetLanguage = language
                 self?.rerun(state, target: target)
@@ -577,7 +584,7 @@ final class QuickActionCoordinator {
             },
             onReplace: { [weak self] text in
                 self?.deliver(
-                    text, to: target, action: state.action, textTarget: textTarget,
+                    text, to: target, action: state.action, textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret)
             })
     }
@@ -589,32 +596,39 @@ final class QuickActionCoordinator {
         }
         if id == currentID {
             pendingSave?.cancel()
-            generation += 1
-            running?.cancel()
-            running = nil
+            forgetComposer()
+            halt()
             panels.dismiss(preservingDraft: false)
-            activeComposer = nil
-            composerTarget = nil
-            composerFrame = nil
-            composerApp = nil
         }
         return true
     }
 
     private func rerun(_ state: QuickActionPanelState, target: Target) {
+        track(state, target: target)
         state.restart()
         start { [weak self] in await self?.perform(state, target: target, previewing: true) }
+    }
+
+    private func track(_ state: QuickActionPanelState, target: Target) {
+        guard state.action == .rewrite else { return }
+        activeComposer = state
+        composerApp = target
     }
 
     private func refine(
         _ state: QuickActionPanelState, target: Target
     ) {
+        track(state, target: target)
         if state.needsInitialRequest, state.originalIsWritingInstruction {
             guard state.beginInitialRewrite() != nil else { return }
             saveHistory(state)
             start { [weak self] in
                 await self?.perform(state, target: target, previewing: true)
             }
+            return
+        }
+        if state.retriesOriginalRequest {
+            rerun(state, target: target)
             return
         }
         guard let input = state.beginRefinement() else { return }

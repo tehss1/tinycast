@@ -11,20 +11,22 @@ struct QuickActionContext: Equatable, Sendable {
         recipient == nil && subject == nil && recentThread == nil
     }
 
+    var isComplete: Bool {
+        recentThread != nil && recipient != nil && subject != nil
+    }
+
     var captureTitle: String {
-        if recentThread != nil, recipient != nil, subject != nil { return "Email context captured" }
+        if isComplete { return "Email context captured" }
         return isEmpty ? "Email context unavailable" : "Partial email context"
     }
 
     static func outlookRecipients(from candidates: [String]) -> String? {
-        let pattern = #"[\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-]+@[\p{L}\p{N}](?:[\p{L}\p{N}.-]*[\p{L}\p{N}])?"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
         var addresses: [String] = []
         var labels: [String: String] = [:]
         for candidate in candidates {
-            let matches = expression.matches(in: candidate, range: NSRange(candidate.startIndex..., in: candidate))
+            let matches = EmailAddressPattern.matches(in: candidate)
             for match in matches {
-                guard let range = Range(match.range, in: candidate) else { continue }
+                let range = match.range
                 let address = String(candidate[range])
                 let key = address.lowercased()
                 var name = ""
@@ -49,22 +51,13 @@ struct QuickActionContext: Equatable, Sendable {
         guard !isEmpty || documentIdentity != nil else { return nil }
         let material = [recipient ?? "", subject ?? "", recentThread ?? documentIdentity ?? ""]
             .joined(separator: "\u{1f}")
-        return Self.fingerprint(material)
+        return TextFingerprint.of(material)
     }
 
     var historyFingerprints: [String] {
         if !threadFingerprints.isEmpty { return threadFingerprints }
         guard let recentThread else { return [] }
-        return Self.messageSections(in: recentThread).map(Self.fingerprint)
-    }
-
-    private static func fingerprint(_ material: String) -> String {
-        var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in material.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return String(hash, radix: 16)
+        return Self.messageSections(in: recentThread).map(TextFingerprint.of)
     }
 
     private static func messageSections(in thread: String) -> [String] {
@@ -101,7 +94,7 @@ struct QuickActionContext: Equatable, Sendable {
     private static func allThreadFingerprints(in suffix: String) -> [String] {
         let lines = suffix.components(separatedBy: .newlines)
         guard let start = lines.firstIndex(where: isMessageBoundary) else { return [] }
-        return messageSections(in: lines[start...].joined(separator: "\n")).map(fingerprint)
+        return messageSections(in: lines[start...].joined(separator: "\n")).map(TextFingerprint.of)
     }
 
     /// Outlook puts sender headers after the draft signature; the third begins older history.
@@ -124,10 +117,17 @@ struct QuickActionContext: Equatable, Sendable {
         return String(compact.prefix(maximumThreadCharacters))
     }
 
+    /// Outlook writes the quoted header in the sender's display language, not the reader's.
+    private static let senderLabels = ["From:", "Von:", "De:", "Da:", "Van:", "Från:", "Fra:", "Od:"]
+    private static let replyAttributions = [
+        " schrieb:", " a écrit :", " escribió:", " ha scritto:", " escreveu:", " schreef:"
+    ]
+
     private static func isMessageBoundary(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        return trimmed.hasPrefix("From:")
+        return senderLabels.contains { trimmed.hasPrefix($0) }
             || (trimmed.hasPrefix("On ") && trimmed.hasSuffix(" wrote:"))
+            || replyAttributions.contains { trimmed.hasSuffix($0) }
     }
 
     private static func collapseBlankLines(_ value: String) -> String {

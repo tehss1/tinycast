@@ -189,60 +189,58 @@ enum QuickActionOutput {
     /// Composer inserts into an existing body, so a model-generated subject has nowhere valid to go.
     static func composerBody(in text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let colon = trimmed.firstIndex(of: ":") else {
-            return guardedNaturalVoice(in: text)
-        }
+        guard let colon = trimmed.firstIndex(of: ":") else { return text }
         let lineBreak = trimmed.firstIndex(where: \.isNewline)
-        if let lineBreak, colon >= lineBreak { return guardedNaturalVoice(in: text) }
+        if let lineBreak, colon >= lineBreak { return text }
 
         let markers = CharacterSet.whitespacesAndNewlines
             .union(CharacterSet(charactersIn: "#*_"))
         let label = String(trimmed[..<colon]).trimmingCharacters(in: markers).lowercased()
-        guard label == "subject" || label == "subject line" else {
-            return guardedNaturalVoice(in: text)
-        }
+        guard label == "subject" || label == "subject line" else { return text }
         guard let lineBreak else { return "" }
-        let body = String(trimmed[trimmed.index(after: lineBreak)...])
+        return String(trimmed[trimmed.index(after: lineBreak)...])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return guardedNaturalVoice(in: body)
     }
 
-    /// Prompt rules are the first line of defense. These narrow repairs also protect pasted output
-    /// when a provider ignores them, without paraphrasing technical details or changing names.
-    private static func guardedNaturalVoice(in text: String) -> String {
+    /// Only ever for what a model wrote: run on the reader's own draft, it would rewrite their words.
+    static func naturalVoice(in text: String) -> String {
         var result = text
-        let clauseStarters = [
-            ("i", "I"), ("we", "We"), ("you", "You"), ("he", "He"), ("she", "She"),
-            ("they", "They"), ("it", "It"), ("this", "This"), ("that", "That"),
-            ("these", "These"), ("those", "Those"), ("there", "There"),
-        ]
-        for (word, capitalized) in clauseStarters {
-            result = result.replacingOccurrences(
-                of: "[ \\t]*—[ \\t]*(?i:\\b\(word)\\b)", with: ". \(capitalized)",
-                options: .regularExpression)
+        for repair in dashRepairs {
+            result = repair.pattern.stringByReplacingMatches(
+                in: result, range: NSRange(result.startIndex..., in: result),
+                withTemplate: repair.replacement)
         }
-        result = result.replacingOccurrences(
-            of: "[ \\t]*—[ \\t]*", with: ", ", options: .regularExpression)
 
-        let openers = [
-            "I hope this email finds you well.",
-            "I hope this message finds you well.",
-            "I trust this email finds you well.",
-            "I trust this message finds you well.",
-        ]
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let opener = openers.first(where: {
-            trimmed.lowercased().hasPrefix($0.lowercased())
-        }) {
+        let lowered = trimmed.lowercased()
+        if let opener = stockOpeners.first(where: { lowered.hasPrefix($0) }) {
             result = String(trimmed.dropFirst(opener.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        result = result.replacingOccurrences(
+        return result.replacingOccurrences(
             of: "Please do not hesitate to reach out if you have any questions.",
             with: "Let me know if you have any questions.", options: .caseInsensitive)
-        return result
     }
+
+    private static let dashRepairs: [(pattern: NSRegularExpression, replacement: String)] = {
+        let clauseStarters = [
+            "I", "We", "You", "He", "She", "They", "It", "This", "That", "These", "Those", "There",
+        ]
+        let repairs = clauseStarters.map { ("[ \\t]*—[ \\t]*\\b\($0)\\b", ". \($0)") }
+            + [("[ \\t]*—[ \\t]*", ", ")]
+        return repairs.compactMap { pattern, replacement in
+            (try? NSRegularExpression(pattern: pattern, options: .caseInsensitive))
+                .map { ($0, replacement) }
+        }
+    }()
+
+    private static let stockOpeners = [
+        "i hope this email finds you well.",
+        "i hope this message finds you well.",
+        "i trust this email finds you well.",
+        "i trust this message finds you well.",
+    ]
 
     static func preparedForDelivery(
         _ text: String, action: QuickAction, toOutlook: Bool,

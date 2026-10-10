@@ -24,7 +24,7 @@ enum ReleaseFeed {
         guard let raw = info?[repositoryInfoKey] as? String else { return defaultRepository }
         let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = candidate.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }),
+        guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
             candidate.unicodeScalars.allSatisfy({ repositoryCharacters.contains($0) })
         else { return defaultRepository }
         return candidate
@@ -34,24 +34,33 @@ enum ReleaseFeed {
         URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=20")!
     }
 
-    /// What asking for the feed came to; a refusal is kept apart because only a token fixes it.
+    /// The asset address comes from feed JSON kept in a cache file, so it is not trusted blind.
+    static func acceptsToken(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host() == "api.github.com"
+    }
+
+    /// What asking for the feed came to; each failure is kept apart because each has its own fix.
     enum Response: Sendable, Equatable {
         case body(Data)
         case refused
+        case missing
+        case limited
         case unreachable
 
-        /// GitHub answers 404, not 403, for a private repository the request may not read.
-        init(status: Int, data: Data) {
+        /// GitHub answers 404 for a private repository too, so only a sent token makes it a refusal.
+        init(status: Int, data: Data, authorized: Bool) {
             switch status {
             case 200: self = .body(data)
-            case 401, 404: self = .refused
+            case 401: self = .refused
+            case 404: self = authorized ? .refused : .missing
+            case 403, 429: self = .limited
             default: self = .unreachable
             }
         }
     }
 
-    private static let repositoryCharacters = CharacterSet.alphanumerics.union(
-        CharacterSet(charactersIn: "-._/"))
+    private static let repositoryCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._/")
 
     /// The only artifact with an x86_64 slice, so the only one an Intel Mac can install.
     private static let universalMarker = "-Universal-"

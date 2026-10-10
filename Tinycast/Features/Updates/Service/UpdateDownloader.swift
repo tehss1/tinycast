@@ -24,7 +24,9 @@ enum UpdateDownloader {
             request.setValue("Tinycast", forHTTPHeaderField: "User-Agent")
             // Without it the asset's API address answers with JSON describing the file.
             request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-            if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            if let token, ReleaseFeed.acceptsToken(release.assetURL) {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
             let task = session.downloadTask(with: request)
             continuation.onTermination = { _ in
                 task.cancel()
@@ -90,7 +92,7 @@ private final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked S
     ) {
         var request = request
         // The asset redirects to signed storage on another host, which must never see the token.
-        if request.url?.host != task.originalRequest?.url?.host {
+        if request.url?.host != task.originalRequest?.url?.host || request.url?.scheme != "https" {
             request.setValue(nil, forHTTPHeaderField: "Authorization")
         }
         completionHandler(request)

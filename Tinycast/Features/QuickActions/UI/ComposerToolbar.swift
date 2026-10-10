@@ -10,7 +10,7 @@ struct ComposerToolbar: View {
     var body: some View {
         HStack(spacing: metrics.spacing.md) {
             Button {
-                toggle(.context)
+                ComposerToolbar.toggle(.context, state: state, coordinator: coordinator)
             } label: {
                 HStack(spacing: metrics.spacing.sm) {
                     SymbolImage(name: contextSymbol, size: metrics.size.quickActionHeaderIcon)
@@ -20,7 +20,8 @@ struct ComposerToolbar: View {
             }
             .accessibilityLabel("\(contextTitle). Show captured context")
 
-            control(audienceTitle, label: "Audience tone", accessory: .audience)
+            ComposerAccessoryButton(
+                title: audienceTitle, label: "Audience tone", accessory: .audience, state: state)
             Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
@@ -35,7 +36,7 @@ struct ComposerToolbar: View {
     }
 
     private var contextSymbol: String {
-        state.context?.captureTitle == "Email context captured" && isViewingActive
+        state.context?.isComplete == true && isViewingActive
             ? "checkmark.circle" : "info.circle"
     }
 
@@ -44,45 +45,40 @@ struct ComposerToolbar: View {
         return state.audienceOverride == nil ? title : "\(title) (Manual)"
     }
 
-    private func control(
-        _ title: String, label: String, accessory: QuickActionPanelState.Accessory
-    ) -> some View {
-        Button { toggle(accessory) } label: {
-            HStack(spacing: metrics.spacing.sm) {
-                Text(title).lineLimit(1).truncationMode(.middle)
-                SymbolImage(name: "chevron.down", size: metrics.size.quickActionHeaderIcon)
-            }
-            .padding(.horizontal, metrics.spacing.md)
-            .frame(height: metrics.size.barButtonHeight)
-            .background(Theme.Colors.controlSurface,
-                in: RoundedRectangle(cornerRadius: metrics.radius.barControl, style: .continuous))
-        }
-        .accessibilityLabel("\(label): \(title)")
-        .disabled(state.isRunning)
+    private static let checkmark = "✓"
+
+    private static func mark(_ isChosen: Bool) -> String? {
+        isChosen ? checkmark : nil
     }
 
-    private func toggle(_ accessory: QuickActionPanelState.Accessory) {
+    static func toggle(
+        _ accessory: QuickActionPanelState.Accessory, state: QuickActionPanelState,
+        coordinator: QuickActionCoordinator
+    ) {
+        if accessory == .model { coordinator.prepareComposerModels() }
         state.accessory = state.accessory == accessory ? nil : accessory
-        state.accessorySelection = ComposerToolbar.menuItems(state: state, coordinator: coordinator)
-            .firstIndex { $0.detail == "✓" } ?? 0
+        state.accessorySelection = menuItems(state: state, coordinator: coordinator)
+            .firstIndex { $0.detail == checkmark } ?? 0
     }
 
-    static func menuItems(state: QuickActionPanelState, coordinator: QuickActionCoordinator) -> [PopoverMenuItem] {
+    static func menuItems(
+        state: QuickActionPanelState, coordinator: QuickActionCoordinator
+    ) -> [PopoverMenuItem] {
         switch state.accessory {
         case .audience:
             let detected = coordinator.detectedComposerAudience(for: state)
             return [
                 PopoverMenuItem(
                     title: "Automatic (\(detected.title))", icon: .blank,
-                    detail: state.audienceOverride == nil ? "✓" : nil
+                    detail: mark(state.audienceOverride == nil)
                 ) { coordinator.selectComposerAudience(nil, for: state) },
                 PopoverMenuItem(
                     title: "Internal", icon: .blank,
-                    detail: state.audienceOverride == .internalRecipients ? "✓" : nil
+                    detail: mark(state.audienceOverride == .internalRecipients)
                 ) { coordinator.selectComposerAudience(.internalRecipients, for: state) },
                 PopoverMenuItem(
                     title: "External", icon: .blank,
-                    detail: state.audienceOverride == .externalRecipients ? "✓" : nil
+                    detail: mark(state.audienceOverride == .externalRecipients)
                 ) { coordinator.selectComposerAudience(.externalRecipients, for: state) }
             ]
         case .model:
@@ -90,7 +86,7 @@ struct ComposerToolbar: View {
                 group.options.enumerated().map { index, option in
                     PopoverMenuItem(title: option.title, icon: option.menuIcon,
                         sectionTitle: index == 0 ? group.title : nil,
-                        detail: coordinator.composerModel.map { option.matches($0) } == true ? "✓" : nil
+                        detail: mark(coordinator.composerModel.map { option.matches($0) } == true)
                     ) { coordinator.selectComposerModel(option) }
                 }
             }
@@ -100,7 +96,7 @@ struct ComposerToolbar: View {
         case .reasoning:
             return coordinator.composerEfforts.map { effort in
                 PopoverMenuItem(title: effort.title, icon: .blank,
-                    detail: coordinator.composerModel?.effort == effort.id ? "✓" : nil
+                    detail: mark(coordinator.composerModel?.effort == effort.id)
                 ) { coordinator.selectComposerEffort(effort) }
             }
         default: return []
@@ -189,13 +185,17 @@ struct ComposerToolbar: View {
             }
             guard let context = state.context else {
                 return coordinator.usesOutlookContext
-                    ? "No Outlook email context was captured. Focus the reply body in Outlook and reopen Composer."
-                    : "Outlook context is off. Enable Use Outlook context for Composer in Quick Actions settings."
+                    ? "No Outlook email context was captured. "
+                        + "Focus the reply body in Outlook and reopen Composer."
+                    : "Outlook context is off. "
+                        + "Enable Use Outlook context for Composer in Quick Actions settings."
             }
-            return "Snapshot from when Composer opened. Only the captured text below accompanies your request.\n\n"
+            let thread = context.recentThread ?? "No quoted messages captured. This may be a new email."
+            return "Snapshot from when Composer opened. "
+                + "Only the captured text below accompanies your request.\n\n"
                 + "Recipients: \(context.recipient ?? "Not captured")\n\n"
                 + "Subject: \(context.subject ?? "Not captured")\n\n"
-                + "Recent messages:\n\(context.recentThread ?? "No quoted messages captured. This may be a new email.")"
+                + "Recent messages:\n\(thread)"
         }
     }
 }
@@ -207,9 +207,13 @@ struct ComposerModelControls: View {
 
     var body: some View {
         HStack(spacing: metrics.spacing.md) {
-            control(coordinator.composerModelTitle, label: "Composer model", accessory: .model)
+            ComposerAccessoryButton(
+                title: coordinator.composerModelTitle, label: "Composer model", accessory: .model,
+                state: state)
             if !coordinator.composerEfforts.isEmpty {
-                control(coordinator.composerEffortTitle, label: "Reasoning level", accessory: .reasoning)
+                ComposerAccessoryButton(
+                    title: coordinator.composerEffortTitle, label: "Reasoning level",
+                    accessory: .reasoning, state: state)
             }
         }
         .buttonStyle(.plain)
@@ -221,10 +225,20 @@ struct ComposerModelControls: View {
                 + "Chat settings are unchanged.")
     }
 
-    private func control(
-        _ title: String, label: String, accessory: QuickActionPanelState.Accessory
-    ) -> some View {
-        Button { toggle(accessory) } label: {
+}
+
+struct ComposerAccessoryButton: View {
+    @Environment(QuickActionCoordinator.self) private var coordinator
+    @Environment(\.metrics) private var metrics
+    let title: String
+    let label: String
+    let accessory: QuickActionPanelState.Accessory
+    let state: QuickActionPanelState
+
+    var body: some View {
+        Button {
+            ComposerToolbar.toggle(accessory, state: state, coordinator: coordinator)
+        } label: {
             HStack(spacing: metrics.spacing.sm) {
                 Text(title).lineLimit(1).truncationMode(.middle)
                 SymbolImage(name: "chevron.down", size: metrics.size.quickActionHeaderIcon)
@@ -235,12 +249,6 @@ struct ComposerModelControls: View {
                 in: RoundedRectangle(cornerRadius: metrics.radius.barControl, style: .continuous))
         }
         .accessibilityLabel("\(label): \(title)")
-    }
-
-    private func toggle(_ accessory: QuickActionPanelState.Accessory) {
-        if accessory == .model { coordinator.prepareComposerModels() }
-        state.accessory = state.accessory == accessory ? nil : accessory
-        state.accessorySelection = ComposerToolbar.menuItems(state: state, coordinator: coordinator)
-            .firstIndex { $0.detail == "✓" } ?? 0
+        .disabled(state.isRunning)
     }
 }

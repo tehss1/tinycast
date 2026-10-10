@@ -77,8 +77,16 @@ final class QuickActionPanelState {
 
     var canRefine: Bool {
         action == .rewrite && (phase == .finished || needsInitialRequest)
-            && (!refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || canDraftFromContext)
+            && (hasInstruction || canDraftFromContext || retriesOriginalRequest)
+    }
+
+    /// A selected draft that never got a reply is its own request, so retrying needs no words.
+    var retriesOriginalRequest: Bool {
+        isInitialFailure && !originalIsWritingInstruction && !hasInstruction
+    }
+
+    private var hasInstruction: Bool {
+        !refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var canDraftFromContext: Bool {
@@ -208,9 +216,11 @@ final class QuickActionPanelState {
     }
 
     func finish(_ text: String) {
-        let completed = action == .rewrite ? QuickActionOutput.composerBody(in: text) : text
+        let completed = action == .rewrite
+            ? QuickActionOutput.naturalVoice(in: QuickActionOutput.composerBody(in: text)) : text
         output = completed
         phase = .finished
+        cachedDiff = nil
         refinementInstruction = ""
         previousOutput = nil
         submittedInstruction = nil
@@ -234,9 +244,7 @@ final class QuickActionPanelState {
         refinementInstruction = submittedInstruction ?? refinementInstruction
         submittedInstruction = nil
         guard action == .rewrite else { return }
-        if refinementInstruction.isEmpty, output.isEmpty {
-            refinementInstruction = originalIsWritingInstruction ? original : "Try again."
-        }
+        if refinementInstruction == Self.contextOnlyInstruction { refinementInstruction = "" }
         if conversation.last?.role == .assistant && conversation.last?.state == .streaming {
             let assistant = conversation.count - 1
             conversation[assistant].text = message

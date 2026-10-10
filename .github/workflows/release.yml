@@ -433,3 +433,30 @@ jobs:
             git commit -m "${CASK} ${VERSION}"
             git push
           fi
+
+  # A fork's release is dispatched unattended by the upstream sync, so a failed build needs a reader.
+  report:
+    needs: [build, universal]
+    if: ${{ always() && github.repository != 'abue-ammar/tinycast' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.version }}
+          CHANNEL: ${{ github.event.inputs.channel }}
+        run: |
+          TITLE="Tinycast ${VERSION} (${CHANNEL}) failed to release"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh label create release-failure --repo "$GITHUB_REPOSITORY" --force \
+            --description "Opened by a failed Release run"
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label release-failure \
+            --json title --jq "[.[] | select(.title == \"${TITLE}\")] | length")"
+          if [ "$EXISTING" != "0" ]; then exit 0; fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --assignee "$GITHUB_REPOSITORY_OWNER" \
+            --label release-failure --title "$TITLE" \
+            --body "The Release workflow did not finish: ${RUN_URL}
+
+          Re-run it from the Actions tab once the cause is fixed, then close this issue."

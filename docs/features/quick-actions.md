@@ -78,7 +78,8 @@ selectable Markdown renderer with AI Chat.
 - **Outlook context is narrow and separately consented.** The optional Composer toggle reads the
   current compose window only after the reader runs Composer in Outlook. It adds the To, Cc and Bcc
   recipients, subject and at most the two newest quoted messages to the request, skips the draft signature and
-  older history, and captures that snapshot once when the shortcut is pressed. Selected-text Composer
+  older history, and captures that snapshot once when the shortcut is pressed. Quoted messages are
+  found by their header, in the common languages Outlook writes it in, not English alone. Selected-text Composer
   captures the selected draft boundaries. Caret-first Composer captures the insertion point.
   `ComposerDraftAnchor` stores fingerprints of the surrounding text so later replacements cover the
   draft without duplicating it. Caret-first Insert keeps Outlook's signature boundary untouched,
@@ -96,9 +97,14 @@ selectable Markdown renderer with AI Chat.
   that override follows the conversation through its seven-day history. The configured domains are
   excluded from settings backups because they identify an organization and change model behavior.
 - **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
-  to `rewrite-history.json` under the bundle-specific Application Support directory. Opening Composer,
-  saving a transcript or launching the app removes records whose latest revision is older than seven
-  days. Running Composer again on the same Outlook email restores its transcript and latest completed
+  to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
+  AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. When Keychain cannot supply the key the
+  history is neither read nor written, and a new key is made only when none exists. Opening Composer,
+  saving a transcript, launching the app or the calendar day changing removes records whose latest
+  revision is older than seven days. The file is readable only by its owner and excluded from
+  backups, and a file that no longer opens or decodes is deleted because it could never expire by age.
+  A file last written more than seven days ago is deleted at launch without its key, since every
+  save rewrites it. Running Composer again on the same Outlook email restores its transcript and latest completed
   draft without another model request. Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. Overlapping quoted messages keep one
   conversation together when a new reply changes the snapshot. A matched email keeps one conversation. If older records

@@ -64,7 +64,12 @@ CHANGELOG="$(printf '%s\n' "$GENERATED" | sed -E \
     else
         printf '%s\n' "This customized build updates through Tinycast's in-app updater. Install releases from this repository so the custom features and signing identity remain intact."
     fi
-    printf '%s\n' "This build is self-signed. If you download the DMG directly instead of using Homebrew, macOS will refuse to open it until you clear the quarantine flag once:"
+    if [ "$REPO" = "$UPSTREAM_REPO" ]; then
+        DIRECT_DOWNLOAD="If you download the DMG directly instead of using Homebrew"
+    else
+        DIRECT_DOWNLOAD="The first time you install from the DMG"
+    fi
+    printf '%s\n' "This build is self-signed. ${DIRECT_DOWNLOAD}, macOS will refuse to open it until you clear the quarantine flag once:"
     printf '```sh\nxattr -dr com.apple.quarantine "/Applications/%s.app"\n```\n' "$DISPLAY_NAME"
 } > "$BODY_OUT"
 

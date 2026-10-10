@@ -45,7 +45,7 @@ struct QuickActionHistorySidebar: View {
                 .padding(.bottom, metrics.spacing.md)
             }
             .scrollBounceBehavior(.basedOnSize)
-            Text("Kept for 7 days")
+            Text("Kept for \(RewriteHistoryStore.retentionDays) days")
                 .font(metrics.typography.keyCap)
                 .foregroundStyle(Theme.Colors.textTertiary)
                 .padding(.horizontal, metrics.spacing.xl)
@@ -74,8 +74,9 @@ struct QuickActionHistorySidebar: View {
                         Spacer(minLength: 0)
                         timestamp
                     }
-                    if !record.preview.isEmpty {
-                        Text(record.preview)
+                    let preview = record.preview
+                    if !preview.isEmpty {
+                        Text(preview)
                             .font(metrics.typography.keyCap)
                             .foregroundStyle(Theme.Colors.textTertiary)
                             .lineLimit(2)
@@ -95,9 +96,15 @@ struct QuickActionHistorySidebar: View {
         }
 
         private var timestamp: some View {
-            Text(current ? "Now" : record.updatedAt.formatted(date: .omitted, time: .shortened))
+            Text(current ? "Now" : age)
                 .font(metrics.typography.keyCap)
                 .foregroundStyle(Theme.Colors.textTertiary)
+        }
+
+        private var age: String {
+            Calendar.current.isDateInToday(record.updatedAt)
+                ? record.updatedAt.formatted(date: .omitted, time: .shortened)
+                : record.updatedAt.formatted(.dateTime.weekday(.abbreviated))
         }
 
         private var rowFill: Color {
