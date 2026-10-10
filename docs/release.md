@@ -103,6 +103,11 @@ download. Do not relax `BundleSignature` to work around a mismatch.
 The fork does not update the official Homebrew tap or send official Discord announcements. Install
 the first customized release manually. Later customized releases arrive through Check for Updates.
 
+A fork may be private. Its updater then needs a GitHub token that can read the repository's
+contents, pasted once into Settings → General → Update token; see
+[updates.md](features/updates.md). A private repository spends the account's Actions minutes on the
+macOS release and test jobs.
+
 A stable run then fans out to a second job, `universal`, which rebuilds the same commit with
 `ARCHS="arm64 x86_64"` and attaches `Tinycast-Universal-<version>.dmg` / `.zip` to the release the
 first job created, then bumps `tinycast-universal`. macOS 26 is the last release that boots on Intel,

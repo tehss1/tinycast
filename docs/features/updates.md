@@ -65,6 +65,11 @@ no appcast: the release feed the website already reads is the feed the app reads
   plain and `ReleaseNotes` spells them as Markdown links on the way to the window. Both point at
   `ReleaseFeed.repository`. Official builds read `abue-ammar/tinycast`; fork workflows stamp their
   own repository into `TinycastUpdateRepository` at build time.
+- **A private fork's token lives in Keychain and nowhere else.** Settings → General → Update token
+  appears only in a build stamped with its own repository, and stores a read-only GitHub token under
+  the `update-token` Keychain scope. It is never written to preferences, `settings.json`, a backup or
+  the update cache. It is sent to `api.github.com` alone: the asset download redirects to signed
+  storage on another host, and the downloader strips `Authorization` before following.
 
 ## Channel and version
 
@@ -98,7 +103,12 @@ self-rescheduling pump, and one atomic JSON file.
 It holds `lastCheckedAt`, the newest release seen, and the version the user dismissed. Freshness is
 measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 24 h, dropping to
 2 h after a failed attempt, and the first check waits 30 s so it never lands in the login rush. The
-request carries a `User-Agent`, which the GitHub API rejects requests without.
+request carries a `User-Agent`, which the GitHub API rejects requests without, and the update token
+as a bearer credential when one is stored.
+
+GitHub answers 401 for a bad token and 404 for a private repository the request may not read. Both
+are a refusal rather than an outage: Check for Updates reports that access was refused and points at
+the token, where any other failure says GitHub could not be reached.
 
 Disabling automatic checks takes effect immediately and survives relaunch. Turning them back on
 resumes the same schedule, with the startup delay and cached check time respected. Check for Updates
@@ -112,7 +122,8 @@ Check for Updates ignores the record and always offers whatever is newer than wh
 One route, whatever the install came from:
 
 1. Stream the zip into `~/Library/Caches/<bundle-id>/Updates/`, with real byte progress and a Cancel
-   that actually aborts the transfer.
+   that actually aborts the transfer. The address is the asset's API `url`, asked for as
+   `application/octet-stream`, because the browser download address cannot serve a private asset.
 2. `ditto -x -k` it into a staging folder, and take whatever `.app` lands there — the bundle is named
    for its channel, so it is `Tinycast Beta.app` on beta.
 3. Check quarantine natively; clear it if somehow present, and refuse the update if it survives.

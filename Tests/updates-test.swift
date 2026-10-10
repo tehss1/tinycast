@@ -25,6 +25,7 @@ struct UpdatesTests {
         picksNewestForChannel()
         picksTheZipThisMacCanRun()
         rejectsUnusableFeeds()
+        tellsARefusalFromAnOutage()
         offersOnlyWhatIsWorthInstalling()
         pinsTheDeveloperIDRequirement()
         keepsOnlyTheChangelog()
@@ -184,7 +185,7 @@ struct UpdatesTests {
         let list = assets.map {
             """
             {"name":"\($0)","size":1024,
-             "browser_download_url":"https://example.invalid/\($0)"}
+             "url":"https://example.invalid/\($0)"}
             """
         }
         return """
@@ -217,6 +218,25 @@ struct UpdatesTests {
         expect(
             ReleaseFeed.newest(from: body, channel: .development, architecture: .appleSilicon) == nil,
             "a local build is offered nothing, however new the feed is")
+    }
+
+    static func tellsARefusalFromAnOutage() {
+        let body = Data("[]".utf8)
+        expect(ReleaseFeed.Response(status: 200, data: body) == .body(body), "200 carries the feed")
+        expect(ReleaseFeed.Response(status: 401, data: body) == .refused, "a bad token is a refusal")
+        expect(
+            ReleaseFeed.Response(status: 404, data: body) == .refused,
+            "a private repository hidden from the request is a refusal")
+        expect(
+            ReleaseFeed.Response(status: 403, data: body) == .unreachable,
+            "a rate limit is an outage, not a missing token")
+        expect(ReleaseFeed.Response(status: 503, data: body) == .unreachable, "a server error is an outage")
+        expect(
+            ReleaseFeed.newest(
+                from: feed(entry(tag: "v0.3.0", prerelease: false, assets: ["Tinycast-0.3.0.zip"])),
+                channel: .stable, architecture: .appleSilicon)?.assetURL.absoluteString
+                == "https://example.invalid/Tinycast-0.3.0.zip",
+            "the asset is fetched from its API address")
     }
 
     static func rejectsUnusableFeeds() {

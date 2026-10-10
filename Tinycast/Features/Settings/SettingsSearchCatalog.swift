@@ -128,6 +128,9 @@ enum SettingsSearchCatalog {
             .generalGeneral, "Automatically check for updates",
             keywords: ["software", "update", "automatic", "disable", "popup"]),
         .init(
+            .generalGeneral, "Update token",
+            keywords: ["github", "private", "fork", "access", "keychain"]),
+        .init(
             .generalGeneral, "Pop to Root Search",
             keywords: ["reset", "timeout", "back"]),
         .init(

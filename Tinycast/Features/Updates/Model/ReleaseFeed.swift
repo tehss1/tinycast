@@ -34,6 +34,22 @@ enum ReleaseFeed {
         URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=20")!
     }
 
+    /// What asking for the feed came to; a refusal is kept apart because only a token fixes it.
+    enum Response: Sendable, Equatable {
+        case body(Data)
+        case refused
+        case unreachable
+
+        /// GitHub answers 404, not 403, for a private repository the request may not read.
+        init(status: Int, data: Data) {
+            switch status {
+            case 200: self = .body(data)
+            case 401, 404: self = .refused
+            default: self = .unreachable
+            }
+        }
+    }
+
     private static let repositoryCharacters = CharacterSet.alphanumerics.union(
         CharacterSet(charactersIn: "-._/"))
 
@@ -73,7 +89,7 @@ enum ReleaseFeed {
             version: version,
             tag: entry.tagName,
             notes: ReleaseNotes.summary(of: entry.body ?? ""),
-            assetURL: asset.browserDownloadURL,
+            assetURL: asset.url,
             assetSize: asset.size,
             publishedAt: entry.publishedAt.flatMap { try? Date($0, strategy: .iso8601) })
     }
@@ -107,12 +123,8 @@ enum ReleaseFeed {
         struct Asset: Decodable {
             let name: String
             let size: Int64
-            let browserDownloadURL: URL
-
-            enum CodingKeys: String, CodingKey {
-                case name, size
-                case browserDownloadURL = "browser_download_url"
-            }
+            /// The API address, not the browser one: only it serves a private repository's asset.
+            let url: URL
         }
     }
 }

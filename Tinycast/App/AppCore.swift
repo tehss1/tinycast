@@ -50,7 +50,7 @@ final class AppCore {
     let regionNumberFormat = RegionNumberFormatMonitor()
     let calendarStore = CalendarStore()
     let meetingClock = MeetingClock()
-    let updateChecker = UpdateCheckStore()
+    let updateChecker = UpdateCheckStore(token: { UpdateToken.read() })
     let supportReminders: SupportReminderStore
     let emojiIndex = EmojiIndex()
     let frequentEmoji = FrequentEmojiStore()

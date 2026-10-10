@@ -33,6 +33,7 @@ struct UpdateInstaller: Sendable {
 
     let bundleURL: URL
     let stagingDirectory: URL
+    let token: String?
 
     func install(
         _ release: AvailableRelease, onProgress: @escaping @Sendable (Phase) -> Void
@@ -44,7 +45,7 @@ struct UpdateInstaller: Sendable {
         try? FileManager.default.removeItem(at: expanded)
 
         onProgress(.downloading(received: 0, expected: release.assetSize))
-        for try await event in UpdateDownloader.download(release, to: archive) {
+        for try await event in UpdateDownloader.download(release, to: archive, token: token) {
             guard case .progress(let received, let expected) = event else { continue }
             onProgress(.downloading(received: received, expected: expected))
         }

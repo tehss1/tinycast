@@ -53,6 +53,9 @@ struct GeneralSettingsView: View {
                     SettingsRowTitle(.generalGeneral, "Automatically check for updates")
                     Text("Check for Updates remains available when off.")
                 }
+                if ReleaseFeed.repository != ReleaseFeed.defaultRepository {
+                    UpdateTokenRow()
+                }
                 Picker(selection: $settings.popToRootTimeout) {
                     ForEach(PopToRootTimeout.allCases) { timeout in
                         Text(timeout.title).tag(timeout)
@@ -220,6 +223,61 @@ struct GeneralSettingsView: View {
 
     private func refreshInputSources() {
         inputSources = core.inputSourceSwitcher.options(selecting: settings.autoSwitchInputSourceID)
+    }
+}
+
+/// Only a build that updates from its own repository can need a token to read it.
+private struct UpdateTokenRow: View {
+    @State private var token = ""
+    @State private var isStored = false
+    @State private var problem: String?
+
+    private var entry: String { token.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: Theme.Spacing.sm) {
+                RevealableSecureField(
+                    title: "Update token", text: $token,
+                    prompt: Text(isStored ? "Stored in Keychain" : "GitHub token")
+                )
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.leading)
+                .onSubmit(save)
+                Button("Save", action: save)
+                    .disabled(entry.isEmpty)
+                if isStored {
+                    Button("Remove", action: remove)
+                }
+            }
+        } label: {
+            SettingsRowTitle(.generalGeneral, "Update token")
+            Text(problem ?? "Read-only GitHub access to \(ReleaseFeed.repository), kept in Keychain.")
+        }
+        .onAppear { isStored = UpdateToken.isStored }
+    }
+
+    private func save() {
+        guard !entry.isEmpty else { return }
+        do {
+            try UpdateToken.save(entry)
+            token = ""
+            isStored = true
+            problem = nil
+        } catch {
+            problem = "Keychain did not accept the token: \(error.localizedDescription)"
+        }
+    }
+
+    private func remove() {
+        do {
+            try UpdateToken.remove()
+            isStored = false
+            problem = nil
+        } catch {
+            problem = "Keychain did not remove the token: \(error.localizedDescription)"
+        }
     }
 }
 

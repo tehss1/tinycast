@@ -75,14 +75,16 @@ final class UpdateCoordinator {
         present()
         Task { [weak self] in
             guard let self else { return }
-            let answered = await store.check()
+            let outcome = await store.check()
             guard case .checking = stage else { return }
             if let release = store.update {
                 stage = .available(release)
-            } else if answered {
-                stage = .upToDate
-            } else {
-                stage = .failed(.downloadFailed("Tinycast could not reach GitHub."))
+                return
+            }
+            switch outcome {
+            case .answered: stage = .upToDate
+            case .refused: stage = .failed(.accessRefused)
+            case .unreachable: stage = .failed(.downloadFailed("Tinycast could not reach GitHub."))
             }
         }
     }
@@ -176,7 +178,8 @@ final class UpdateCoordinator {
     private var installer: UpdateInstaller {
         UpdateInstaller(
             bundleURL: Bundle.main.bundleURL,
-            stagingDirectory: AppPaths.caches().appendingPathComponent("Updates", isDirectory: true))
+            stagingDirectory: AppPaths.caches().appendingPathComponent("Updates", isDirectory: true),
+            token: UpdateToken.read())
     }
 
     private func present() {

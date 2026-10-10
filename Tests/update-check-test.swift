@@ -74,7 +74,7 @@ struct UpdateCheckTests {
         store.stop()
         fixture.respond(feed(version: "1.3.0"))
         let answered = await manual.value
-        expect(answered, "manual checking still works with automatic checking stopped")
+        expect(answered == .answered, "manual checking still works with automatic checking stopped")
         expect(!fixture.wasCancelled, "stopping the pump does not cancel a manual check")
         expect(store.update?.version == AppVersion("1.3.0"), "manual checking receives a newer release")
         expect(offers == 1, "manual checking does not restart automatic announcements")
@@ -112,7 +112,7 @@ struct UpdateCheckTests {
             """
             [{"tag_name":"v\(version)","prerelease":false,"draft":false,"assets":[
                 {"name":"Tinycast-Universal-\(version).zip","size":100,
-                 "browser_download_url":"https://example.com/update.zip"}
+                 "url":"https://example.com/update.zip"}
             ]}]
             """.utf8)
     }
@@ -138,9 +138,9 @@ struct UpdateCheckTests {
     final class FetchFixture {
         var requests = 0
         var wasCancelled = false
-        private var response: CheckedContinuation<Data?, Never>?
+        private var response: CheckedContinuation<ReleaseFeed.Response, Never>?
 
-        func fetch() async -> Data? {
+        func fetch() async -> ReleaseFeed.Response {
             requests += 1
             let data = await withCheckedContinuation { response = $0 }
             wasCancelled = Task.isCancelled
@@ -150,7 +150,7 @@ struct UpdateCheckTests {
         func respond(_ data: Data) {
             let pending = response
             response = nil
-            pending?.resume(returning: data)
+            pending?.resume(returning: .body(data))
         }
     }
 }

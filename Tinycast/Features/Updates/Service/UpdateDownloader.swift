@@ -9,7 +9,7 @@ enum UpdateDownloader {
 
     /// Cancelling the consuming task cancels the transfer and tears the session down with it.
     static func download(
-        _ release: AvailableRelease, to destination: URL
+        _ release: AvailableRelease, to destination: URL, token: String?
     ) -> AsyncThrowingStream<Event, any Error> {
         AsyncThrowingStream { continuation in
             let config = URLSessionConfiguration.ephemeral
@@ -22,6 +22,9 @@ enum UpdateDownloader {
 
             var request = URLRequest(url: release.assetURL)
             request.setValue("Tinycast", forHTTPHeaderField: "User-Agent")
+            // Without it the asset's API address answers with JSON describing the file.
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+            if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             let task = session.downloadTask(with: request)
             continuation.onTermination = { _ in
                 task.cancel()
@@ -62,7 +65,11 @@ private final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked S
     ) {
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
-            events.finish(throwing: UpdateFailure.downloadFailed("The server answered \(status)."))
+            let refused = status == 401 || status == 404
+            events.finish(
+                throwing: refused
+                    ? UpdateFailure.accessRefused
+                    : UpdateFailure.downloadFailed("The server answered \(status)."))
             return
         }
         do {
@@ -74,6 +81,19 @@ private final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked S
         } catch {
             events.finish(throwing: UpdateFailure.downloadFailed(error.localizedDescription))
         }
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        var request = request
+        // The asset redirects to signed storage on another host, which must never see the token.
+        if request.url?.host != task.originalRequest?.url?.host {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        completionHandler(request)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {

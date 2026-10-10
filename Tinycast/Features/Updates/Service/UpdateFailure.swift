@@ -3,6 +3,7 @@ import Foundation
 /// Everything an update can fail at, phrased for the window that reports it.
 enum UpdateFailure: LocalizedError, Equatable {
     case downloadFailed(String)
+    case accessRefused
     case extractFailed(String)
     case noAppInArchive
     case quarantined
@@ -15,6 +16,8 @@ enum UpdateFailure: LocalizedError, Equatable {
         switch self {
         case .downloadFailed(let detail):
             return "The download did not finish. \(detail)"
+        case .accessRefused:
+            return "GitHub refused access to this build's releases."
         case .extractFailed(let detail):
             return "The downloaded archive could not be expanded. \(detail)"
         case .noAppInArchive:
@@ -42,6 +45,8 @@ enum UpdateFailure: LocalizedError, Equatable {
                 + "your account."
         case .quarantined:
             return "Nothing was installed."
+        case .accessRefused:
+            return "Add or replace the update token in Settings › General."
         default:
             return nil
         }

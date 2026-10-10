@@ -27,7 +27,7 @@ final class UpdateCheckStore {
 
     private let fileURL: URL
     private let repository: String
-    @ObservationIgnored private let fetch: @Sendable () async -> Data?
+    @ObservationIgnored private let fetch: @Sendable () async -> ReleaseFeed.Response
     private var skippedVersion: AppVersion?
     /// At most one uninvited appearance per version per launch.
     @ObservationIgnored private var announcedVersion: AppVersion?
@@ -40,14 +40,15 @@ final class UpdateCheckStore {
         runningVersion: AppVersion? = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
             .flatMap(AppVersion.init),
         fileURL: URL = AppPaths.caches().appendingPathComponent("update-check.json"),
-        fetch: (@Sendable () async -> Data?)? = nil
+        token: @escaping @Sendable () -> String? = { nil },
+        fetch: (@Sendable () async -> ReleaseFeed.Response)? = nil
     ) {
         self.repository = repository
         self.channel = channel
         self.runningVersion = runningVersion
         self.fileURL = fileURL
         let endpoint = ReleaseFeed.endpoint(for: repository)
-        self.fetch = fetch ?? { await UpdateCheckStore.body(from: endpoint) }
+        self.fetch = fetch ?? { await UpdateCheckStore.response(from: endpoint, token: token()) }
         guard let data = try? Data(contentsOf: fileURL),
             let cache = try? JSONDecoder().decode(Cache.self, from: data),
             cache.repository == repository
@@ -91,17 +92,29 @@ final class UpdateCheckStore {
         withheldRetries = 0
     }
 
-    /// The manual path: ignores freshness, and reports whether GitHub actually answered.
+    enum Outcome: Sendable, Equatable {
+        case answered
+        case refused
+        case unreachable
+    }
+
+    /// The manual path: ignores freshness, and reports what GitHub made of the request.
     @discardableResult
-    func check() async -> Bool {
-        guard channel.updatesItself, !isChecking else { return false }
+    func check() async -> Outcome {
+        guard channel.updatesItself, !isChecking else { return .unreachable }
         isChecking = true
         defer { isChecking = false }
-        guard let data = await fetch(), !Task.isCancelled else { return false }
-        latest = ReleaseFeed.newest(from: data, channel: channel, architecture: .current)
-        lastCheckedAt = Date()
-        persist()
-        return true
+        let response = await fetch()
+        guard !Task.isCancelled else { return .unreachable }
+        switch response {
+        case .body(let data):
+            latest = ReleaseFeed.newest(from: data, channel: channel, architecture: .current)
+            lastCheckedAt = Date()
+            persist()
+            return .answered
+        case .refused: return .refused
+        case .unreachable: return .unreachable
+        }
     }
 
     /// Dismissing a version is what stops it asking again; a later one still will.
@@ -116,7 +129,7 @@ final class UpdateCheckStore {
         let age = max(0, lastCheckedAt.map { Date().timeIntervalSince($0) } ?? .infinity)
         var wait = Self.refreshInterval - age
         if wait <= 0 {
-            wait = await check() ? Self.refreshInterval : Self.retryInterval
+            wait = await check() == .answered ? Self.refreshInterval : Self.retryInterval
         }
         if announce() {
             withheldRetries = 0
@@ -159,15 +172,18 @@ final class UpdateCheckStore {
         return URLSession(configuration: config)
     }()
 
-    private nonisolated static func body(from endpoint: URL) async -> Data? {
+    private nonisolated static func response(
+        from endpoint: URL, token: String?
+    ) async -> ReleaseFeed.Response {
         var request = URLRequest(url: endpoint, timeoutInterval: 20)
         // GitHub rejects an API request carrying no User-Agent outright.
         request.setValue("Tinycast", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         guard let (data, response) = try? await session.data(for: request),
-            let http = response as? HTTPURLResponse, http.statusCode == 200
-        else { return nil }
-        return data
+            let http = response as? HTTPURLResponse
+        else { return .unreachable }
+        return ReleaseFeed.Response(status: http.statusCode, data: data)
     }
 }
