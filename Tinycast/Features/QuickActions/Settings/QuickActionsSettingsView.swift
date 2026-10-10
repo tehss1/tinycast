@@ -14,6 +14,8 @@ struct QuickActionsSettingsView: View {
     @State private var isTrusted = Permissions.isAccessibilityTrusted()
     @State private var editingAction: BuiltInQuickAction?
     @State private var customEditing: CustomQuickActionEditRequest?
+    @State private var internalDomainsDraft = ""
+    @FocusState private var editingInternalDomains: Bool
     private let refreshTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -35,8 +37,12 @@ struct QuickActionsSettingsView: View {
                         VStack(alignment: .trailing, spacing: Theme.Spacing.xs) {
                             TextField(
                                 "company.com, subsidiary.com",
-                                text: internalDomainsBinding)
+                                text: $internalDomainsDraft)
                                 .multilineTextAlignment(.trailing)
+                                .focused($editingInternalDomains)
+                                .onSubmit(commitInternalDomains)
+                                .onChange(of: editingInternalDomains) { commitInternalDomains() }
+                                .onDisappear(perform: commitInternalDomains)
                             if !invalidInternalDomains.isEmpty {
                                 Text("Ignored: \(invalidInternalDomains.joined(separator: ", "))")
                                     .font(.caption)
@@ -96,6 +102,7 @@ struct QuickActionsSettingsView: View {
                 model: request.action.flatMap { store.modelOverride(for: .custom($0)) })
         }
         .onAppear {
+            internalDomainsDraft = store.settings.internalEmailDomains
             core.quickActionCoordinator.loadLanguages()
             store.repairModel(against: aiSettings.connections, fallback: aiSettings.defaultModel)
             store.resolveModel(
@@ -256,14 +263,13 @@ struct QuickActionsSettingsView: View {
             set: { core.quickActionCoordinator.setOutlookContextEnabled($0) })
     }
 
-    private var internalDomainsBinding: Binding<String> {
-        Binding(
-            get: { store.settings.internalEmailDomains },
-            set: { store.settings.internalEmailDomains = $0 })
+    private func commitInternalDomains() {
+        guard store.settings.internalEmailDomains != internalDomainsDraft else { return }
+        store.settings.internalEmailDomains = internalDomainsDraft
     }
 
     private var invalidInternalDomains: [String] {
-        ComposerAudience.invalidDomains(in: store.settings.internalEmailDomains)
+        ComposerAudience.invalidDomains(in: internalDomainsDraft)
     }
 
     private func previewBinding(_ action: BuiltInQuickAction) -> Binding<Bool> {

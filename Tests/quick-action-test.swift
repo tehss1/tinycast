@@ -18,7 +18,7 @@ struct QuickActionTests {
 
     static func main() {
         everyActionDescribesItself()
-        composerModelsPreferAvailableGPT6()
+        composerModelsFollowCatalog()
         promptsForbidCommentaryAndInjection()
         composerAudienceChoosesTone()
         outlookContextUsesOnlyRecentThread()
@@ -240,36 +240,33 @@ struct QuickActionTests {
             "a summary is not the input edited, so a diff would be noise")
     }
 
-    static func composerModelsPreferAvailableGPT6() {
+    static func composerModelsFollowCatalog() {
         let efforts = [ChatGPTSubscription.Effort(id: "low", detail: nil),
                        ChatGPTSubscription.Effort(id: "medium", detail: nil)]
-        let catalog = ["gpt-6-astra", "gpt-5.6-terra", "gpt-6-sol", "gpt-6-luna"].map {
+        let catalog = ["next-small", "next-large"].map {
             ChatGPTSubscription.Model(
-                id: $0, name: $0, efforts: efforts, defaultEffort: "medium", isDefault: false)
+                id: $0, name: $0, efforts: efforts, defaultEffort: "medium",
+                isDefault: $0 == "next-large")
         }
         expect(
-            ComposerModelPolicy.available(catalog).map(\.id)
-                == ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
-            "Composer offers the three supported GPT-6 models, not legacy Codex models")
+            ComposerModelPolicy.resolve(.codex(model: "next-small", effort: "low"), catalog: catalog)
+                == .codex(model: "next-small", effort: "low"),
+            "a model the CLI reports is kept, whatever it is called")
         expect(
-            ComposerModelPolicy.resolve(
-                .codex(model: "gpt-5.6-terra", effort: "low"), catalog: catalog)
-                == .codex(model: "gpt-6-sol", effort: "low"),
-            "a saved Terra route migrates to Sol without losing supported reasoning")
+            ComposerModelPolicy.resolve(.codex(model: "retired", effort: "low"), catalog: catalog)
+                == .codex(model: "next-large", effort: "low"),
+            "a retired model moves to the catalog's default without losing supported reasoning")
         expect(
-            ComposerModelPolicy.resolve(
-                .codex(model: "gpt-5.6-luna", effort: "ultra"), catalog: catalog)
-                == .codex(model: "gpt-6-luna", effort: "medium"),
-            "a saved Luna route uses the new model's supported default reasoning")
+            ComposerModelPolicy.resolve(.codex(model: "retired", effort: "ultra"), catalog: catalog)
+                == .codex(model: "next-large", effort: "medium"),
+            "reasoning the replacement lacks becomes its default")
         expect(
-            ComposerModelPolicy.resolve(
-                .codex(model: "gpt-5.6-terra", effort: "low"), catalog: [])
-                == .codex(model: "gpt-5.6-terra", effort: "low"),
-            "an old CLI keeps its working route until GPT-6 appears")
+            ComposerModelPolicy.resolve(.codex(model: "retired", effort: "low"), catalog: [])
+                == .codex(model: "retired", effort: "low"),
+            "an unread catalog leaves the stored route alone")
         expect(
-            ComposerModelPolicy.resolve(.appleIntelligence, catalog: catalog)
-                == .appleIntelligence,
-            "Composer's GPT-6 policy does not replace on-device choices")
+            ComposerModelPolicy.resolve(.appleIntelligence, catalog: catalog) == .appleIntelligence,
+            "only Codex routes are checked against the Codex catalog")
     }
 
     static func promptsForbidCommentaryAndInjection() {

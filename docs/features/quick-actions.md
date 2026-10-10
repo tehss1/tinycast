@@ -239,7 +239,10 @@ all addresses exposed by the To, Cc and Bcc fields, deduplicates them and remove
 
 The audience menu offers Automatic, Internal and External. Automatic shows the detected result;
 Internal or External is saved with that conversation. The model menu uses
-`AIModelOption.availableGroups` and persists only Composer's route override. Reasoning choices come
+`AIModelOption.availableGroups` and persists only Composer's route override. Until the signed-in
+Claude CLI is ready, a Claude section there turns the provider on, copies its sign-in command or
+opens its install page; the sign-in itself needs a terminal, so opening the menu re-probes.
+Reasoning choices come
 from the selected provider's catalog. Changes apply to the next request, including refinements,
 without regenerating the draft or changing AI Chat's model. Footer controls are disabled during
 generation. Escape closes an open inspector or menu before closing Composer; Return chooses a
@@ -384,8 +387,11 @@ to select the draft and reopen Composer.
   email. Confirm the footer reports Internal only when every captured recipient matches. Override an
   internal conversation to External, leave it, reopen the same email, and confirm the override stays.
 - Change Composer's model and reasoning from its footer. Confirm the next refinement uses that route,
-  the choice survives reopening, and AI Chat's route remains unchanged. When the connected Codex
-  catalog provides them, Composer offers GPT-6 Astra, Sol and Luna rather than GPT-5.6 choices.
+  the choice survives reopening, and AI Chat's route remains unchanged. Composer offers whatever the
+  connected Codex catalog reports and AI Settings shows; a saved model the catalog has dropped moves
+  to its default. With Claude off, signed out or not installed, confirm the menu's Claude section
+  offers to turn it on, copies `claude auth login` or opens the install page, and lists Claude's
+  models the next time it opens after sign-in.
   During generation, confirm both controls are disabled. Open a menu, use arrows and Return, and
   confirm Outlook stays untouched.
 

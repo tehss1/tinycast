@@ -2,6 +2,15 @@ import AppKit
 import Observation
 
 /// The single funnel for every Quick Action, however it was started.
+/// What stands between Composer and the signed-in Claude CLI.
+enum ComposerClaudeSetup: Equatable {
+    case turnOn
+    case checking
+    case signIn
+    case install
+    case failed(String)
+}
+
 @MainActor
 @Observable
 final class QuickActionCoordinator {
@@ -44,16 +53,34 @@ final class QuickActionCoordinator {
     var composerModelGroups: [AIModelOptionGroup] {
         AIModelOption.availableGroups(
             settings: core.aiSettings, subscription: core.chatGPTSubscription,
-            installedAI: core.installedAI).compactMap { group in
-                guard group.source == .codex,
-                    !ComposerModelPolicy.available(core.chatGPTSubscription.models).isEmpty
-                else { return group }
-                let options = group.options.filter {
-                    ComposerModelPolicy.modelIDs.contains($0.selection.model)
-                }
-                return options.isEmpty ? nil : AIModelOptionGroup(
-                    source: group.source, title: group.title, options: options)
-            }
+            installedAI: core.installedAI)
+    }
+
+    var composerClaudeSetup: ComposerClaudeSetup? {
+        guard core.aiSettings.enabledInstalledProviders.contains(.claude) else { return .turnOn }
+        switch core.installedAI.status(for: .claude).phase {
+        case .ready: return nil
+        case .idle, .checking: return .checking
+        case .signInRequired: return .signIn
+        case .notInstalled: return .install
+        case .failed(let message): return .failed(message)
+        }
+    }
+
+    func performComposerClaudeSetup(_ setup: ComposerClaudeSetup) {
+        switch setup {
+        case .turnOn:
+            core.aiSettings.setInstalledProviderEnabled(true, for: .claude)
+            core.applyInstalledAILifecycle()
+        case .signIn:
+            let command = InstalledAIKind.claude.signInCommand
+            guard Paster.copyPlainText(command) else { return }
+            core.showMessage("Copied \(command). Run it in Terminal, then reopen this menu.")
+        case .install:
+            NSWorkspace.shared.open(InstalledAIKind.claude.installURL)
+        case .checking, .failed:
+            break
+        }
     }
 
     var composerModelTitle: String {
@@ -90,8 +117,13 @@ final class QuickActionCoordinator {
         saveHistory(state)
     }
 
+    /// `ensure` probes only an idle provider, so a sign-in finished in Terminal needs this.
     func prepareComposerModels() {
         core.applyInstalledAILifecycle()
+        switch composerClaudeSetup {
+        case .signIn, .install, .failed: core.installedAI.refresh(kind: .claude)
+        case .turnOn, .checking, nil: break
+        }
     }
 
     func selectComposerModel(_ option: AIModelOption) {

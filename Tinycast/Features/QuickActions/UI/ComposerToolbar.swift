@@ -61,6 +61,24 @@ struct ComposerToolbar: View {
             .firstIndex { $0.detail == checkmark } ?? 0
     }
 
+    private static func claudeSetupItems(coordinator: QuickActionCoordinator) -> [PopoverMenuItem] {
+        guard let setup = coordinator.composerClaudeSetup else { return [] }
+        let title: String
+        switch setup {
+        case .turnOn: title = "Turn On Claude"
+        case .checking: title = "Checking Claude…"
+        case .signIn: title = "Sign In to Claude…"
+        case .install: title = "Install Claude Code…"
+        case .failed(let message): title = message
+        }
+        var isActionable = true
+        if case .failed = setup { isActionable = false }
+        return [PopoverMenuItem(
+            title: title, icon: .blank, isLoading: setup == .checking, isEnabled: isActionable,
+            sectionTitle: "Claude"
+        ) { coordinator.performComposerClaudeSetup(setup) }]
+    }
+
     static func menuItems(
         state: QuickActionPanelState, coordinator: QuickActionCoordinator
     ) -> [PopoverMenuItem] {
@@ -90,9 +108,10 @@ struct ComposerToolbar: View {
                     ) { coordinator.selectComposerModel(option) }
                 }
             }
-            return items.isEmpty
+            let all = items + claudeSetupItems(coordinator: coordinator)
+            return all.isEmpty
                 ? [PopoverMenuItem(title: "No models available. Check AI Settings.", icon: .blank,
-                    isEnabled: false) {}] : items
+                    isEnabled: false) {}] : all
         case .reasoning:
             return coordinator.composerEfforts.map { effort in
                 PopoverMenuItem(title: effort.title, icon: .blank,
