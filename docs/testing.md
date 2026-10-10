@@ -15,8 +15,9 @@ The mechanical bar, in one place so it cannot drift. All five pass before a chan
 | A clean build | `xcodebuild … -configuration Debug CODE_SIGNING_ALLOWED=NO`, zero **new** warnings |
 | Docs still true | any doc your change made wrong, fixed in the same commit |
 
-CI runs the complete harness suite on pull requests and pushes to `main`, but it does not replace the
-local definition of done. CodeRabbit reviews each PR; it is a reviewer, not a test runner. Each check
+CI runs the harness suite on pull requests and pushes to `main`, but it does not replace the
+local definition of done. `TINYCAST_TEST_SKIP` names harnesses to leave out, separated by spaces; CI
+skips `form-input-test`, whose rendered text comes back blank on a runner without a display. CodeRabbit reviews each PR; it is a reviewer, not a test runner. Each check
 is expanded below; the manual sweep at the end of this file is the sixth, judged by what you touched.
 
 ## The harnesses

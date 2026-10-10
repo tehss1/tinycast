@@ -86,6 +86,7 @@ run() {
     local name=$1
     shift
     if [ -n "$only" ] && [ "$name" != "$only" ]; then return 0; fi
+    case " ${TINYCAST_TEST_SKIP:-} " in *" $name "*) return 0;; esac
     if [ "$index_only" -eq 1 ] && [ "$emit_db" -eq 0 ]; then return 0; fi
     ran=$((ran + 1))
 
