@@ -76,8 +76,17 @@ dispatches the Website workflow, because the site reads the latest version and t
 
 A customized build keeps its changes while receiving official Tinycast improvements through a fork.
 The fork's `main` branch owns the custom code. `.github/workflows/sync-upstream.yml` checks the
-official repository every Monday and opens or refreshes a merge request when `upstream/main` moves.
-The merge request runs `.github/workflows/verify.yml`; review and merge it before publishing.
+official repository every day and follows its latest stable release tag rather than `upstream/main`,
+so the fork only ever ships code the official project has published. A new release is merged onto
+`automation/upstream-sync`, tested with `.github/workflows/verify.yml`, fast-forwarded into `main`,
+and published by dispatching the Release workflow with the official base version. A `main` that
+already contains the release but has no matching `-composer` release is published the same way.
+
+A merge conflict, a failing test or a `main` that moved stops the run before anything reaches
+`main`, and opens one issue per official release, assigned to the fork's owner. Merge that release
+into `main` locally and push; the next run publishes it and closes the issue. The default Actions
+token may not push a change under `.github/workflows/`, so a release that carries one stops the same
+way unless the fork has a `SYNC_TOKEN` secret: a token with contents and workflows write access.
 
 The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow

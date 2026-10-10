@@ -1,62 +1,159 @@
 name: Sync upstream
 
-run-name: "Prepare upstream Tinycast merge"
+run-name: "Follow the latest official Tinycast release"
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 14 * * 1"
+    - cron: "17 14 * * *"
 
 permissions:
   contents: write
-  pull-requests: write
+  # Dispatches the Release workflow once the merged build passes its tests.
+  actions: write
+  issues: write
 
 concurrency:
   group: sync-upstream
   cancel-in-progress: false
 
+env:
+  UPSTREAM_REPO: abue-ammar/tinycast
+  SYNC_BRANCH: automation/upstream-sync
+
 jobs:
-  prepare:
+  merge:
     if: github.repository != 'abue-ammar/tinycast'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.upstream.outputs.tag }}
+      version: ${{ steps.upstream.outputs.version }}
+      merged: ${{ steps.merge.outputs.merged }}
+      release: ${{ steps.merge.outputs.release }}
+      problem: ${{ steps.merge.outputs.problem }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      # Releases, not `main`: the fork only ever ships code the official project has published.
+      - name: Find the latest official release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected official release tag '$TAG'"
+            exit 1
+          fi
+          git fetch --no-tags "https://github.com/${UPSTREAM_REPO}.git" "refs/tags/${TAG}:refs/upstream/${TAG}"
+          RELEASED="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName \
+            --jq "any(.[]; .tagName | startswith(\"${TAG}-composer.\"))")"
+          {
+            echo "tag=${TAG}"
+            echo "version=${TAG#v}"
+            echo "released=${RELEASED}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Merge the release
+        id: merge
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+          RELEASED: ${{ steps.upstream.outputs.released }}
+          HAS_SYNC_TOKEN: ${{ secrets.SYNC_TOKEN != '' }}
+        run: |
+          if git merge-base --is-ancestor "refs/upstream/${TAG}" HEAD; then
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            if [ "$RELEASED" = "true" ]; then
+              echo "release=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "release=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$SYNC_BRANCH"
+          if ! git merge --no-edit -m "Merge Tinycast ${TAG} while preserving Composer" "refs/upstream/${TAG}"; then
+            FILES="$(git diff --name-only --diff-filter=U | paste -sd ' ' -)"
+            echo "problem=Merging ${TAG} conflicts in: ${FILES}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # The default token may not push a workflow change, so that merge needs SYNC_TOKEN.
+          if [ "$HAS_SYNC_TOKEN" != "true" ] && ! git diff --quiet main HEAD -- .github/workflows; then
+            echo "problem=${TAG} changes .github/workflows, which needs the SYNC_TOKEN secret or a local merge." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          git push --force origin "$SYNC_BRANCH"
+          {
+            echo "merged=true"
+            echo "release=true"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: merge
+    if: needs.merge.outputs.merged == 'true'
+    uses: ./.github/workflows/verify.yml
+    with:
+      ref: automation/upstream-sync
+
+  land:
+    needs: [merge, verify]
+    if: ${{ !cancelled() && needs.merge.outputs.release == 'true' && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
 
-      - name: Fetch official Tinycast
+      # Not forced: a `main` that moved since the merge fails here instead of losing commits.
+      - name: Fast-forward main
+        if: needs.merge.outputs.merged == 'true'
         run: |
-          git remote add upstream https://github.com/abue-ammar/tinycast.git
-          git fetch upstream main --tags
+          git fetch origin "$SYNC_BRANCH"
+          git push origin "FETCH_HEAD:refs/heads/main"
+          git push origin --delete "$SYNC_BRANCH"
 
-      - name: Prepare merge branch
-        id: merge
-        run: |
-          if git merge-base --is-ancestor upstream/main HEAD; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -C automation/upstream-sync
-          git merge --no-edit upstream/main
-          git push --force-with-lease origin automation/upstream-sync
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Open or refresh merge request
-        if: steps.merge.outputs.changed == 'true'
+      - name: Publish the Composer release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.merge.outputs.tag }}
+          VERSION: ${{ needs.merge.outputs.version }}
         run: |
-          if gh pr view automation/upstream-sync --json url >/dev/null 2>&1; then
-            gh pr edit automation/upstream-sync \
-              --title "Merge official Tinycast improvements" \
-              --body "Merge the latest official Tinycast changes into the Composer build. Run the complete local test suite before merging and publishing a release."
-          else
-            gh pr create \
-              --base main \
-              --head automation/upstream-sync \
-              --title "Merge official Tinycast improvements" \
-              --body "Merge the latest official Tinycast changes into the Composer build. Run the complete local test suite before merging and publishing a release."
-          fi
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f channel=stable -f version="$VERSION"
+          gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title \
+            --jq ".[] | select(.title == \"Official Tinycast ${TAG} was not published automatically\") | .number" |
+            while read -r NUMBER; do
+              gh issue close "$NUMBER" --repo "$GITHUB_REPOSITORY" --comment "Published by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+            done
+
+  notify:
+    needs: [merge, verify, land]
+    if: ${{ failure() && github.repository != 'abue-ammar/tinycast' }}
+    runs-on: ubuntu-latest
+    steps:
+      # One issue per official release, so a conflict that waits a week mails its owner once.
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.merge.outputs.tag }}
+          PROBLEM: ${{ needs.merge.outputs.problem }}
+        run: |
+          TITLE="Official Tinycast ${TAG:-release} was not published automatically"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --json number,title \
+            --jq "[.[] | select(.title == \"${TITLE}\")] | length")"
+          if [ "$EXISTING" != "0" ]; then exit 0; fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --assignee "$GITHUB_REPOSITORY_OWNER" \
+            --title "$TITLE" \
+            --body "${PROBLEM:-The merged build failed its tests or could not reach main.}
+
+          Run: ${RUN_URL}
+
+          Merge the release into \`main\` locally and push. The next run publishes it and closes this issue."

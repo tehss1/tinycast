@@ -4,12 +4,18 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: "Branch to test instead of the triggering commit"
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: verify-${{ github.ref }}
+  group: verify-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -17,6 +23,8 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Select Xcode 26
         run: |
