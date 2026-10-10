@@ -65,10 +65,11 @@ final class QuickActionRunner {
         let request = AIRequest(
             instructions: instructions,
             messages: [AIMessage(role: .user, text: message)],
-            maxOutputTokens: selectionIsWritingInstruction
-                ? max(maxOutputTokens(for: action, selection: selection), 512)
-                : maxOutputTokens(for: action, selection: selection))
-        return try await stream(request, using: provider, onDelta: onDelta)
+            maxOutputTokens: QuickActionPrompt.maxOutputTokens(
+                for: action, selection: selection,
+                outgrowsSelection: selectionIsWritingInstruction))
+        let text = try await stream(request, using: provider, onDelta: onDelta)
+        return try action == .rewrite ? composerDraft(text) : text
     }
 
     static func refineRewrite(
@@ -90,8 +91,16 @@ final class QuickActionRunner {
                 originalIsWritingInstruction: originalIsWritingInstruction,
                 audience: audience),
             messages: [originalMessage] + messages,
-            maxOutputTokens: maxOutputTokens(for: .rewrite, selection: latestDraft))
-        return try await stream(request, using: provider, onDelta: onDelta)
+            maxOutputTokens: QuickActionPrompt.maxOutputTokens(
+                for: .rewrite, selection: latestDraft, outgrowsSelection: true))
+        return try composerDraft(try await stream(request, using: provider, onDelta: onDelta))
+    }
+
+    private static func composerDraft(_ text: String) throws -> String {
+        guard !QuickActionOutput.composerBody(in: text).isEmpty else {
+            throw AIProviderError.responseFailed("The model returned a subject with no message.")
+        }
+        return text
     }
 
     private static func stream(
@@ -109,12 +118,5 @@ final class QuickActionRunner {
             throw AIProviderError.responseFailed("The model returned nothing.")
         }
         return trimmed
-    }
-
-    /// The on-device window counts the prompt and the reply against one budget, so both need a cap.
-    private static func maxOutputTokens(for action: QuickAction, selection: String) -> Int {
-        let approximateTokens = max(selection.count / 3, 64)
-        return action == .summarize
-            ? min(approximateTokens, 512) : min(approximateTokens * 2, 2_048)
     }
 }

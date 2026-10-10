@@ -5,7 +5,6 @@ import Observation
 @Observable
 final class RewriteHistoryStore {
     private(set) var records: [RewriteHistoryRecord] = []
-    private(set) var isAvailable = true
 
     static let retention: TimeInterval = 7 * 24 * 60 * 60
 
@@ -17,14 +16,11 @@ final class RewriteHistoryStore {
         self.now = now
     }
 
+    /// An unreadable file is a week of drafts at most, so the next save replaces it.
     func load() {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         guard let data = try? Data(contentsOf: fileURL),
             let decoded = try? JSONDecoder().decode([RewriteHistoryRecord].self, from: data)
-        else {
-            isAvailable = false
-            return
-        }
+        else { return }
         let retained = Self.retained(decoded, now: now())
         records = retained
         if retained.count != decoded.count { _ = persist(retained) }
@@ -32,7 +28,6 @@ final class RewriteHistoryStore {
 
     @discardableResult
     func save(_ record: RewriteHistoryRecord) -> Bool {
-        guard isAvailable else { return false }
         var updated = records.filter { $0.id != record.id }
         updated.append(record)
         updated = Self.retained(updated, now: now())
@@ -42,7 +37,6 @@ final class RewriteHistoryStore {
     }
 
     func prune() {
-        guard isAvailable else { return }
         let retained = Self.retained(records, now: now())
         guard retained.count != records.count, persist(retained) else { return }
         records = retained
@@ -84,7 +78,6 @@ final class RewriteHistoryStore {
 
     @discardableResult
     func savePendingInstruction(_ instruction: String?, id: UUID) -> Bool {
-        guard isAvailable else { return false }
         guard let index = records.firstIndex(where: { $0.id == id }) else {
             return instruction == nil
         }
@@ -98,17 +91,9 @@ final class RewriteHistoryStore {
 
     @discardableResult
     func remove(id: UUID) -> Bool {
-        guard isAvailable else { return false }
         let updated = records.filter { $0.id != id }
         guard persist(updated) else { return false }
         records = updated
-        return true
-    }
-
-    @discardableResult
-    func clearAll() -> Bool {
-        guard isAvailable, persist([]) else { return false }
-        records = []
         return true
     }
 
@@ -121,7 +106,6 @@ final class RewriteHistoryStore {
             try encoder.encode(values).write(to: fileURL, options: .atomic)
             return true
         } catch {
-            isAvailable = false
             return false
         }
     }

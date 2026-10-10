@@ -456,6 +456,14 @@ struct QuickActionTests {
     }
 
     static func rewriteCanBeRefinedRepeatedly() {
+        expect(
+            QuickActionPrompt.maxOutputTokens(for: .rewrite, selection: "Thanks.") == 128,
+            "a plain rewrite stays close to the length of its selection")
+        expect(
+            QuickActionPrompt.maxOutputTokens(
+                for: .rewrite, selection: "Thanks.", outgrowsSelection: true)
+                == QuickActionPrompt.outputTokenCeiling,
+            "a draft written from an instruction or refined longer is not cut to its input's length")
         let context = QuickActionContext(
             recipient: "Christina", subject: "Conference room",
             recentThread: "That would be great, thanks so much!")
@@ -831,6 +839,17 @@ struct QuickActionTests {
         let afterDeletion = RewriteHistoryStore(directory: directory, now: { clock })
         afterDeletion.load()
         expect(afterDeletion.records.isEmpty, "a deleted conversation stays deleted after relaunch")
+
+        try? Data("{ not the history we wrote".utf8)
+            .write(to: directory.appendingPathComponent("rewrite-history.json"))
+        let afterCorruption = RewriteHistoryStore(directory: directory, now: { clock })
+        afterCorruption.load()
+        expect(
+            afterCorruption.records.isEmpty && afterCorruption.save(current),
+            "an unreadable history file does not block the next save")
+        let recovered = RewriteHistoryStore(directory: directory, now: { clock })
+        recovered.load()
+        expect(recovered.records.map(\.id) == [current.id], "and that save replaces the file")
     }
 
     static func rewriteHistoryFindsTheSameEmail() {

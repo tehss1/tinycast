@@ -44,7 +44,7 @@ struct QuickActionContext: Equatable, Sendable {
         return result.isEmpty ? nil : result
     }
 
-    /// Stable across launches without persisting another copy of the quoted Outlook thread.
+    /// Identifies the email without persisting another copy of the quoted Outlook thread.
     var historyIdentity: String? {
         guard !isEmpty || documentIdentity != nil else { return nil }
         let material = [recipient ?? "", subject ?? "", recentThread ?? documentIdentity ?? ""]
