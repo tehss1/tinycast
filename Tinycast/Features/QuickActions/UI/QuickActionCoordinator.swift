@@ -5,6 +5,17 @@ import Observation
 @MainActor
 @Observable
 final class QuickActionCoordinator {
+    private struct NoteSelection {
+        let editor: NoteTextView
+        let document: NoteEditorInput
+        let range: NSRange
+        let text: String
+    }
+    private struct Target {
+        var app: NSRunningApplication?
+        var note: NoteSelection?
+    }
+
     private let settings: AppSettings
     private let store: QuickActionSettingsStore
     private let history: RewriteHistoryStore
@@ -100,10 +111,11 @@ final class QuickActionCoordinator {
     @ObservationIgnored private var running: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activeComposer: QuickActionPanelState?
-    @ObservationIgnored private var composerApp: NSRunningApplication?
+    @ObservationIgnored private var composerApp: Target?
     @ObservationIgnored private var composerTarget: ComposerTextTarget?
     @ObservationIgnored private var composerFrame: CGRect?
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
+    @ObservationIgnored private var progressOwner: Int?
 
     init(
         settings: AppSettings, store: QuickActionSettingsStore, history: RewriteHistoryStore,
@@ -266,15 +278,27 @@ final class QuickActionCoordinator {
         guard settings.quickActionsEnabled else { return }
         if running != nil {
             if action == .rewrite, let activeComposer, activeComposer.isRunning {
-                present(activeComposer, target: composerApp)
+                present(activeComposer, target: composerApp ?? Target())
             } else {
                 core.showMessage("A Quick Action is still running")
             }
             return
         }
-        let target = paletteCoordinator.targetApp
-        if paletteCoordinator.isVisible { paletteCoordinator.hidePalette(restoreFocus: false) }
-        start { [weak self] in await self?.begin(action, target: target) }
+        var target = Target(app: paletteCoordinator.targetApp)
+        let source = paletteCoordinator.isVisible
+            ? InjectionTarget.behindPalette(
+                ownWindow: paletteCoordinator.previousOwnWindow, app: target.app)
+            : InjectionTarget.current()
+        if let editor = source?.ownEditor as? NoteTextView {
+            target.note = NoteSelection(
+                editor: editor, document: core.notesCoordinator.editorInput,
+                range: editor.selectedRange(), text: editor.injectableSelection)
+        }
+        if paletteCoordinator.isVisible {
+            paletteCoordinator.hidePalette(restoreFocus: target.note != nil)
+        }
+        let capturedTarget = target
+        start { [weak self] in await self?.begin(action, target: capturedTarget) }
     }
 
     func cancel() {
@@ -282,6 +306,7 @@ final class QuickActionCoordinator {
         generation += 1
         running?.cancel()
         running = nil
+        hideProgress(ownedBy: progressOwner)
         panels.dismiss()
         activeComposer = nil
         composerTarget = nil
@@ -310,12 +335,16 @@ final class QuickActionCoordinator {
         }
     }
 
-    private func begin(_ action: QuickAction, target: NSRunningApplication?) async {
+    private func begin(_ action: QuickAction, target: Target) async {
         if action == .rewrite { history.prune() }
         let input: QuickActionRunner.Input
         do {
-            input = try await QuickActionRunner.input(
-                for: action, in: target, using: injector)
+            if let noteSelection = target.note {
+                input = .selection(try QuickActionRunner.accepted(noteSelection.text))
+            } else {
+                input = try await QuickActionRunner.input(
+                    for: action, in: target.app, using: injector)
+            }
         } catch let failure as QuickActionFailure {
             reportRefusal(failure)
             return
@@ -326,12 +355,12 @@ final class QuickActionCoordinator {
         guard !Task.isCancelled else { return }
         let capture =
             action == .rewrite && store.settings.usesOutlookContextForRewrite
-            ? OutlookComposeContextReader.read(in: target)
+            ? OutlookComposeContextReader.read(in: target.app)
             : nil
         let context = capture?.context
         composerTarget = capture?.target
         composerFrame = action == .rewrite
-            ? ComposerPlacementReader.frame(in: target, editor: capture?.target.editor) : nil
+            ? ComposerPlacementReader.frame(in: target.app, editor: capture?.target.editor) : nil
         composerApp = target
         activeComposer = nil
         let selection = switch input {
@@ -345,7 +374,7 @@ final class QuickActionCoordinator {
                 restoring: record, context: context, targetLanguage: targetLanguage,
                 insertsAtCaret: input == .insertionPoint)
             if let textTarget = capture?.target {
-                textTarget.restore(record)
+                textTarget.restore(record, insertsAtCaret: state.insertsAtCaret)
                 state.draftAnchor = textTarget.anchor
                 if let draft = textTarget.draft {
                     state.adoptSourceDraft(draft)
@@ -371,7 +400,7 @@ final class QuickActionCoordinator {
             awaitsWritingInstruction: input == .insertionPoint)
         state.draftAnchor = capture?.target.anchor
         if action == .rewrite, store.settings.usesOutlookContextForRewrite,
-            OutlookComposeContextReader.isOutlook(target), capture == nil
+            OutlookComposeContextReader.isOutlook(target.app), capture == nil
         {
             state.replacementIssue = "Couldn't capture this Outlook draft. Reopen Composer to try again."
         }
@@ -407,7 +436,7 @@ final class QuickActionCoordinator {
     }
 
     private func perform(
-        _ state: QuickActionPanelState, target: NSRunningApplication?, previewing: Bool
+        _ state: QuickActionPanelState, target: Target, previewing: Bool
     ) async {
         do {
             let text = try await produce(state, previewing: previewing)
@@ -440,9 +469,17 @@ final class QuickActionCoordinator {
         _ state: QuickActionPanelState, previewing: Bool
     ) async throws -> String {
         guard !previewing else { return try await generate(state, streaming: true) }
+        let owner = generation
+        progressOwner = owner
         core.showProgress(state.action.progressTitle)
-        defer { core.hideProgress() }
+        defer { hideProgress(ownedBy: owner) }
         return try await generate(state, streaming: false)
+    }
+
+    private func hideProgress(ownedBy owner: Int?) {
+        guard let owner, progressOwner == owner else { return }
+        progressOwner = nil
+        core.hideProgress()
     }
 
     private func generate(
@@ -467,21 +504,35 @@ final class QuickActionCoordinator {
 
     /// A replacement that never lands would otherwise lose the reply, so the clipboard keeps it.
     private func deliver(
-        _ text: String, to target: NSRunningApplication?, action: QuickAction,
+        _ text: String, to target: Target, action: QuickAction,
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false
     ) {
         let deliveredText = QuickActionOutput.preparedForDelivery(
-            text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target),
+            text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
             insertsAtCaret: insertsAtCaret,
             hasFollowingLineBreak: textTarget?.hasFollowingLineBreak ?? false)
+        if let note = target.note {
+            guard core.notesCoordinator.editorInput == note.document,
+                note.editor.window?.isVisible == true,
+                note.editor.replaceUnchangedSelection(
+                    with: deliveredText, source: note.document.source, range: note.range)
+            else {
+                Paster.copyPlainText(deliveredText)
+                core.showMessage("The note changed. Draft copied instead.", tone: .danger)
+                return
+            }
+            core.showMessage("\(action.title) applied")
+            return
+        }
         injector.replaceSelection(
-            with: deliveredText, in: target,
-            prepareTarget: { textTarget?.prepare(in: target) ?? true },
+            with: deliveredText, in: target.app,
+            prepareTarget: { textTarget?.prepare(in: target.app) ?? true },
             onDelivered: { [weak self] in self?.core.showMessage("\(action.title) applied") },
             onFailed: { [weak self] in
                 Paster.copyPlainText(deliveredText)
                 self?.core.showMessage(
-                    "\(action.title) couldn't replace the selection — copied instead",
+                    textTarget?.preparationFailure?.message
+                        ?? "\(action.title) couldn't \(insertsAtCaret ? "insert" : "replace") the draft. Draft copied.",
                     tone: .danger)
             })
     }
@@ -495,7 +546,7 @@ final class QuickActionCoordinator {
         state.fail(error.localizedDescription)
     }
 
-    private func present(_ state: QuickActionPanelState, target: NSRunningApplication?) {
+    private func present(_ state: QuickActionPanelState, target: Target) {
         if state.action == .rewrite {
             activeComposer = state
             composerApp = target
@@ -550,13 +601,13 @@ final class QuickActionCoordinator {
         return true
     }
 
-    private func rerun(_ state: QuickActionPanelState, target: NSRunningApplication?) {
+    private func rerun(_ state: QuickActionPanelState, target: Target) {
         state.restart()
         start { [weak self] in await self?.perform(state, target: target, previewing: true) }
     }
 
     private func refine(
-        _ state: QuickActionPanelState, target: NSRunningApplication?
+        _ state: QuickActionPanelState, target: Target
     ) {
         if state.needsInitialRequest, state.originalIsWritingInstruction {
             guard state.beginInitialRewrite() != nil else { return }

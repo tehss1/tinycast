@@ -77,6 +77,22 @@ struct ComposerTests {
         expect(previousAnchor?.rangePreservingTrailingLineBreaks(in: "Reply\n" + richSignature.dropFirst(2))
             == NSRange(location: 0, length: "Reply".utf16.count),
             "older draft anchors leave their captured signature boundary in place")
+
+        let changedSignature = "\n\n\u{fffc} Updated signature\nFrom: Beth"
+        let caret = NSRange(location: 0, length: 0)
+        expect(ComposerDraftAnchor.restoredRange(
+            in: changedSignature, anchor: untouchedBoundary, selectedRange: caret,
+            insertsAtCaret: true) == caret,
+            "a resumed Insert still targets the captured caret when Outlook changes its signature")
+        expect(ComposerDraftAnchor.restoredRange(
+            in: changedSignature, anchor: untouchedBoundary, selectedRange: caret,
+            insertsAtCaret: false) == nil,
+            "a resumed Replace cannot overwrite text when its saved boundary went stale")
+        let explicitSelection = NSRange(location: 2, length: 1)
+        expect(ComposerDraftAnchor.restoredRange(
+            in: "A draft", anchor: untouchedBoundary, selectedRange: explicitSelection,
+            insertsAtCaret: false) == explicitSelection,
+            "a fresh selection still permits Replace after the saved boundary changes")
     }
 
     static func makeState(caret: Bool = true) -> QuickActionPanelState {

@@ -48,6 +48,17 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return NSRange(selection.lowerBound..<end, in: body)
     }
 
+    /// A caret invocation is an explicit Insert, even when the saved draft boundary went stale.
+    /// Replace still needs a matched boundary or a fresh selection to avoid overwriting other text.
+    static func restoredRange(
+        in body: String, anchor: ComposerDraftAnchor?, selectedRange: NSRange,
+        insertsAtCaret: Bool
+    ) -> NSRange? {
+        if let range = anchor?.rangePreservingTrailingLineBreaks(in: body) { return range }
+        guard Range(selectedRange, in: body) != nil else { return nil }
+        return selectedRange.length > 0 || insertsAtCaret ? selectedRange : nil
+    }
+
     private static func fingerprint(_ text: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in text.utf8 {

@@ -365,7 +365,9 @@ result instead. The event fallback checks the target again immediately before in
 When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
 Outlook edits become a new draft in the conversation and supply the starting text for further changes.
 If the surrounding text changed or no saved boundary exists, an explicit selection supplies the range.
-Without either, Replace is disabled with a request to select the draft and reopen Composer.
+For a caret-triggered Insert, the captured caret remains the target even if a saved draft boundary
+has gone stale. Without a matching boundary or fresh selection, Replace is disabled with a request
+to select the draft and reopen Composer.
 
 ### Manual sweep
 

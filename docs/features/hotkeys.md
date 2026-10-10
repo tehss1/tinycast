@@ -205,7 +205,10 @@ real fn press once the event is a `flagsChanged`, which fired anything bound to 
 press. Only the Hyper key's own two events are scrubbed, so Hyper+F-key and Hyper+arrow keep the fn
 bit they are entitled to. A classic `IOHIDSystem` connection reads and drives the Caps Lock LED and
 lock state; it is used only by the explicit Quick Press toggle and the one-time unlatch when the remap
-is installed.
+is installed. The remap is applied only after the modifying tap starts; a failed tap leaves Caps Lock
+native rather than stranded as F18. Secure Event Input also blocks the tap, so the one-second health
+check clears the remap while it is active and restores Hyper after it ends. A fast user switch clears
+the remap until the session becomes active again.
 
 ### Press tracking uses toggle semantics
 

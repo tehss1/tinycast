@@ -119,7 +119,9 @@ struct ComposerToolbar: View {
         }
         let items = menuItems(state: state, coordinator: coordinator)
         if key == kVK_Return || key == kVK_ANSI_KeypadEnter {
-            if !event.modifierFlags.contains(.command), items.indices.contains(state.accessorySelection),
+            // Command+Return belongs to the panel's Insert/Replace shortcut, not this menu.
+            if event.modifierFlags.contains(.command) { return nil }
+            if items.indices.contains(state.accessorySelection),
                 items[state.accessorySelection].isSelectable
             { items[state.accessorySelection].action() }
             state.accessory = nil

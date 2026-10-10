@@ -130,6 +130,7 @@ final class HyperKeyTap: HealthCheckable {
     @ObservationIgnored private var hyperActive = false
     @ObservationIgnored private var hyperDownAt: ContinuousClock.Instant?
     @ObservationIgnored private var otherKeyPressed = false
+    @ObservationIgnored private var capsLockRemapEnabled: Bool?
     private let clock = ContinuousClock()
     private static let quickPressWindow: Duration = .milliseconds(250)
 
@@ -313,14 +314,18 @@ final class HyperKeyTap: HealthCheckable {
         cancelHold()
         let wasCapsLock = key == .capsLock
         key = newKey
-        if newKey == .capsLock {
-            // Remapping takes the key's own function away, so unlatch the lock first.
-            setCapsLockState(false)
-            CapsLockRemap.setEnabled(true)
-        } else if wasCapsLock {
-            CapsLockRemap.setEnabled(false)
-        }
         syncTapPresence()
+        if wasCapsLock || newKey == .capsLock { syncCapsLockRemap() }
+    }
+
+    private func syncCapsLockRemap() {
+        let secureInput = IsSecureEventInputEnabled()
+        let shouldEnable = key == .capsLock && status == .active && !secureInput
+        if secureInput { cancelHold() }
+        guard capsLockRemapEnabled != shouldEnable else { return }
+        if shouldEnable { setCapsLockState(false) }
+        capsLockRemapEnabled = shouldEnable
+        CapsLockRemap.setEnabled(shouldEnable)
     }
 
     /// The HID remap outlives the process, so hand the key back before exiting.
@@ -397,12 +402,16 @@ final class HyperKeyTap: HealthCheckable {
         } else if let tapPort, !CGEvent.tapIsEnabled(tap: tapPort) {
             CGEvent.tapEnable(tap: tapPort, enable: true)
         }
-
+        if key == .capsLock { syncCapsLockRemap() }
     }
 
     private func sessionDidResign() {
         cancelHold()
         if let tapPort { CGEvent.tapEnable(tap: tapPort, enable: false) }
+        if key == .capsLock {
+            capsLockRemapEnabled = false
+            CapsLockRemap.setEnabled(false)
+        }
     }
 
     private func sessionDidBecomeActive() {
@@ -411,6 +420,7 @@ final class HyperKeyTap: HealthCheckable {
         } else {
             installTapIfNeeded()
         }
+        if key == .capsLock { syncCapsLockRemap() }
     }
 
     // MARK: - Synthetics & caps state
