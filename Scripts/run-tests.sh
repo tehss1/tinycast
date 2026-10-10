@@ -711,13 +711,7 @@ run quick-action-test      Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/AI/Model/AppleIntelligence.swift \
                            Tinycast/Features/AI/Model/ChatGPTSubscription.swift \
                            Tinycast/Features/AI/Model/InstalledAI.swift \
-                           Tinycast/Features/QuickActions/Model/BuiltInQuickAction.swift \
-                           Tinycast/Features/QuickActions/Model/CustomQuickAction.swift \
-                           Tinycast/Features/QuickActions/Model/CustomQuickActionStore.swift \
-                           Tinycast/Features/QuickActions/Model/QuickAction.swift \
-                           Tinycast/Features/QuickActions/Model/QuickActionFailure.swift \
-                           Tinycast/Features/QuickActions/Model/QuickActionPrompt.swift \
-                           Tinycast/Features/QuickActions/Model/QuickActionSettings.swift \
+                           Tinycast/Features/QuickActions/Model/*.swift \
                            Tinycast/Features/QuickActions/Settings/QuickActionSettingsStore.swift
 run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \
                            Tinycast/Features/AI/Model/AITool.swift \

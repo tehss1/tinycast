@@ -89,6 +89,7 @@ struct UpdateCheckTests {
                 from: feed(version: "1.1.0"), channel: .stable, architecture: .current)
         else { fatalError("the fixture release must be installable") }
         let cache: [String: Any] = [
+            "repository": ReleaseFeed.repository,
             "lastCheckedAt": Date.distantPast.timeIntervalSinceReferenceDate,
             "latest": try JSONSerialization.jsonObject(with: JSONEncoder().encode(release))
         ]
