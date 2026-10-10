@@ -32,6 +32,9 @@ every shortcut without re-registering.
   percent-encoding a URL destination asks for. `{selectedText}` is accepted as an alias for
   `{selection}`, but nothing ever *writes* it.
 
+The launcher editor preserves the current Settings Enabled flag when saving. Deleting the item while
+its form is open makes Save report the missing item without recreating it or discarding the draft.
+
 ## Destinations
 
 `QuicklinkDestination.detect` decides what a link is from its shape alone — no filesystem or Launch
@@ -100,7 +103,9 @@ answer means.
 `promptedArguments(for:)` is the one place that decides: the `{argument}`s the link declares, read
 straight off the template by `SnippetTemplateEngine.declaredArguments(in:)` — a pure parse, so nothing
 is expanded and no clipboard is read to draw a chip — plus the synthetic **"Selected Text"** field when
-the setting says ask. An argument with a `default=` answers itself and is never asked for.
+the setting says ask. An argument with a `default=` is still offered, as an optional chip: left
+empty, the default fills it, so a default is a starting value rather than a fixed one. It stays owed
+if any occurrence of that name lacks a `default=`, because expansion falls back per occurrence.
 `QuicklinkArgumentsAccessory` turns that list into the strip; a field declaring `options=` is chosen
 from the palette's own menu rather than typed. **A chip marks nothing up front.** It draws like every
 other field until the caret has been in it and left it empty, and only then takes a red edge — a row
@@ -110,11 +115,11 @@ glyph, then the chips, right after the typed text — and `.besideSearchField` o
 where the field stays a filter with its prompt intact and the row below already carries the glyph.
 
 **"Selected Text" is asked for up front, not after a failed read.** A chip cannot capture a selection,
-so the field appears whenever the link reads `{selection}` and the setting is `.ask`. Left empty it
-changes nothing — a selection the frontmost app *does* expose is still used — and only a typed value
-replaces it. So it is never owed: `QuicklinkCoordinator.requiresValue` keeps it out of the first
-incomplete field, and ↵ opens a selected-text link at once instead of focusing the empty chip first. That is the one behavioural difference from the two-screen form it replaced, and it is
-what lets the strip be drawn without capturing anything.
+so the field appears whenever the link reads `{selection}` and the setting is `.ask`.
+`QuicklinkCoordinator.selectionArgument` stays optional during ordinary navigation so ↵ can read
+the frontmost app's selection without requiring typed input first. If that read returns nothing and
+the field is empty, opening shows Search Quicklinks with the field focused and waits for input.
+A typed value supplies the missing selection. Drawing the strip never captures anything.
 
 `openQuicklink(id:forcingDefaultApp:values:)` is the single funnel, and it captures the expansion
 context on **every** call rather than holding one across a session, so `{clipboard}`, `{selection}` and
@@ -126,15 +131,18 @@ the window the user was actually in.
 its values through `LauncherScreen.argumentValues(for:)` into the same funnel, so a filled row never
 takes a detour. **Only a shortcut whose values are still missing lands on Search Quicklinks**, on that
 row, with its first empty chip focused — carried across by `PaletteState.pendingArgumentEntryID` and
-`commandArguments`, both set after the show because `prepare` clears them. One argument surface, whether
-the row is reached from root search, from Search Quicklinks or from a hotkey. A ⌘↵ "open with default
-app" override survives that trip on `pendingDefaultAppOverride`, keyed by the quicklink it applies to.
+`commandArguments`, both set after the show because `prepare` clears them. The screen's
+`landingSelection` reads that ID, so the show's reset stays on the row instead of returning to the
+top. One argument surface, whether the row is reached from root search, from Search Quicklinks or from
+a hotkey. A ⌘↵ "open with default app" override survives that trip on `pendingDefaultAppOverride`,
+keyed by the quicklink it applies to.
 
 **A launcher fallback fills the first argument.** Declaring a placeholder is exactly what puts a
 quicklink in the `Use “…” with…` section (see [launcher.md](launcher.md#fallbacks));
-`openQuicklink(id:filling:)` assigns the query to the first declared argument and opens at once when
-that was the only one owed. It is never the "Selected Text" field: that one is not an `{argument}` and
-is resolved by replacing the context, so seeding it there would expand to nothing.
+`openQuicklink(id:filling:)` assigns the query to the first argument still owed — the first declared
+one when every argument has a default — and opens at once when that was the only one owed. It is
+never the "Selected Text" field: that one is not an `{argument}` and is resolved by replacing the
+context, so seeding it there would expand to nothing.
 
 When a template reads the selection and the app in front exposes nothing readable, **Settings →
 Quicklinks** decides what happens: substitute the clipboard, or ask for it through the chip above.
@@ -174,6 +182,10 @@ rest by name — and both the store and the launcher slice sort through it, so t
 disagree. **Pinned means the top of the Quicklinks section**, not above Applications: a second
 position in root search would need a second `AppEntry.Kind`, which the kind invariant forbids for one
 feature. The Search Quicklinks screen gives pins their own section, like the clipboard's.
+A root-search row's ⌘K menu adds **Copy Link** (`⌃⌘C`), copying the saved destination exactly,
+**Edit Quicklink** (`⌘E`), opening the same editor as Search Quicklinks, and **Hide from Root Search**
+(`⇧⌘H`), which clears `showsInRootSearch` rather than writing
+`VisibilityStore` — the editor's toggle is its undo, and the row stays in Search Quicklinks.
 
 ## Search Quicklinks
 
@@ -182,13 +194,42 @@ like Search Snippets and the clipboard: the list on the left, a **detail pane** 
 the selected quicklink's glyph over an Information block (name, link, the app it opens with, its
 shortcut, when it was created). Like Calculator History it stays out of the Tab cycle and exits via the
 back chevron or a bare backspace.
-Its ⌘K menu carries Open (`↵`), Open With Default App (`⌘↵`, only when a handler is saved), Edit,
-Duplicate, Pin/Unpin (`⌘.`), Hide/Show in Root Search, Show in Finder (`⌘F`, only for a resolved
-path), and Delete (`⌘⌫`).
+Its ⌘K menu carries Open (`↵`), Open With Default App (`⌘↵`, only when a handler is saved), Copy Link (`⌃⌘C`),
+Edit (`⌘E`), Create (`⌘N`), Duplicate (`⌘D`), Pin/Unpin (`⌘.`), Show in Finder (`⌘F`, only for a resolved path), and
+Delete (`⌃X`). `QuicklinkCoordinator` owns each action, so a chord and its menu row can't drift.
+Root-search visibility is not offered here: the launcher row hides itself, and the editor restores it.
+Edit and Create also work with the menu closed; ⌘N works when the browser has no rows.
+
+**Copy Link** (`⌃⌘C`) writes the saved destination to the clipboard without opening it. Placeholders stay
+literal, even when the header has argument values filled in. Copying closes the palette and shows
+"Link copied" only after a successful clipboard write, or "Couldn’t copy link" if the write fails.
+It never reads the selected text or expands the template.
 
 Choosing an _arbitrary_ app belongs to the editor, which has a picker; `PopoverMenu` is a flat list
 with no nesting, so the palette offers the one alternative that always exists — bypass the saved app
 and use the system handler, once, without changing what is saved.
+
+## Launcher editor
+
+Create Quicklink, Edit from Search Quicklinks or root search, and the settings Library's Add/Edit
+buttons all open `PaletteMode.quicklinkEditor`. `QuicklinkCoordinator` owns the draft session;
+`QuicklinkEditorScreen` only adapts the palette contract, and `QuicklinkEditorView` owns the fields.
+The settings Library keeps its existing enable, alias, hotkey and deletion controls.
+
+The form contains only the existing link, name, icon, Open With, root-search and pin options. Insert
+stays beside the destination and writes plain placeholder text at the selection; there is no token
+markup or tag field. Insert, the icon selector and Open With use the palette's searchable menu with
+their existing choices, including Automatic for icons and Default app for the application.
+Tab/Shift-Tab walk the form;
+the link wraps but stays one line, so Return adds no line break. ⌘↵ saves, and Escape or the back
+chevron discards the draft.
+The link field grows with its content and only the whole form scrolls. The Open With popup is at
+least as wide as its field, using the control's actual bounds.
+
+Saving uses the existing store's validation and normalisation. Editing preserves the quicklink UUID,
+enabled flag, creation date and existing pin stamp, so its alias, shortcut and order survive. An error
+stays in the form without discarding the draft. Save/cancel returns to the preceding palette screen,
+including its query and selected row; an editor opened directly from settings closes instead.
 
 ## Storage
 
@@ -212,7 +253,8 @@ there. That appends it physically, so the prepared statements **name their colum
 order** rather than the table's, and the row reader stays a straight top-to-bottom read.
 
 Editing preserves the UUID, and with it the quicklink's shortcut, favorite slot, visibility and
-learned ranking. Deleting goes through `AppCore`, which unwinds all four before removing the row.
+learned ranking. Deleting goes through `QuicklinkCoordinator`, which unwinds all four after removing
+the row. Settings always confirms; launcher deletion follows the confirmation preference.
 Duplicating takes a **new** identity, so the copy can't inherit the original's shortcut.
 
 ## Hotkeys

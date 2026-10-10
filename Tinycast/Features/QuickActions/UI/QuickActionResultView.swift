@@ -49,7 +49,7 @@ struct QuickActionResultView: View {
         panelContent
             .frame(width: panelWidth, height: panelHeight)
             .background(Theme.Colors.panelScrim)
-            .background(VisualEffectView())
+            .background(GlassEffectView())
             .overlay { historyMenuDismissalLayer }
             .overlay(alignment: .bottomLeading) { historyMenu }
             .overlay {

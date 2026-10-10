@@ -15,6 +15,24 @@ struct AIProviderTests {
         }
     }
 
+    static func instructionsFollowTheSetting() {
+        for prompt in [nil, "", "   \n\t "] as [String?] {
+            expect(
+                AIInstructions.compose(userPrompt: prompt, isEnabled: true) == AIPreamble.text,
+                "an absent or blank user prompt sends the preamble alone")
+        }
+        expect(
+            AIInstructions.compose(userPrompt: "  Answer only in haiku.  ", isEnabled: true)
+                == AIPreamble.text + "\n\nAnswer only in haiku.",
+            "instructions put the preamble before the trimmed user prompt with a blank line")
+        for prompt in [nil, "Answer only in haiku."] as [String?] {
+            expect(
+                AIInstructions.compose(userPrompt: prompt, isEnabled: false) == nil,
+                "disabled instructions withhold both the preamble and the user prompt")
+        }
+        expect(AIPreamble.text.count < 1_800, "the preamble stays within its per-turn budget")
+    }
+
     /// A wrong document shape must fail here rather than mid-conversation.
     static func requestBodiesCarryDocuments() {
         let pdf = AIDocument(
@@ -77,6 +95,7 @@ struct AIProviderTests {
     }
 
     static func main() {
+        instructionsFollowTheSetting()
         providerPresetsResolveEndpoints()
         modelCatalogBuildsProviderRequests()
         modelCatalogDecodesProviderResponses()
@@ -105,6 +124,7 @@ struct AIProviderTests {
         conversationSettingsPersistAndDecide()
         toolCatalogsAndTurnsEncodePerProvider()
         toolArgumentsSurviveArrivingInFragments()
+        geminiThoughtSignaturesRoundTrip()
         toolCapabilitiesFollowTheRoute()
         codexLaunchNamesServersAndKeepsSecretsOffArgv()
         codexLaunchHandsAServerItsOwnVariableNames()
@@ -170,6 +190,56 @@ struct AIProviderTests {
         expect(
             none == [.finished],
             "a turn that called nothing emits no tool event at all")
+    }
+
+    /// Gemini 3 400s on the follow-up turn if a call's signature doesn't come back unchanged.
+    static func geminiThoughtSignaturesRoundTrip() {
+        var decoder = AIStreamDecoder(shape: .openAICompatible)
+        let data = Data(
+            """
+            data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1",\
+            "function":{"name":"exa__search","arguments":"{}"},\
+            "extra_content":{"google":{"thought_signature":"sig=="}}},\
+            {"index":1,"id":"c2","function":{"name":"exa__fetch","arguments":"{}"}}]}}]}
+
+            data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+
+            data: [DONE]
+
+            """.utf8)
+        var events = (try? decoder.feed(data)) ?? []
+        events += (try? decoder.finish()) ?? []
+        let calls = events.compactMap { event -> AIToolCall? in
+            if case .toolCallRequested(let call) = event { return call }
+            return nil
+        }
+        expect(
+            calls.first?.thoughtSignature == "sig==",
+            "the signature Gemini attaches to a call survives decoding")
+        expect(
+            calls.count == 2 && calls.last?.thoughtSignature == nil,
+            "and a parallel call that arrived without one stays without one")
+
+        let body = AIRequestBody.make(
+            AIRequest(messages: [
+                AIMessage(role: .user, text: "search"),
+                AIMessage(role: .assistant, text: "", toolCalls: calls)
+            ]),
+            configuration: AIHTTPConfiguration(
+                provider: .gemini,
+                baseURL: URL(string: "https://generativelanguage.googleapis.com/v1beta/openai")!,
+                model: "gemini-3.5-flash-lite"))
+        let encoded =
+            (body["messages"] as? [[String: Any]])?
+            .first { $0["tool_calls"] != nil }?["tool_calls"] as? [[String: Any]] ?? []
+        let google =
+            (encoded.first?["extra_content"] as? [String: Any])?["google"] as? [String: Any]
+        expect(
+            google?["thought_signature"] as? String == "sig==",
+            "and goes back on the assistant turn exactly as it arrived")
+        expect(
+            encoded.count == 2 && encoded.last?["extra_content"] == nil,
+            "while a call with no signature sends no extra_content at all")
     }
 
     /// Only a route that can actually run one is ever offered a tool.

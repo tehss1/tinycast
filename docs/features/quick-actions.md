@@ -441,7 +441,7 @@ Without either, Replace is disabled with a request to select the draft and reope
   button closes the panel and opens Language & Region.
 - Revoke Accessibility while enabled: a HUD explains instead of failing silently.
 - Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
-  seven-day Composer history, preview choices, routes and their repair, diffs),
+  seven-day Composer history, preview choices, routes and their repair),
   `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, scoped
   history matching and newest quoted messages), and
-  `text-diff-test` (exact chunks, Unicode, ties, token boundaries and fast paths).
+  `text-diff-test` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).

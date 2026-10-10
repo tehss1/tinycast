@@ -27,20 +27,27 @@ final class UpdateCheckStore {
 
     private let fileURL: URL
     private let repository: String
-    private let endpoint: URL
+    @ObservationIgnored private let fetch: @Sendable () async -> Data?
     private var skippedVersion: AppVersion?
     /// At most one uninvited appearance per version per launch.
     @ObservationIgnored private var announcedVersion: AppVersion?
     @ObservationIgnored private var withheldRetries = 0
     @ObservationIgnored private var pump: Task<Void, Never>?
 
-    init(repository: String = ReleaseFeed.repository) {
+    init(
+        repository: String = ReleaseFeed.repository,
+        channel: ReleaseChannel = ReleaseChannel(bundleID: Bundle.main.bundleIdentifier),
+        runningVersion: AppVersion? = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
+            .flatMap(AppVersion.init),
+        fileURL: URL = AppPaths.caches().appendingPathComponent("update-check.json"),
+        fetch: (@Sendable () async -> Data?)? = nil
+    ) {
         self.repository = repository
-        endpoint = ReleaseFeed.endpoint(for: repository)
-        channel = ReleaseChannel(bundleID: Bundle.main.bundleIdentifier)
-        runningVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
-            .flatMap(AppVersion.init)
-        fileURL = AppPaths.caches().appendingPathComponent("update-check.json")
+        self.channel = channel
+        self.runningVersion = runningVersion
+        self.fileURL = fileURL
+        let endpoint = ReleaseFeed.endpoint(for: repository)
+        self.fetch = fetch ?? { await UpdateCheckStore.body(from: endpoint) }
         guard let data = try? Data(contentsOf: fileURL),
             let cache = try? JSONDecoder().decode(Cache.self, from: data),
             cache.repository == repository
@@ -64,12 +71,12 @@ final class UpdateCheckStore {
         return ReleaseFeed.offer(latest, running: runningVersion, skipped: skippedVersion)
     }
 
-    func start() {
+    func start(after delay: Duration = UpdateCheckStore.startupDelay) {
         guard channel.updatesItself, runningVersion != nil else { return }
         // Replace rather than bail: an exited loop leaves a non-nil task that would block restart.
-        pump?.cancel()
+        stop()
         pump = Task { [weak self] in
-            try? await Task.sleep(for: Self.startupDelay)
+            try? await Task.sleep(for: delay)
             while !Task.isCancelled {
                 // Optional-chained: the sleep must not retain the store, or nothing can release it.
                 guard let wait = await self?.advance() else { return }
@@ -78,13 +85,19 @@ final class UpdateCheckStore {
         }
     }
 
+    func stop() {
+        pump?.cancel()
+        pump = nil
+        withheldRetries = 0
+    }
+
     /// The manual path: ignores freshness, and reports whether GitHub actually answered.
     @discardableResult
     func check() async -> Bool {
         guard channel.updatesItself, !isChecking else { return false }
         isChecking = true
         defer { isChecking = false }
-        guard let data = await Self.body(from: endpoint) else { return false }
+        guard let data = await fetch(), !Task.isCancelled else { return false }
         latest = ReleaseFeed.newest(from: data, channel: channel, architecture: .current)
         lastCheckedAt = Date()
         persist()
@@ -117,6 +130,7 @@ final class UpdateCheckStore {
 
     /// `false` only when a pending release was withheld, so the pump comes back for it.
     private func announce() -> Bool {
+        guard !Task.isCancelled else { return true }
         guard let release = unskippedUpdate, announcedVersion != release.version else { return true }
         guard onUpdateAvailable?(release) ?? true else { return false }
         announcedVersion = release.version
