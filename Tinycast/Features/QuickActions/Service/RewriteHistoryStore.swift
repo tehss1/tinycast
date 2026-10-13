@@ -43,8 +43,8 @@ final class RewriteHistoryStore {
 
     /// Every save rewrites the file, so one this old holds only expired records, key or no key.
     private var isExpiredOnDisk: Bool {
-        guard let written = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
-            .contentModificationDate
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+            let written = attributes[.modificationDate] as? Date
         else { return false }
         return now().timeIntervalSince(written) > Self.retention
     }
