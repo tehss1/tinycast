@@ -51,7 +51,9 @@ Removing that line would reintroduce exactly those three problems. See
 ## Pull request review
 
 `.github/workflows/verify.yml` runs the complete harness suite on pull requests and pushes to `main`.
-CodeRabbit also reviews every PR against `.coderabbit.yaml`: it runs SwiftLint with
+It also regenerates the Xcode project, checks Composer retention, builds Debug without signing,
+runs lint and checks model imports. Release runs must pass the same verification before accessing
+signing secrets. CodeRabbit also reviews every PR against `.coderabbit.yaml`: it runs SwiftLint with
 `.swiftlint.yml`, annotates the diff, and applies the pre-merge checks. CI is a backstop, so run the
 whole bar in [testing.md](testing.md#definition-of-done) locally before opening a PR.
 
@@ -82,7 +84,8 @@ so the fork only ever ships code the official project has published. A new relea
 and published by dispatching the Release workflow with the official base version. A `main` that
 already contains the release but has no matching `-composer` release is published the same way.
 
-A merge conflict, a failing test or a `main` that moved stops the run before anything reaches
+A merge conflict, a Composer file deletion or missing ownership/encryption/feed wiring, a failing
+test or a `main` that moved stops the run before anything reaches
 `main`, and opens one issue per official release, labelled `upstream-sync` and assigned to the
 fork's owner. A cancelled run reports the same way. Merge that release into `main` locally and push;
 the next run publishes it and closes the issue. The sync branch is deleted only after the Release
@@ -100,10 +103,10 @@ the merge on `automation/upstream-sync`; commit the resolution and rerun it from
 `--dry-run` builds, signs and packages without pushing or publishing, rebuilding `main` when there
 is nothing new.
 
-The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
+This fork defaults local builds to `tehss1/tinycast`. The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow
 still stamps `abue-ammar/tinycast`, while a fork stamps its own `owner/repository` value. Both paths
-retain the existing bundle, version, architecture, and signature checks.
+retain bundle, version, architecture, signature and downloaded-repository checks.
 
 Publish a stable fork release using the base version of the official release it includes. The fork
 adds `-composer.<Actions run number>` automatically, so its tag never collides with the official tag
@@ -112,8 +115,15 @@ and every rebuild is newer than the previous customized build. Before the first 
 signed the installed custom app. A different certificate makes the installed app reject the
 download. Do not relax `BundleSignature` to work around a mismatch.
 
-The fork does not update the official Homebrew tap or send official Discord announcements. Install
+The fork does not update the official Homebrew tap, dispatch the official website, or send official
+Discord announcements. Release inputs pass through environment variables and must be a numeric
+three-part base version and a known channel. The published tag targets the exact build commit, even
+when a manual run selects a branch other than `main`.
+
+Install
 the first customized release manually. Later customized releases arrive through Check for Updates.
+Do not install the upstream Homebrew cask over this fork: a bulk upgrade can replace Composer with
+stock Tinycast. Removing that cask without `--zap` leaves bundle-specific user data in place.
 
 A fork may be private. Its updater then needs a GitHub token that can read the repository's
 contents, pasted once into Settings → General → Update token; see

@@ -34,6 +34,10 @@ enum ReleaseFeed {
         URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=20")!
     }
 
+    static func acceptsRepository(in info: [String: Any]?, expected: String) -> Bool {
+        repository(in: info) == expected
+    }
+
     /// The asset address comes from feed JSON kept in a cache file, so it is not trusted blind.
     static func acceptsToken(_ url: URL) -> Bool {
         url.scheme == "https" && url.host() == "api.github.com"

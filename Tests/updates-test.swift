@@ -22,6 +22,7 @@ struct UpdatesTests {
         roundTripsVersionsThroughJSON()
         derivesChannels()
         resolvesReleaseRepositories()
+        rejectsRepositoryChanges()
         picksNewestForChannel()
         picksTheZipThisMacCanRun()
         rejectsUnusableFeeds()
@@ -172,6 +173,27 @@ struct UpdatesTests {
             ReleaseFeed.endpoint(for: "example-fork/tinycast").absoluteString
                 == "https://api.github.com/repos/example-fork/tinycast/releases?per_page=20",
             "the selected repository owns the GitHub Releases endpoint")
+    }
+
+    static func rejectsRepositoryChanges() {
+        let fork = "tehss1/tinycast"
+        expect(
+            ReleaseFeed.acceptsRepository(in: [ReleaseFeed.repositoryInfoKey: fork], expected: fork),
+            "the fork installs an app that keeps its update repository")
+        expect(
+            !ReleaseFeed.acceptsRepository(
+                in: [ReleaseFeed.repositoryInfoKey: ReleaseFeed.defaultRepository], expected: fork),
+            "an otherwise matching stock app cannot redirect the fork to upstream")
+        expect(
+            !ReleaseFeed.acceptsRepository(in: nil, expected: fork),
+            "a fork refuses a downloaded app missing its repository stamp")
+        expect(
+            !ReleaseFeed.acceptsRepository(
+                in: [ReleaseFeed.repositoryInfoKey: "$(TINYCAST_UPDATE_REPOSITORY)"], expected: fork),
+            "a fork refuses an unresolved repository build setting")
+        expect(
+            ReleaseFeed.acceptsRepository(in: nil, expected: ReleaseFeed.defaultRepository),
+            "an official app still accepts historical official builds without a stamp")
     }
 
     /// Shaped like GitHub's `/releases` payload, down to the snake-cased keys.

@@ -96,6 +96,9 @@ struct UpdateInstaller: Sendable {
             throw UpdateFailure.versionMismatch(
                 expected: release.version.description, found: found ?? "unknown")
         }
+        guard ReleaseFeed.acceptsRepository(in: info, expected: ReleaseFeed.repository) else {
+            throw UpdateFailure.repositoryMismatch
+        }
         guard BundleSignature.isTrusted(staged) else { throw UpdateFailure.identityMismatch }
     }
 

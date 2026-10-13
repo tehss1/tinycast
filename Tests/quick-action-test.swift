@@ -849,6 +849,7 @@ struct QuickActionTests {
         afterDeletion.load()
         expect(afterDeletion.records.isEmpty, "a deleted conversation stays deleted after relaunch")
 
+        expect(afterDeletion.save(current), "a new conversation can follow a deliberate deletion")
         let sealedBytes = (try? Data(contentsOf: saved)) ?? Data()
         let locked = RewriteHistoryStore(directory: directory, key: { nil }, now: { clock })
         locked.load()
@@ -866,18 +867,29 @@ struct QuickActionTests {
             !FileManager.default.fileExists(atPath: unsealed.path),
             "a history file left in the clear by an earlier build is removed")
         expect(
-            !FileManager.default.fileExists(atPath: saved.path),
-            "history sealed with a lost key is deleted rather than kept past its retention")
+            (try? Data(contentsOf: saved)) == sealedBytes && !otherKey.save(current),
+            "a different key cannot delete or overwrite unexpired history")
 
-        try? Data("{ not the history we wrote".utf8).write(to: saved)
+        let rightKey = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
+        rightKey.load()
+        expect(
+            rightKey.records.map(\.id) == [current.id]
+                && rightKey.records.first?.messages == current.messages,
+            "the original key recovers the transcript after a launch with a different key")
+
+        let unreadable = Data("{ not the history we wrote".utf8)
+        try? unreadable.write(to: saved)
         let afterCorruption = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         afterCorruption.load()
         expect(
-            !FileManager.default.fileExists(atPath: saved.path),
-            "an unreadable history file is deleted rather than kept past its retention")
+            (try? Data(contentsOf: saved)) == unreadable,
+            "unreadable history survives a launch until its disk retention expires")
         expect(
-            afterCorruption.records.isEmpty && afterCorruption.save(current),
-            "and it does not block the next save")
+            afterCorruption.records.isEmpty && !afterCorruption.save(current),
+            "an empty in-memory list cannot overwrite unread history")
+        let stale = clock.addingTimeInterval(-RewriteHistoryStore.retention - 1)
+        try? FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: saved.path)
+        expect(afterCorruption.save(current), "expired unreadable history permits a new save")
         let recovered = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { clock })
         recovered.load()
         expect(recovered.records.map(\.id) == [current.id], "and that save replaces the file")
@@ -886,7 +898,6 @@ struct QuickActionTests {
         expect(mode?.intValue == 0o600, "the history file is readable only by its owner")
         expect(excluded == true, "and backups do not keep drafts past their retention")
 
-        let stale = clock.addingTimeInterval(-RewriteHistoryStore.retention - 1)
         try? FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: saved.path)
         RewriteHistoryStore(directory: directory, key: { nil }, now: { clock }).load()
         expect(

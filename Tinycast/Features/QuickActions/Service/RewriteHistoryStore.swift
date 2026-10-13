@@ -17,6 +17,7 @@ final class RewriteHistoryStore {
     @ObservationIgnored private lazy var key: SymmetricKey? = keySource()
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var dayObserver: NotificationToken?
+    @ObservationIgnored private var unreadableFile = false
 
     init(directory: URL, key: @escaping () -> SymmetricKey?, now: @escaping () -> Date = Date.init) {
         fileURL = directory.appendingPathComponent("rewrite-history.sealed")
@@ -25,16 +26,16 @@ final class RewriteHistoryStore {
         self.now = now
     }
 
-    /// An unreadable file can never be pruned by age, so it is deleted rather than left to expire.
     func load() {
         observeDayChange()
         try? FileManager.default.removeItem(at: unsealedURL)
         if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
+        unreadableFile = FileManager.default.fileExists(atPath: fileURL.path)
         guard let key, let sealed = try? Data(contentsOf: fileURL) else { return }
         guard let decoded = Self.opened(sealed, with: key) else {
-            try? FileManager.default.removeItem(at: fileURL)
             return
         }
+        unreadableFile = false
         let retained = Self.retained(decoded, now: now())
         records = retained
         if retained.count != decoded.count { _ = persist(retained) }
@@ -138,6 +139,11 @@ final class RewriteHistoryStore {
     private func persist(_ values: [RewriteHistoryRecord]) -> Bool {
         guard let key else { return false }
         do {
+            if unreadableFile {
+                guard isExpiredOnDisk else { return false }
+                try FileManager.default.removeItem(at: fileURL)
+                unreadableFile = false
+            }
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()

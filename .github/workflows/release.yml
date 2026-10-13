@@ -24,7 +24,25 @@ permissions:
   actions: write
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate release inputs
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          BASE_VERSION: ${{ inputs.version }}
+        run: ./Scripts/release-metadata.sh "$GITHUB_OUTPUT"
+      - run: ./Tests/release-pipeline-test.sh
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/verify.yml
+
   build:
+    needs: verify
     runs-on: macos-26
     # Consumed by the `universal` job, so the channel identity is derived in exactly one place.
     outputs:
@@ -47,31 +65,10 @@ jobs:
 
       - name: Compute release metadata
         id: meta
-        run: |
-          CHANNEL="${{ github.event.inputs.channel }}"
-          BASE_VERSION="${{ github.event.inputs.version }}"
-          # Fork stable releases get a distinct suffix. This avoids colliding with upstream tags
-          # while keeping the build on the stable updater channel.
-          case "$CHANNEL" in
-            beta)   SUFFIX="-beta.${GITHUB_RUN_NUMBER}";  DISPLAY="Tinycast Beta";  BUNDLE="com.tinycast.app.beta";  CASK="tinycast@beta";  PRERELEASE=true ;;
-            stable)
-              SUFFIX=""
-              if [ "$GITHUB_REPOSITORY" != "abue-ammar/tinycast" ]; then
-                SUFFIX="-composer.${GITHUB_RUN_NUMBER}"
-              fi
-              DISPLAY="Tinycast"; BUNDLE="com.tinycast.app"; CASK="tinycast"; PRERELEASE=false
-              ;;
-          esac
-          FULL="${BASE_VERSION}${SUFFIX}"
-          {
-            echo "full_version=${FULL}"
-            echo "display_name=${DISPLAY}"
-            echo "bundle_id=${BUNDLE}"
-            echo "cask_name=${CASK}"
-            echo "dmg_file=Tinycast-${FULL}.dmg"
-            echo "zip_file=Tinycast-${FULL}.zip"
-            echo "prerelease=${PRERELEASE}"
-          } >> "$GITHUB_OUTPUT"
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          BASE_VERSION: ${{ inputs.version }}
+        run: ./Scripts/release-metadata.sh "$GITHUB_OUTPUT"
 
       # Import the stable self-signed identity into a temp keychain so every release is signed with
       # the SAME cert — that constant signature is what keeps users' Accessibility (TCC) grant alive
@@ -187,7 +184,7 @@ jobs:
           fi
           # --notes-file, never --generate-notes: gh prepends --notes to generated notes, which would
           # put the install boilerplate back above the changelog.
-          gh release create "$TAG" \
+          gh release create "$TAG" --target "$GITHUB_SHA" \
             "dist/${{ steps.meta.outputs.dmg_file }}" \
             "dist/${{ steps.meta.outputs.zip_file }}" \
             --title "${{ steps.meta.outputs.display_name }} ${{ steps.meta.outputs.full_version }}" \
@@ -229,7 +226,7 @@ jobs:
       # The site bakes the latest version and the changelog in at build time, so a stable release
       # rebuilds it. A dispatch is the one event GITHUB_TOKEN may start another workflow with.
       - name: Rebuild the website
-        if: github.event.inputs.channel == 'stable'
+        if: github.event.inputs.channel == 'stable' && github.repository == 'abue-ammar/tinycast'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run website.yml --repo "$GITHUB_REPOSITORY" --ref main
@@ -436,7 +433,7 @@ jobs:
 
   # A fork's release is dispatched unattended by the upstream sync, so a failed build needs a reader.
   report:
-    needs: [build, universal]
+    needs: [preflight, verify, build, universal]
     if: ${{ always() && github.repository != 'abue-ammar/tinycast' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-latest
     permissions:

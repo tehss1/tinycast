@@ -99,10 +99,13 @@ selectable Markdown renderer with AI Chat.
 - **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
   to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
   AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. When Keychain cannot supply the key the
-  history is neither read nor written, and a new key is made only when none exists. Opening Composer,
+  history is neither read nor written, and a new key is made only when none exists. A malformed
+  existing Keychain value is preserved rather than replaced. The old plaintext `rewrite-history.json`
+  is deleted on load; it is not migrated. Opening Composer,
   saving a transcript, launching the app or the calendar day changing removes records whose latest
   revision is older than seven days. The file is readable only by its owner and excluded from
-  backups, and a file that no longer opens or decodes is deleted because it could never expire by age.
+  backups. An unexpired file that cannot be read, authenticated or decoded is preserved and blocks
+  writes, so an unexpected key or schema cannot replace unread history with an empty list.
   A file last written more than seven days ago is deleted at launch without its key, since every
   save rewrites it. Running Composer again on the same Outlook email restores its transcript and latest completed
   draft without another model request. Tinycast stores context and individual-message fingerprints

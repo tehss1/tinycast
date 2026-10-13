@@ -253,7 +253,7 @@ final class AppCore {
         self.settings = settings
         self.chatHistory = chatHistory
         rewriteHistory = RewriteHistoryStore(
-            directory: AppPaths.applicationSupport(), key: RewriteHistoryKey.keychain)
+            directory: AppPaths.applicationSupport(), key: { RewriteHistoryKey.keychain() })
         supportReminders = SupportReminderStore(settings: settings)
         aiChats = AIChatSurfacesState(history: chatHistory)
         appIndex = AppIndex(ranking: launcherRanking, aliases: aliases)

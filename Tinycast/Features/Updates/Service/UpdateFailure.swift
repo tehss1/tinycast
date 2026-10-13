@@ -11,6 +11,7 @@ enum UpdateFailure: LocalizedError, Equatable {
     case noAppInArchive
     case quarantined
     case bundleMismatch
+    case repositoryMismatch
     case identityMismatch
     case versionMismatch(expected: String, found: String)
     case replaceFailed(String)
@@ -35,6 +36,8 @@ enum UpdateFailure: LocalizedError, Equatable {
             return "macOS quarantined the downloaded app and Tinycast could not clear the flag."
         case .bundleMismatch:
             return "The downloaded app is not this build of Tinycast."
+        case .repositoryMismatch:
+            return "The downloaded app receives updates from a different repository."
         case .identityMismatch:
             return "The downloaded app is not signed by the identity this copy was signed with."
         case .versionMismatch(let expected, let found):
@@ -46,7 +49,7 @@ enum UpdateFailure: LocalizedError, Equatable {
 
     var recoverySuggestion: String? {
         switch self {
-        case .identityMismatch, .bundleMismatch, .versionMismatch:
+        case .identityMismatch, .bundleMismatch, .repositoryMismatch, .versionMismatch:
             return "Nothing was installed. Download the release from GitHub instead, so you can "
                 + "check it yourself."
         case .replaceFailed:

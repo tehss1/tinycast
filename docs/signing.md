@@ -115,11 +115,15 @@ missing its entitlement ships a permission that can never be granted.
 
 ## The Developer ID migration
 
-`BundleSignature` already accepts a bundle signed by the Tinycast team under Apple's Developer ID
+In an official build, `BundleSignature` already accepts a bundle signed by the Tinycast team under Apple's Developer ID
 chain, even though releases are still signed with `Tinycast Self-Signed`. That is deliberate and
 staged: the updater compares signatures before it installs, so the code that trusts the new identity
 has to reach users *before* the first build carrying it. Until the switch it also accepts the running
 app's own leaf, which is the only thing a copy installed earlier knows how to check.
+
+Fork builds accept only their running leaf certificate and a matching update repository, so an
+upstream Developer ID build cannot replace Composer. A fork signing migration needs its own
+explicitly reviewed trust transition.
 
 The requirement pins the team rather than the certificate, so a Developer ID renewal strands nobody.
 It deliberately omits the `notarized` keyword — that resolves a ticket through `syspolicyd` or the

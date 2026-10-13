@@ -26,13 +26,14 @@ no appcast: the release feed the website already reads is the feed the app reads
   validates, nested helper included, *and* it either satisfies the Developer ID requirement pinned in
   `BundleSignature` or carries the byte-identical leaf certificate the running app does. The
   requirement names the team, so a certificate renewal strands nobody; the leaf match is the path a
-  copy installed before the Developer ID switch has, and it goes away once none is left. `notarized`
+  copy installed before the Developer ID switch has, and it goes away once none is left. A fork accepts only its running leaf certificate; it does not trust upstream
+  Developer ID signatures. `notarized`
   is deliberately not in the requirement — it resolves the ticket through `syspolicyd` or the
   network, so an offline Mac would refuse a bundle the chain already proves is ours.
 - **A build only ever updates within its own channel.** The channels are separate bundle ids installed
   side by side; crossing would mean installing a different app. `com.tinycast.app.dev` never updates
   at all, and does not advertise the command.
-- **Nothing is installed unless every check passes.** Bundle id, version and signature are all checked
+- **Nothing is installed unless every check passes.** Bundle id, version, update repository and signature are all checked
   on the expanded copy before `replaceItemAt` runs, and the running app survives any failure untouched.
 - **Relaunching goes through `NSApp.terminate`, never `exit`.** That is what flushes a pending note
   draft and hands back the Hyper Key's HID-level caps remap, which outlives the process.
@@ -63,7 +64,8 @@ no appcast: the release feed the website already reads is the feed the app reads
 - **`@handle` and `#304` are linked by the app, never by the release body.** GitHub autolinks both on
   the web, and a bare mention is what notifies the contributor, so the published body keeps them
   plain and `ReleaseNotes` spells them as Markdown links on the way to the window. Both point at
-  `ReleaseFeed.repository`. Official builds read `abue-ammar/tinycast`; fork workflows stamp their
+  `ReleaseFeed.repository`. Official builds read `abue-ammar/tinycast`; this fork defaults to `tehss1/tinycast` for local
+  builds, and fork workflows stamp their
   own repository into `TinycastUpdateRepository` at build time.
 - **A private fork's token lives in Keychain and nowhere else.** Settings → General → Update token
   appears only in a build stamped with its own repository, and stores a read-only GitHub token under
@@ -132,8 +134,9 @@ One route, whatever the install came from:
 2. `ditto -x -k` it into a staging folder, and take whatever `.app` lands there — the bundle is named
    for its channel, so it is `Tinycast Beta.app` on beta.
 3. Check quarantine natively; clear it if somehow present, and refuse the update if it survives.
-4. Verify the bundle id, the version, and that the code signature is valid and proves the bundle is
-   ours — by the pinned Developer ID requirement, or by the running app's own leaf certificate.
+4. Verify the bundle id, the version, the update repository, and that the code signature is valid and proves the bundle is
+   ours — by the running app's own leaf certificate, or, for an official build only, by the pinned
+   Developer ID requirement.
 5. `FileManager.replaceItemAt`. The staging folder is on the same volume as `/Applications`, which is
    what lets this be atomic. A non-writable `/Applications` is reported, not worked around; there is
    no privileged helper.

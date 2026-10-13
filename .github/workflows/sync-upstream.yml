@@ -88,6 +88,7 @@ jobs:
             echo "problem=${TAG} changes .github/workflows, which needs the SYNC_TOKEN secret or a local merge." >> "$GITHUB_OUTPUT"
             exit 1
           fi
+          ./Scripts/check-composer-retention.sh main
           git push --force origin "$SYNC_BRANCH"
           {
             echo "merged=true"

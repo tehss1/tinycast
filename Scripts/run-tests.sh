@@ -641,6 +641,8 @@ run settings-history-test  Tinycast/Features/Settings/SettingsTab.swift \
                            $L/SearchRelevance.swift
 run updates-test           Tinycast/Features/Updates/Model/*.swift \
                            Tinycast/Features/Updates/Service/BundleSignature.swift
+run rewrite-history-key-test Tinycast/Platform/KeychainSecretStore.swift \
+                             Tinycast/Features/QuickActions/Service/RewriteHistoryKey.swift
 run update-check-test      Tinycast/Features/Updates/Model/*.swift \
                            Tinycast/Features/Updates/Service/UpdateCheckStore.swift \
                            Tinycast/Platform/AppPaths.swift
