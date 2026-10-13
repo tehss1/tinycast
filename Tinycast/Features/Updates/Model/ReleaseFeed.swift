@@ -8,6 +8,27 @@ struct AvailableRelease: Codable, Hashable, Sendable {
     let assetURL: URL
     let assetSize: Int64
     let publishedAt: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case version, tag, notes, assetURL, assetSize, publishedAt
+    }
+}
+
+extension AvailableRelease {
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try values.decode(AppVersion.self, forKey: .version)
+        let tag = try values.decode(String.self, forKey: .tag)
+        guard AppVersion(tag) == version else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .tag, in: values, debugDescription: "Release tag does not match its version")
+        }
+        self.init(
+            version: version, tag: tag, notes: try values.decode(String.self, forKey: .notes),
+            assetURL: try values.decode(URL.self, forKey: .assetURL),
+            assetSize: try values.decode(Int64.self, forKey: .assetSize),
+            publishedAt: try values.decodeIfPresent(Date.self, forKey: .publishedAt))
+    }
 }
 
 /// Nothing throws: an unusable body means nothing to install, and the pump retries.

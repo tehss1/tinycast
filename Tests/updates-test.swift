@@ -23,6 +23,7 @@ struct UpdatesTests {
         derivesChannels()
         resolvesReleaseRepositories()
         rejectsRepositoryChanges()
+        validatesCachedReleaseIdentity()
         picksNewestForChannel()
         picksTheZipThisMacCanRun()
         rejectsUnusableFeeds()
@@ -194,6 +195,29 @@ struct UpdatesTests {
         expect(
             ReleaseFeed.acceptsRepository(in: nil, expected: ReleaseFeed.officialRepository),
             "an official app still accepts historical official builds without a stamp")
+    }
+
+    static func validatesCachedReleaseIdentity() {
+        guard let version = AppVersion("0.11.19-composer.12") else { fatalError("invalid fixture version") }
+        let release = AvailableRelease(
+            version: version, tag: "v\(version)", notes: "Fixture",
+            assetURL: URL(string: "https://api.github.com/repos/tehss1/tinycast/releases/assets/12")!,
+            assetSize: 1, publishedAt: nil)
+        guard let encoded = try? JSONEncoder().encode(release),
+            var object = (try? JSONSerialization.jsonObject(with: encoded)) as? [String: Any]
+        else { fatalError("invalid fixture encoding") }
+        expect(
+            (try? JSONDecoder().decode(AvailableRelease.self, from: encoded)) == release,
+            "valid cached release identity survives a round trip")
+        for tag in ["../../victim", "v0.11.19-composer.13", "unrecognized"] {
+            object["tag"] = tag
+            guard let tampered = try? JSONSerialization.data(withJSONObject: object) else {
+                fatalError("invalid fixture JSON")
+            }
+            expect(
+                (try? JSONDecoder().decode(AvailableRelease.self, from: tampered)) == nil,
+                "a cached tag cannot traverse paths or disagree with its validated version")
+        }
     }
 
     /// Shaped like GitHub's `/releases` payload, down to the snake-cased keys.

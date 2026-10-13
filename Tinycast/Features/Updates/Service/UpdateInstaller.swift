@@ -41,7 +41,7 @@ struct UpdateInstaller: Sendable {
         try Task.checkCancellation()
         try? FileManager.default.createDirectory(
             at: stagingDirectory, withIntermediateDirectories: true)
-        let archive = stagingDirectory.appendingPathComponent("\(release.tag).zip")
+        let archive = stagingDirectory.appendingPathComponent("\(release.version).zip")
         let expanded = stagingDirectory.appendingPathComponent("expanded", isDirectory: true)
         try? FileManager.default.removeItem(at: expanded)
 

@@ -103,7 +103,9 @@ self-rescheduling pump, and one atomic JSON file.
 ~/Library/Caches/<bundle-id>/update-check.json
 ```
 
-It holds `lastCheckedAt`, the newest release seen, and the version the user dismissed. Freshness is
+It holds `lastCheckedAt`, the newest release seen, and the version the user dismissed. A cached
+release is decoded only when its tag parses to the same version; the archive filename comes from
+the validated version, so a tampered tag cannot write outside the staging directory. Freshness is
 measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 24 h, dropping to
 2 h after a failed attempt, and the first check waits 30 s so it never lands in the login rush. The
 request carries a `User-Agent`, which the GitHub API rejects requests without, and the update token
