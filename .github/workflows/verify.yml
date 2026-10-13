@@ -56,6 +56,9 @@ jobs:
         env:
           # Draws text into a bitmap, which a hosted runner without a display leaves blank.
           TINYCAST_TEST_SKIP: form-input-test
+          TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: ./Scripts/run-tests.sh
 
       - name: Build Debug without signing
