@@ -14,7 +14,7 @@ CHANNEL=beta "$root/Scripts/release-metadata.sh" "$scratch/beta"
 grep -qx 'full_version=0.11.19-beta.12' "$scratch/beta"
 grep -qx 'bundle_id=com.tinycast.app.beta' "$scratch/beta"
 grep -qx 'prerelease=true' "$scratch/beta"
-for invalid in '' '0.11' '0.11.19-composer.12' '0.11.19"; touch sentinel; #' '$(touch sentinel)' $'0.11.19\nfull_version=99.0.0'; do
+for invalid in '' '00.11.19' '9223372036854775808.11.19' '0.11' '0.11.19-composer.12' '0.11.19"; touch sentinel; #' '$(touch sentinel)' $'0.11.19\nfull_version=99.0.0'; do
     if BASE_VERSION="$invalid" "$root/Scripts/release-metadata.sh" "$scratch/rejected" > "$scratch/rejected.log" 2>&1; then
         echo "Accepted invalid release version: $invalid"; exit 1
     fi
