@@ -4844,7 +4844,7 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TINYCAST_BUNDLE_IDENTIFIER = com.tinycast.app.dev;
-				TINYCAST_UPDATE_REPOSITORY = "abue-ammar/tinycast";
+				TINYCAST_UPDATE_REPOSITORY = tehss1/tinycast;
 			};
 			name = Debug;
 		};
@@ -4930,7 +4930,7 @@
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TINYCAST_BUNDLE_IDENTIFIER = com.tinycast.app;
-				TINYCAST_UPDATE_REPOSITORY = "abue-ammar/tinycast";
+				TINYCAST_UPDATE_REPOSITORY = tehss1/tinycast;
 			};
 			name = Release;
 		};
