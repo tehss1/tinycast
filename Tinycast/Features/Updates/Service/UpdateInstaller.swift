@@ -38,6 +38,7 @@ struct UpdateInstaller: Sendable {
     func install(
         _ release: AvailableRelease, onProgress: @escaping @Sendable (Phase) -> Void
     ) async throws {
+        try Task.checkCancellation()
         try? FileManager.default.createDirectory(
             at: stagingDirectory, withIntermediateDirectories: true)
         let archive = stagingDirectory.appendingPathComponent("\(release.tag).zip")
@@ -49,13 +50,16 @@ struct UpdateInstaller: Sendable {
             guard case .progress(let received, let expected) = event else { continue }
             onProgress(.downloading(received: received, expected: expected))
         }
+        try Task.checkCancellation()
 
         onProgress(.extracting)
         let staged = try await expand(archive, into: expanded)
+        try Task.checkCancellation()
 
         onProgress(.verifying)
         try verify(staged, is: release)
 
+        try Task.checkCancellation()
         onProgress(.replacing)
         do {
             _ = try FileManager.default.replaceItemAt(

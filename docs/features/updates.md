@@ -137,7 +137,8 @@ One route, whatever the install came from:
 4. Verify the bundle id, the version, the update repository, and that the code signature is valid and proves the bundle is
    ours — by the running app's own leaf certificate, or, for an official build only, by the pinned
    Developer ID requirement.
-5. `FileManager.replaceItemAt`. The staging folder is on the same volume as `/Applications`, which is
+5. Check cancellation after downloading and expanding, and again before replacing.
+   `FileManager.replaceItemAt`. The staging folder is on the same volume as `/Applications`, which is
    what lets this be atomic. A non-writable `/Applications` is reported, not worked around; there is
    no privileged helper.
 6. Offer Relaunch, which spawns a detached waiter that reopens the app once this process exits —

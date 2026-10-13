@@ -643,6 +643,13 @@ run updates-test           Tinycast/Features/Updates/Model/*.swift \
                            Tinycast/Features/Updates/Service/BundleSignature.swift
 run rewrite-history-key-test Tinycast/Platform/KeychainSecretStore.swift \
                              Tinycast/Features/QuickActions/Service/RewriteHistoryKey.swift
+run update-installer-test  Tinycast/Features/Updates/Model/*.swift \
+                           Tinycast/Features/Updates/Service/UpdateInstaller.swift \
+                           Tinycast/Features/Updates/Service/UpdateDownloader.swift \
+                           Tinycast/Features/Updates/Service/UpdateFailure.swift \
+                           Tinycast/Features/Updates/Service/BundleSignature.swift \
+                           Tinycast/Features/Updates/Service/Quarantine.swift \
+                           Tinycast/Features/Updates/Service/ToolRunner.swift
 run update-check-test      Tinycast/Features/Updates/Model/*.swift \
                            Tinycast/Features/Updates/Service/UpdateCheckStore.swift \
                            Tinycast/Platform/AppPaths.swift
