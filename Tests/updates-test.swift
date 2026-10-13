@@ -142,7 +142,7 @@ struct UpdatesTests {
 
     static func resolvesReleaseRepositories() {
         expect(
-            ReleaseFeed.repository(in: nil) == ReleaseFeed.defaultRepository,
+            ReleaseFeed.repository(in: nil) == ReleaseFeed.fallbackRepository,
             "a build without an override uses the official release feed")
         expect(
             ReleaseFeed.repository(
@@ -157,18 +157,18 @@ struct UpdatesTests {
         expect(
             ReleaseFeed.repository(
                 in: [ReleaseFeed.repositoryInfoKey: "https://example.invalid/releases"])
-                == ReleaseFeed.defaultRepository,
+                == ReleaseFeed.fallbackRepository,
             "a URL cannot escape the GitHub repository path")
         expect(
             ReleaseFeed.repository(
                 in: [ReleaseFeed.repositoryInfoKey: "owner/repo/extra"])
-                == ReleaseFeed.defaultRepository,
+                == ReleaseFeed.fallbackRepository,
             "only an owner and repository pair is accepted")
         expect(
             ReleaseFeed.repository(
                 in: [ReleaseFeed.repositoryInfoKey: "$(TINYCAST_UPDATE_REPOSITORY)"])
-                == ReleaseFeed.defaultRepository,
-            "an unresolved build setting falls back to the official feed")
+                == ReleaseFeed.fallbackRepository,
+            "an unresolved build setting keeps the fork feed")
         expect(
             ReleaseFeed.endpoint(for: "example-fork/tinycast").absoluteString
                 == "https://api.github.com/repos/example-fork/tinycast/releases?per_page=20",
@@ -182,7 +182,7 @@ struct UpdatesTests {
             "the fork installs an app that keeps its update repository")
         expect(
             !ReleaseFeed.acceptsRepository(
-                in: [ReleaseFeed.repositoryInfoKey: ReleaseFeed.defaultRepository], expected: fork),
+                in: [ReleaseFeed.repositoryInfoKey: ReleaseFeed.officialRepository], expected: fork),
             "an otherwise matching stock app cannot redirect the fork to upstream")
         expect(
             !ReleaseFeed.acceptsRepository(in: nil, expected: fork),
@@ -192,7 +192,7 @@ struct UpdatesTests {
                 in: [ReleaseFeed.repositoryInfoKey: "$(TINYCAST_UPDATE_REPOSITORY)"], expected: fork),
             "a fork refuses an unresolved repository build setting")
         expect(
-            ReleaseFeed.acceptsRepository(in: nil, expected: ReleaseFeed.defaultRepository),
+            ReleaseFeed.acceptsRepository(in: nil, expected: ReleaseFeed.officialRepository),
             "an official app still accepts historical official builds without a stamp")
     }
 
@@ -259,11 +259,11 @@ struct UpdatesTests {
         expect(response(503) == .unreachable, "a server error is an outage")
         expect(
             ReleaseFeed.repository(in: [ReleaseFeed.repositoryInfoKey: "../tinycast"])
-                == ReleaseFeed.defaultRepository,
+                == ReleaseFeed.fallbackRepository,
             "a path-traversing repository is ignored")
         expect(
             ReleaseFeed.repository(in: [ReleaseFeed.repositoryInfoKey: "owné/tinycast"])
-                == ReleaseFeed.defaultRepository,
+                == ReleaseFeed.fallbackRepository,
             "a repository outside GitHub's ASCII names is ignored")
         expect(
             ReleaseFeed.newest(

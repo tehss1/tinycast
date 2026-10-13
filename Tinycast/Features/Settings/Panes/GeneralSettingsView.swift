@@ -53,7 +53,7 @@ struct GeneralSettingsView: View {
                     SettingsRowTitle(.generalGeneral, "Automatically check for updates")
                     Text("Check for Updates remains available when off.")
                 }
-                if ReleaseFeed.repository != ReleaseFeed.defaultRepository {
+                if ReleaseFeed.repository != ReleaseFeed.officialRepository {
                     UpdateTokenRow()
                 }
                 Picker(selection: $settings.popToRootTimeout) {

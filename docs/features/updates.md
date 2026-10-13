@@ -65,7 +65,7 @@ no appcast: the release feed the website already reads is the feed the app reads
   the web, and a bare mention is what notifies the contributor, so the published body keeps them
   plain and `ReleaseNotes` spells them as Markdown links on the way to the window. Both point at
   `ReleaseFeed.repository`. Official builds read `abue-ammar/tinycast`; this fork defaults to `tehss1/tinycast` for local
-  builds, and fork workflows stamp their
+  builds and falls back to that fork if its stamp is absent or invalid; fork workflows stamp their
   own repository into `TinycastUpdateRepository` at build time.
 - **A private fork's token lives in Keychain and nowhere else.** Settings → General → Update token
   appears only in a build stamped with its own repository, and stores a read-only GitHub token under

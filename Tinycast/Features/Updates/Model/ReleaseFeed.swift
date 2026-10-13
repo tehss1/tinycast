@@ -12,8 +12,8 @@ struct AvailableRelease: Codable, Hashable, Sendable {
 
 /// Nothing throws: an unusable body means nothing to install, and the pump retries.
 enum ReleaseFeed {
-    /// Where official builds come from when no release feed is stamped into the app.
-    static let defaultRepository = "abue-ammar/tinycast"
+    static let officialRepository = "abue-ammar/tinycast"
+    static let fallbackRepository = "tehss1/tinycast"
     static let repositoryInfoKey = "TinycastUpdateRepository"
 
     /// Where releases come from, and what every `@handle` and `#304` in their notes points at.
@@ -21,12 +21,16 @@ enum ReleaseFeed {
     static var repository: String { repository(in: Bundle.main.infoDictionary) }
 
     static func repository(in info: [String: Any]?) -> String {
-        guard let raw = info?[repositoryInfoKey] as? String else { return defaultRepository }
+        stampedRepository(in: info) ?? fallbackRepository
+    }
+
+    private static func stampedRepository(in info: [String: Any]?) -> String? {
+        guard let raw = info?[repositoryInfoKey] as? String else { return nil }
         let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = candidate.split(separator: "/", omittingEmptySubsequences: false)
         guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }),
             candidate.unicodeScalars.allSatisfy({ repositoryCharacters.contains($0) })
-        else { return defaultRepository }
+        else { return nil }
         return candidate
     }
 
@@ -35,7 +39,8 @@ enum ReleaseFeed {
     }
 
     static func acceptsRepository(in info: [String: Any]?, expected: String) -> Bool {
-        repository(in: info) == expected
+        if let stamped = stampedRepository(in: info) { return stamped == expected }
+        return expected == officialRepository && info?[repositoryInfoKey] == nil
     }
 
     /// The asset address comes from feed JSON kept in a cache file, so it is not trusted blind.
