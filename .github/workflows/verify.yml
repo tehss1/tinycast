@@ -56,6 +56,7 @@ jobs:
         env:
           # Draws text into a bitmap, which a hosted runner without a display leaves blank.
           TINYCAST_TEST_SKIP: form-input-test
+          TINYCAST_TEST_JOBS: 2
           TMPDIR: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
@@ -67,7 +68,7 @@ jobs:
           xcodebuild -project Tinycast.xcodeproj -scheme Tinycast -configuration Debug \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" CODE_SIGNING_ALLOWED=NO build \
             2>&1 | tee "$RUNNER_TEMP/debug-build.log"
-          if grep -E 'warning:|error:' "$RUNNER_TEMP/debug-build.log"; then exit 1; fi
+          ./Scripts/check-build-warnings.sh "$RUNNER_TEMP/debug-build.log"
 
       - name: Lint
         run: ./Scripts/lint.sh

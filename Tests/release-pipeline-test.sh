@@ -24,6 +24,15 @@ if CHANNEL=unknown "$root/Scripts/release-metadata.sh" "$scratch/rejected" > "$s
    GITHUB_RUN_NUMBER=bad "$root/Scripts/release-metadata.sh" "$scratch/rejected" > "$scratch/rejected.log" 2>&1; then exit 1; fi
 test ! -e "$scratch/rejected"
 test ! -e sentinel
+printf '%s\n' 'appintentsmetadataprocessor[1:2] warning: Metadata extraction skipped. No AppIntents.framework dependency found.' > "$scratch/build.log"
+"$root/Scripts/check-build-warnings.sh" "$scratch/build.log"
+for diagnostic in 'File.swift:1: warning: deprecated API' 'File.swift:1: error: invalid code'; do
+    printf '%s\n' "$diagnostic" >> "$scratch/build.log"
+    if "$root/Scripts/check-build-warnings.sh" "$scratch/build.log" > "$scratch/diagnostics.log"; then exit 1; fi
+done
+if "$root/Scripts/check-build-warnings.sh" "$scratch/missing.log"; then exit 1; fi
+touch "$scratch/clean.log"
+"$root/Scripts/check-build-warnings.sh" "$scratch/clean.log"
 "$root/Scripts/check-composer-retention.sh"
 mkdir -p "$scratch/repo/Scripts"
 cp "$root/Scripts/check-composer-retention.sh" "$scratch/repo/Scripts/"
