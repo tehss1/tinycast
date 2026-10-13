@@ -143,7 +143,7 @@ struct UpdatesTests {
     static func resolvesReleaseRepositories() {
         expect(
             ReleaseFeed.repository(in: nil) == ReleaseFeed.fallbackRepository,
-            "a build without an override uses the official release feed")
+            "a build without a stamp keeps the fork release feed")
         expect(
             ReleaseFeed.repository(
                 in: [ReleaseFeed.repositoryInfoKey: "example-fork/tinycast"])
