@@ -45,9 +45,9 @@ selectable Markdown renderer with AI Chat.
   in an open panel says another action is running instead of cancelling it.
 - **A cut-off reply never replaces anything.** A built-in action's reply budget is estimated from
   the selection's UTF-8 size (three bytes a token, so CJK text gets room too) and capped at 8,192
-  tokens; a custom action, a draft written from an instruction and a refinement get the full 8,192,
-  since their reply can outgrow the selection. Only Anthropic requests and the on-device route
-  send the budget (on-device clamps it to its own 1,024); OpenAI-shaped requests send none, so the
+  tokens; a custom action, a built-in with edited instructions, a draft written from an instruction
+  and a refinement get the full 8,192, since their reply can outgrow the selection. Only
+  Anthropic requests and the on-device route send the budget (on-device clamps it to its own 1,024); OpenAI-shaped requests send none, so the
   server's own limit applies. A route that stops at a limit says so: Anthropic's `max_tokens`, an
   OpenAI-shaped `length`, or, on macOS 26.4 and later, an on-device reply that re-counts to the
   cap. CLI and subscription routes report no stop reason, so a cut there goes undetected.

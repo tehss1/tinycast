@@ -62,16 +62,17 @@ final class QuickActionRunner {
             selectionIsWritingInstruction
             ? QuickActionPrompt.compositionMessage(instruction: selection, context: context)
             : QuickActionPrompt.message(for: action, selection: selection, context: context)
+        // Edited instructions can ask for more than the selection, as a custom action's can.
+        let outgrowsSelection = selectionIsWritingInstruction || instructionOverride != nil
         let request = AIRequest(
             instructions: instructions,
             messages: [AIMessage(role: .user, text: message)],
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
-                for: action, selection: selection,
-                outgrowsSelection: selectionIsWritingInstruction))
+                for: action, selection: selection, outgrowsSelection: outgrowsSelection))
         let text = try await stream(
             request, using: provider,
             selectionSized: QuickActionPrompt.budgetFollowsSelection(
-                for: action, outgrowsSelection: selectionIsWritingInstruction),
+                for: action, outgrowsSelection: outgrowsSelection),
             onDelta: onDelta)
         return try action == .rewrite
             ? composerDraft(text, source: selectionIsWritingInstruction ? "" : selection) : text

@@ -19,7 +19,8 @@ enum QuickActionPrompt {
     }
 
     /// A custom action's instructions can ask for anything, such as an explanation longer than
-    /// the selection, so only built-in actions size their reply by it.
+    /// the selection, so only built-in actions size their reply by it. A caller with edited
+    /// instructions passes `outgrowsSelection` for the same reason.
     static func budgetFollowsSelection(for action: QuickAction, outgrowsSelection: Bool) -> Bool {
         guard !outgrowsSelection, case .builtIn = action else { return false }
         return true
