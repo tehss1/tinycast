@@ -315,8 +315,8 @@ where every clause is a rule in it.
 
 1. The focused element exposes `AXSelectedTextMarkerRange` → a renderer surface. Skip Accessibility.
 2. The keyword is not at the caret yet → wait, up to 40 ms. Never arrives → events. Wrong → refuse.
-3. Write over Accessibility, read the value back. Matches → done. Unchanged → events. Moved some
-   other way → refuse.
+3. Write over Accessibility, read the value back until it settles. Matches → done. Unchanged →
+   events. Moved some other way → refuse.
 4. Events: delete the keyword, then paste (long or multiline) or type in four-unit keystrokes.
 5. Nothing landed → say so.
 
@@ -339,6 +339,10 @@ nothing. `confirmsReplacement` rebuilds the exact string the write should have p
 it to what the element reports. An unchanged value is `.unavailable`, so the event tiers still get
 their turn instead of an "applied" message over untouched text; a value that changed into something
 we did not write is `.rejected`, because events would then edit a document we can no longer describe.
+The value is read every 25 ms rather than once. Outlook's WebKit editor applies a multi-paragraph
+write before its `AXValue` reports all of it, and a single read called that a rejection, so the reply
+was copied over the clipboard while the draft had in fact changed. A moving value gets up to a second
+to settle; an untouched one falls back to events after four reads.
 
 **Rule 4** keeps the same permission, consent, Secure Event Input, target-app and cancellation gates.
 The fallback deletes the keyword first, waits for deletion to settle, then inserts the expansion.

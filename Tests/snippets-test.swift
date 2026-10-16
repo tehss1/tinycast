@@ -846,6 +846,36 @@ struct SnippetsTests {
                 insertedText: "PROBE_OK",
                 observedValue: nil))
 
+        let paragraphs = "Rerun passed.\n\nLooking into it today."
+        func readback(_ observed: String?, attempt: Int) -> TextReplacementPolicy.Readback {
+            TextReplacementPolicy.readback(
+                originalValue: "Hi,\n\nRough notes\n\nThanks!",
+                replacementRange: NSRange(location: 5, length: 11),
+                insertedText: paragraphs, observedValue: observed, attempt: attempt)
+        }
+        let settled = "Hi,\n\n" + paragraphs + "\n\nThanks!"
+        let midLayout = "Hi,\n\nRerun passed.\n\nThanks!"
+        check(
+            "an exact AX read-back confirms the write on the first attempt",
+            readback(settled, attempt: 0) == .confirmed)
+        check(
+            "a WebKit value still laying out a multi-paragraph write is retried, not rejected",
+            (0..<(TextReplacementPolicy.settlingReadbackAttempts - 1))
+                .allSatisfy { readback(midLayout, attempt: $0) == .pending }
+                && readback(settled, attempt: 3) == .confirmed)
+        check(
+            "a value that never settles into the write is still a rejection",
+            readback(midLayout, attempt: TextReplacementPolicy.settlingReadbackAttempts - 1) == .rejected
+                && readback(nil, attempt: TextReplacementPolicy.settlingReadbackAttempts - 1) == .rejected)
+        check(
+            "an untouched value falls back to events after a short grace, not the settling window",
+            readback("Hi,\n\nRough notes\n\nThanks!", attempt: 0) == .pending
+                && readback(
+                    "Hi,\n\nRough notes\n\nThanks!",
+                    attempt: TextReplacementPolicy.untouchedReadbackAttempts - 1) == .untouched
+                && TextReplacementPolicy.untouchedReadbackAttempts
+                    < TextReplacementPolicy.settlingReadbackAttempts)
+
         check(
             "a Unicode keystroke never carries more than Blink's four-unit cap",
             UnicodeTypingChunk.split(String(repeating: "a", count: 30))
