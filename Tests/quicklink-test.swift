@@ -25,6 +25,7 @@ struct QuicklinkTests {
         persistence()
         readsADatabaseWrittenElsewhere()
         corruptDatabaseIsPreserved()
+        unreadableRowKeepsHotkeys()
         archiveRoundTrip()
         archiveMerge()
         archiveAcceptsAHandWrittenFile()
@@ -407,6 +408,25 @@ struct QuicklinkTests {
         expect(
             throwsError(store, link("Anything")) == .storageUnavailable,
             "a mutation refuses rather than pretending to save")
+    }
+
+    /// A row the store can't read still exists, so its hotkey must not be pruned as deleted.
+    static func unreadableRowKeepsHotkeys() {
+        let dir = scratchDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = QuicklinkStore(directory: dir)
+        store.load()
+        expect(store.listsEveryQuicklink, "an empty database lists every quicklink")
+        sqlite(
+            dir.appendingPathComponent("quicklinks.sqlite3"),
+            """
+            INSERT INTO quicklinks(id, name, link, created_at)
+              VALUES('not-a-uuid', 'Broken', 'https://example.com', 1000);
+            """)
+        let reopened = QuicklinkStore(directory: dir)
+        reopened.load()
+        expect(reopened.isAvailable && reopened.quicklinks.isEmpty, "the unreadable row is skipped")
+        expect(!reopened.listsEveryQuicklink, "a skipped row marks the list incomplete")
     }
 
     // MARK: - Archive

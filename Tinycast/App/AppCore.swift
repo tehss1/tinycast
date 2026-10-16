@@ -426,7 +426,8 @@ final class AppCore {
             hotKeys.start(
                 customCommandIDs: Set(customCommands.commands.map(\.id)),
                 // An unreadable store lists nothing, which would read as every item deleted.
-                quicklinkIDs: quicklinks.isAvailable ? Set(quicklinks.quicklinks.map(\.id)) : nil,
+                quicklinkIDs: quicklinks.isAvailable && quicklinks.listsEveryQuicklink
+                    ? Set(quicklinks.quicklinks.map(\.id)) : nil,
                 windowLayoutIDs: Set(windowLayouts.layouts.map(\.id)),
                 windowRoomIDs: Set(rooms.rooms.map(\.id)),
                 customWindowSizeIDs: Set(customWindowSizes.sizes.map(\.id)),

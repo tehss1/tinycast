@@ -267,7 +267,8 @@ nothing on every route, and a 3B model is markedly worse at it. `NLLanguageRecog
 source language, because `TranslationSession(installedSource:target:)` needs a concrete one and
 `LanguageAvailability` reports only a status. Text already in the target's language and script
 comes back unchanged: the detector says `en` where a regional Mac asks for `en-GB`, and Apple has no
-pair between them. `zh-Hans` to `zh-Hant` still translates.
+pair between them. `zh-Hans` and `zh-Hant` differ in script, so they are not treated as the same;
+Apple has no pair between them either, so Translate reports the pair unsupported.
 
 `TranslationError` is annotated `macOS 26.4` while the deployment floor is `26.0`, so failures are
 caught as plain `Error` and reported by what was asked rather than by matching its cases.

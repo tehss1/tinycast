@@ -35,7 +35,7 @@ enum TextTranslator {
     }
 
     /// The detector says `en`, a regional Mac says `en-GB`, and Apple offers no `en` → `en-GB` pair,
-    /// so one language in one script is already translated. `zh-Hans` and `zh-Hant` are not.
+    /// so one language in one script is already translated. `zh-Hans` and `zh-Hant` are not the same.
     static func writesTheSame(_ source: Locale.Language, as target: Locale.Language) -> Bool {
         if source.isEquivalent(to: target) { return true }
         guard source.languageCode == target.languageCode else { return false }
