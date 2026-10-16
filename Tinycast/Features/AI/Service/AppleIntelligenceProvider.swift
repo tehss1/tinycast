@@ -32,17 +32,20 @@ struct AppleIntelligenceProvider: AIProvider {
                     guard let prompt = turn.prompt else {
                         throw AIProviderError.responseFailed("There was nothing to send.")
                     }
-                    let session = LanguageModelSession(
-                        model: SystemLanguageModel(guardrails: guardrails),
-                        transcript: turn.transcript)
-                    let options = GenerationOptions(
-                        maximumResponseTokens: min(
-                            request.maxOutputTokens, AppleIntelligence.maxOutputTokens))
+                    let model = SystemLanguageModel(guardrails: guardrails)
+                    let session = LanguageModelSession(model: model, transcript: turn.transcript)
+                    let limit = min(request.maxOutputTokens, AppleIntelligence.maxOutputTokens)
+                    let options = GenerationOptions(maximumResponseTokens: limit)
                     var delta = AppleIntelligenceDelta()
+                    var reply = ""
                     for try await snapshot in session.streamResponse(to: prompt, options: options) {
                         try Task.checkCancellation()
                         let text = delta.delta(from: snapshot.content)
+                        reply = snapshot.content
                         if !text.isEmpty { continuation.yield(.text(text)) }
+                    }
+                    if await Self.reachedLimit(limit, with: reply, of: model) {
+                        continuation.yield(.outputLimitReached)
                     }
                     continuation.yield(.finished)
                     continuation.finish()
@@ -56,6 +59,17 @@ struct AppleIntelligenceProvider: AIProvider {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// The session stops at the limit without saying so, so the reply is counted again. Re-tokenizing
+    /// can differ by a token or two; a reply that ends that close to the cap is cut off in practice.
+    private static func reachedLimit(
+        _ limit: Int, with reply: String, of model: SystemLanguageModel
+    ) async -> Bool {
+        guard #available(macOS 26.4, *),
+            let count = try? await model.tokenCount(for: reply)
+        else { return false }
+        return count >= limit - 4
     }
 
     /// Split the way a session takes it: the newest user turn is the prompt, the rest a transcript.

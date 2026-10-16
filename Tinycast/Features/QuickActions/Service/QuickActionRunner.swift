@@ -62,13 +62,18 @@ final class QuickActionRunner {
             selectionIsWritingInstruction
             ? QuickActionPrompt.compositionMessage(instruction: selection, context: context)
             : QuickActionPrompt.message(for: action, selection: selection, context: context)
+        // Edited instructions can ask for more than the selection, as a custom action's can.
+        let outgrowsSelection = selectionIsWritingInstruction || instructionOverride != nil
         let request = AIRequest(
             instructions: instructions,
             messages: [AIMessage(role: .user, text: message)],
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
-                for: action, selection: selection,
-                outgrowsSelection: selectionIsWritingInstruction))
-        let text = try await stream(request, using: provider, onDelta: onDelta)
+                for: action, selection: selection, outgrowsSelection: outgrowsSelection))
+        let text = try await stream(
+            request, using: provider,
+            selectionSized: QuickActionPrompt.budgetFollowsSelection(
+                for: action, outgrowsSelection: outgrowsSelection),
+            onDelta: onDelta)
         return try action == .rewrite
             ? composerDraft(text, source: selectionIsWritingInstruction ? "" : selection) : text
     }
@@ -95,7 +100,8 @@ final class QuickActionRunner {
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
                 for: .rewrite, selection: latestDraft, outgrowsSelection: true))
         return try composerDraft(
-            try await stream(request, using: provider, onDelta: onDelta), source: latestDraft)
+            try await stream(request, using: provider, selectionSized: false, onDelta: onDelta),
+            source: latestDraft)
     }
 
     private static func composerDraft(_ text: String, source: String) throws -> String {
@@ -106,11 +112,15 @@ final class QuickActionRunner {
     }
 
     private static func stream(
-        _ request: AIRequest, using provider: any AIProvider,
+        _ request: AIRequest, using provider: any AIProvider, selectionSized: Bool,
         onDelta: @MainActor (String) -> Void
     ) async throws -> String {
         var text = ""
         for try await event in provider.stream(request) {
+            // A cut-off reply would replace the whole selection with part of it.
+            if event == .outputLimitReached {
+                throw QuickActionFailure.replyTooLong(selectionSized: selectionSized)
+            }
             guard case .text(let delta) = event else { continue }
             text += delta
             onDelta(delta)

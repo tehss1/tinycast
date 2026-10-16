@@ -2,16 +2,28 @@ import Foundation
 
 /// Chat's `AIPreamble` is not sent here: it describes a launcher nobody is asking the model about.
 enum QuickActionPrompt {
-    static let outputTokenCeiling = 2_048
+    /// Roughly the longest selection's reply; the on-device route clamps it to its own window.
+    static let outputTokenCeiling = 8_192
 
     /// The on-device window counts the prompt and the reply against one budget, so both need a cap.
+    /// Counted in UTF-8 bytes: three per token is generous for English and right for CJK text.
     static func maxOutputTokens(
         for action: QuickAction, selection: String, outgrowsSelection: Bool = false
     ) -> Int {
-        guard !outgrowsSelection else { return outputTokenCeiling }
-        let approximateTokens = max(selection.count / 3, 64)
+        guard budgetFollowsSelection(for: action, outgrowsSelection: outgrowsSelection) else {
+            return outputTokenCeiling
+        }
+        let approximateTokens = max(selection.utf8.count / 3, 64)
         return action == .summarize
             ? min(approximateTokens, 512) : min(approximateTokens * 2, outputTokenCeiling)
+    }
+
+    /// A custom action's instructions can ask for anything, such as an explanation longer than
+    /// the selection, so only built-in actions size their reply by it. A caller with edited
+    /// instructions passes `outgrowsSelection` for the same reason.
+    static func budgetFollowsSelection(for action: QuickAction, outgrowsSelection: Bool) -> Bool {
+        guard !outgrowsSelection, case .builtIn = action else { return false }
+        return true
     }
 
     static func instructions(

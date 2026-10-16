@@ -154,6 +154,8 @@ enum AIStreamEvent: Equatable, Sendable {
     case toolCall(id: String, origin: String, title: String)
     case toolResult(id: String, isError: Bool)
     case usage(AIUsage)
+    /// The reply stopped at `maxOutputTokens`, so the text before it is not the whole answer.
+    case outputLimitReached
     case finished
 }
 
