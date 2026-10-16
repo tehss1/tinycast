@@ -251,18 +251,26 @@ final class QuickActionPanelState {
         return (previousOutput ?? "", requestMessages)
     }
 
-    func finish(_ text: String) {
+    static let emptyDraftMessage = "The model returned no usable draft. Retry to send the text again."
+
+    /// Cleanup can strip a reply down to nothing, which must fail rather than finish empty.
+    @discardableResult
+    func finish(_ text: String) -> Bool {
         let completed = action == .rewrite
             ? QuickActionOutput.composerDraft(
                 in: text, source: previousOutput ?? (originalIsWritingInstruction ? "" : original))
             : text
+        if action == .rewrite, completed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fail(Self.emptyDraftMessage)
+            return false
+        }
         output = completed
         phase = .finished
         cachedDiff = nil
         refinementInstruction = ""
         previousOutput = nil
         submittedInstruction = nil
-        guard action == .rewrite else { return }
+        guard action == .rewrite else { return true }
         if conversation.last?.role == .assistant
             && conversation.last?.state == .streaming
         {
@@ -272,6 +280,7 @@ final class QuickActionPanelState {
             conversation.append(
                 RewriteConversationMessage(role: .assistant, text: completed, state: .complete))
         }
+        return true
     }
 
     func fail(_ message: String) {

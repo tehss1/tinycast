@@ -20,6 +20,7 @@ struct ComposerTests {
         repeatedDeliveryKeepsSignatureSpacing()
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
+        openerOnlyReplyFails()
         deliveryLabelMatchesInvocation()
         resumedTargetFollowsThePress()
         blankInitialRequestUsesEmailContext()
@@ -189,6 +190,22 @@ struct ComposerTests {
         expect(voiced.output == manual, "refinement protects the latest manual source subject and dash")
         expect(voiced.historyRecord()?.latestDraft == manual,
             "history preserves subjects introduced by the user's manual edit")
+    }
+
+    static func openerOnlyReplyFails() {
+        let state = QuickActionPanelState(action: .rewrite, original: "Rough notes",
+            targetLanguage: Locale.Language(identifier: "en"))
+        expect(!state.finish("I hope this email finds you well.") && state.output.isEmpty
+            && state.phase == .failed(QuickActionPanelState.emptyDraftMessage),
+            "a reply that cleanup empties fails instead of finishing with nothing to deliver")
+        let refined = QuickActionPanelState(action: .rewrite, original: "Rough notes",
+            targetLanguage: Locale.Language(identifier: "en"))
+        refined.finish("Ready.")
+        refined.refinementInstruction = "Shorter"
+        _ = refined.beginRefinement()
+        expect(!refined.finish("I hope this message finds you well.") && refined.output == "Ready."
+            && refined.refinementInstruction == "Shorter" && refined.phase == .finished,
+            "an emptied refinement keeps the previous draft and the request")
     }
 
     static func makeState(caret: Bool = true) -> QuickActionPanelState {

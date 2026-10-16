@@ -534,9 +534,13 @@ final class QuickActionCoordinator {
         do {
             let text = try await produce(state, previewing: previewing)
             guard !Task.isCancelled else { return }
-            state.finish(text)
+            let finished = state.finish(text)
             saveHistory(state)
             if previewing { return }
+            guard finished else {
+                core.showMessage(QuickActionPanelState.emptyDraftMessage, tone: .danger)
+                return
+            }
             if state.replacementIssue != nil {
                 present(state, target: target)
                 return
