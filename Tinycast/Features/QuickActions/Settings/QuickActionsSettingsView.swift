@@ -42,6 +42,10 @@ struct QuickActionsSettingsView: View {
                                 .focused($editingInternalDomains)
                                 .onSubmit(commitInternalDomains)
                                 .onChange(of: editingInternalDomains) { commitInternalDomains() }
+                                .onChange(of: store.settings.internalEmailDomains) { _, stored in
+                                    // A settings.json edit must not be undone by the stale draft.
+                                    if !editingInternalDomains { internalDomainsDraft = stored }
+                                }
                                 .onDisappear(perform: commitInternalDomains)
                             if !invalidInternalDomains.isEmpty {
                                 Text("Ignored: \(invalidInternalDomains.joined(separator: ", "))")
