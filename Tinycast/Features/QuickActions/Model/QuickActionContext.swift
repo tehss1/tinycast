@@ -66,7 +66,11 @@ struct QuickActionContext: Equatable, Sendable {
                 if !label.isEmpty && !recipientFieldLabels.contains(label) { complete = false }
                 continue
             }
-            if EmailAddressPattern.recipientDomains(in: candidate) == nil { complete = false }
+            if !isSingleChip(candidate, matches: matches),
+                EmailAddressPattern.recipientDomains(in: withoutFieldLabel(candidate)) == nil
+            {
+                complete = false
+            }
             for match in matches {
                 let range = match.range
                 let address = String(candidate[range])
@@ -77,7 +81,7 @@ struct QuickActionContext: Equatable, Sendable {
                         .trimmingCharacters(in: CharacterSet(charactersIn: " ,;<>\"\n\t"))
                     if recipientFieldLabels.contains(name.lowercased()) { name = "" }
                 }
-                let label = name.isEmpty ? address : "\(name) <\(address)>"
+                let label = name.isEmpty ? address : "\(displayName(name)) <\(address)>"
                 if labels[key] == nil { addresses.append(key) }
                 if labels[key] == nil || (labels[key]?.contains("<") == false && !name.isEmpty) {
                     labels[key] = label
@@ -88,6 +92,31 @@ struct QuickActionContext: Equatable, Sendable {
         if !complete { recipients.append(incompleteRecipientsNotice) }
         let result = recipients.joined(separator: "; ")
         return result.isEmpty ? nil : result
+    }
+
+    /// Outlook reads a chip as "Name, address": the name may hold commas, nothing may follow.
+    private static func isSingleChip(
+        _ candidate: String, matches: [EmailAddressPattern.Match]
+    ) -> Bool {
+        guard matches.count == 1, let range = matches.first?.range else { return false }
+        let trailing = candidate[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trailing.isEmpty || trailing == ">") && !candidate[..<range.lowerBound].contains(";")
+    }
+
+    private static func withoutFieldLabel(_ candidate: String) -> String {
+        guard let colon = candidate.firstIndex(of: ":"),
+            recipientFieldLabels.contains(
+                candidate[...colon].trimmingCharacters(in: .whitespaces).lowercased())
+        else { return candidate }
+        return String(candidate[candidate.index(after: colon)...])
+    }
+
+    /// Quoted when it holds a separator, so a comma in a name never reads as a second recipient.
+    private static func displayName(_ name: String) -> String {
+        guard name.contains(where: { ",;\"<>".contains($0) }) else { return name }
+        let escaped = name.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     /// Identifies the email without persisting another copy of the quoted Outlook thread.

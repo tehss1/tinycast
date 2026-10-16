@@ -514,7 +514,10 @@ struct ComposerTests {
         expect(QuickActionContext.outlookRecipients(from: ["To:", "\u{fffc}", "Presence Unknown"]) == nil,
             "field labels and token placeholders do not become recipients")
         expect(QuickActionContext.outlookRecipients(from: ["Smith, Jane, jane+work@example.co.uk, Busy"])
-            == "Smith, Jane <jane+work@example.co.uk>", "commas in names and tagged addresses survive")
+            == "\"Smith, Jane\" <jane+work@example.co.uk>", "commas in names and tagged addresses survive")
+        expect(EmailAddressPattern.recipientDomains(
+            in: QuickActionContext.outlookRecipients(from: ["Smith, Jane, jane@example.org, Busy"]) ?? "")
+            == ["example.org"], "a quoted name with a comma still resolves to one recipient")
         let many = (0..<50).map { "Person \($0), person\($0)@example.com, Offline" }
         expect(QuickActionContext.outlookRecipients(from: many)?.components(separatedBy: "; ").count == 50,
             "recipient aggregation does not keep only the longest chip")
