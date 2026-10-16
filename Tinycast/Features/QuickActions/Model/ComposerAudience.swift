@@ -30,8 +30,8 @@ enum ComposerAudience: String, Codable, CaseIterable, Equatable, Sendable {
     static func detected(recipient: String?, internalDomains: String) -> Self {
         let approved = normalizedDomains(in: internalDomains)
         guard !approved.isEmpty, let recipient else { return .externalRecipients }
-        let recipients = recipientDomains(in: recipient)
-        guard !recipients.isEmpty else { return .externalRecipients }
+        guard let recipients = EmailAddressPattern.recipientDomains(in: recipient)
+        else { return .externalRecipients }
         return recipients.allSatisfy { recipientDomain in
             approved.contains { approvedDomain in
                 recipientDomain == approvedDomain
@@ -73,9 +73,5 @@ enum ComposerAudience: String, Codable, CaseIterable, Equatable, Sendable {
             first.isLetter || first.isNumber, last.isLetter || last.isNumber
         else { return false }
         return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
-    }
-
-    private static func recipientDomains(in value: String) -> [String] {
-        EmailAddressPattern.matches(in: value).map(\.domain)
     }
 }

@@ -12,7 +12,8 @@ struct QuickActionContext: Equatable, Sendable {
     }
 
     var isComplete: Bool {
-        recentThread != nil && recipient != nil && subject != nil
+        guard let recipient, EmailAddressPattern.recipientDomains(in: recipient) != nil else { return false }
+        return recentThread != nil && subject != nil
     }
 
     var captureTitle: String {
@@ -20,11 +21,31 @@ struct QuickActionContext: Equatable, Sendable {
         return isEmpty ? "Email context unavailable" : "Partial email context"
     }
 
-    static func outlookRecipients(from candidates: [String]) -> String? {
+    private static let incompleteRecipientsNotice = "[Additional recipients unavailable]"
+    private static let recipientFieldLabels = Set(["to:", "to", "cc:", "cc", "bcc:", "bcc"])
+    private static let presenceLabels = Set([
+        "presence unknown", "offline", "available", "away", "busy", "do not disturb"
+    ])
+
+    static func outlookRecipients(from candidates: [String], captureComplete: Bool = true) -> String? {
         var addresses: [String] = []
         var labels: [String: String] = [:]
-        for candidate in candidates {
+        var complete = captureComplete
+        for rawCandidate in candidates {
+            guard var candidate = cleaned(rawCandidate) else { continue }
+            let components = candidate.components(separatedBy: ",")
+            if let last = components.last,
+                presenceLabels.contains(last.trimmingCharacters(in: .whitespaces).lowercased())
+            {
+                candidate = components.dropLast().joined(separator: ",")
+            }
             let matches = EmailAddressPattern.matches(in: candidate)
+            if matches.isEmpty {
+                let label = candidate.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !label.isEmpty && !recipientFieldLabels.contains(label) { complete = false }
+                continue
+            }
+            if EmailAddressPattern.recipientDomains(in: candidate) == nil { complete = false }
             for match in matches {
                 let range = match.range
                 let address = String(candidate[range])
@@ -33,7 +54,7 @@ struct QuickActionContext: Equatable, Sendable {
                 if matches.count == 1 {
                     name = String(candidate[..<range.lowerBound])
                         .trimmingCharacters(in: CharacterSet(charactersIn: " ,;<>\"\n\t"))
-                    if ["to:", "to", "cc:", "cc", "bcc:", "bcc"].contains(name.lowercased()) { name = "" }
+                    if recipientFieldLabels.contains(name.lowercased()) { name = "" }
                 }
                 let label = name.isEmpty ? address : "\(name) <\(address)>"
                 if labels[key] == nil { addresses.append(key) }
@@ -42,7 +63,9 @@ struct QuickActionContext: Equatable, Sendable {
                 }
             }
         }
-        let result = addresses.compactMap { labels[$0] }.joined(separator: "; ")
+        var recipients = addresses.compactMap { labels[$0] }
+        if !complete { recipients.append(incompleteRecipientsNotice) }
+        let result = recipients.joined(separator: "; ")
         return result.isEmpty ? nil : result
     }
 

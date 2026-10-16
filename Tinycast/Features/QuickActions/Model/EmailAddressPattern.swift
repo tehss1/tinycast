@@ -19,4 +19,28 @@ enum EmailAddressPattern {
                 return Match(range: range, domain: value[domain].lowercased())
             }
     }
+
+    static func recipientDomains(in value: String) -> [String]? {
+        let entries = value.components(separatedBy: CharacterSet(charactersIn: ";\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !entries.isEmpty else { return nil }
+        var domains: [String] = []
+        for entry in entries {
+            let addresses = matches(in: entry)
+            guard let last = addresses.last,
+                entry.filter({ $0 == "@" }).count == addresses.count
+            else { return nil }
+            let trailing = entry[last.range.upperBound...]
+                .trimmingCharacters(in: CharacterSet(charactersIn: " >,\"\t\r"))
+            guard trailing.isEmpty else { return nil }
+            for (previous, next) in zip(addresses, addresses.dropFirst()) {
+                let between = entry[previous.range.upperBound..<next.range.lowerBound]
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " >,\"\t\r"))
+                guard between.isEmpty || between.hasSuffix("<") else { return nil }
+            }
+            domains.append(contentsOf: addresses.map(\.domain))
+        }
+        return domains
+    }
 }

@@ -4,10 +4,9 @@ import AppKit
 @MainActor
 enum OutlookComposeContextReader {
     private static let outlookBundleIdentifier = "com.microsoft.Outlook"
-    private static let timeout: Float = 1
+    private static let timeout: Float = 0.025
     private static let maximumElements = 800
-    /// A wedged Outlook answers each call only at its timeout, so the whole read is capped too.
-    private static let budget: Duration = .seconds(2)
+    private static let budget: Duration = .milliseconds(350)
     private static let subjectFieldIdentifier = "subjectTextField"
     private static let recipientFieldIdentifiers = Set([
         "toTextField", "ccTextField", "bccTextField"
@@ -23,132 +22,168 @@ enum OutlookComposeContextReader {
     }
 
     static func read(in app: NSRunningApplication?) -> Capture? {
-        guard let app, isOutlook(app),
-            let editor = AccessibilityText.focusedElement(in: app),
-            let body = string(editor, attribute: kAXValueAttribute),
-            let selectedRange = selectedRange(in: editor), Range(selectedRange, in: body) != nil
+        guard let app, isOutlook(app) else { return nil }
+        var access = Access(deadline: ContinuousClock.now + budget)
+        let application = AXUIElementCreateApplication(app.processIdentifier)
+        guard let editor = access.element(application, attribute: kAXFocusedUIElementAttribute),
+            let body = access.string(editor, attribute: kAXValueAttribute),
+            let selectedRange = access.selectedRange(in: editor), Range(selectedRange, in: body) != nil
         else { return nil }
 
-        let application = AXUIElementCreateApplication(app.processIdentifier)
-        AXUIElementSetMessagingTimeout(application, timeout)
-        let window =
-            element(application, attribute: kAXFocusedWindowAttribute)
-            ?? element(application, attribute: kAXMainWindowAttribute)
-        let deadline = ContinuousClock.now + budget
-        let fields = window.map {
-            descendants(
-                identifiers: recipientFieldIdentifiers.union([subjectFieldIdentifier]), in: $0,
-                until: deadline)
-        } ?? []
+        let window = access.element(application, attribute: kAXFocusedWindowAttribute)
+            ?? access.element(application, attribute: kAXMainWindowAttribute)
+        let fields: [(identifier: String, element: AXUIElement)]
+        if let window {
+            fields = access.descendants(
+                identifiers: recipientFieldIdentifiers.union([subjectFieldIdentifier]), in: window)
+        } else {
+            fields = []
+        }
         let recipientFields = fields.filter { $0.identifier != subjectFieldIdentifier }
-        let subjectField = fields.first { $0.identifier == subjectFieldIdentifier }
+        var candidates: [String] = []
+        for field in recipientFields { candidates.append(contentsOf: access.textCandidates(in: field.element)) }
+        let recipient = QuickActionContext.outlookRecipients(
+            from: candidates, captureComplete: !recipientFields.isEmpty && access.complete)
+        let subject: String?
+        if let field = fields.first(where: { $0.identifier == subjectFieldIdentifier }) {
+            subject = access.subject(in: field.element)
+        } else {
+            subject = nil
+        }
 
         let documentIdentity = "\(app.processIdentifier):\(app.launchDate?.timeIntervalSince1970 ?? 0):"
             + "\(CFHash(editor))"
         let context = QuickActionContext.outlook(
-            body: body,
-            selectedRange: selectedRange,
-            recipient: QuickActionContext.outlookRecipients(
-                from: recipientFields.flatMap { textCandidates(in: $0.element, until: deadline) }),
-            subject: subjectField.flatMap { subject(in: $0.element, until: deadline) },
+            body: body, selectedRange: selectedRange, recipient: recipient, subject: subject,
             documentIdentity: documentIdentity)
         return Capture(
             context: context,
             target: ComposerTextTarget(editor: editor, body: body, selectedRange: selectedRange))
     }
 
-    private static func descendants(
-        identifiers: Set<String>, in root: AXUIElement, until deadline: ContinuousClock.Instant
-    ) -> [(identifier: String, element: AXUIElement)] {
-        var queue = [root]
-        var index = 0
-        var matches: [(identifier: String, element: AXUIElement)] = []
-        while index < queue.count, index < maximumElements, ContinuousClock.now < deadline {
-            let candidate = queue[index]
-            index += 1
-            if let identifier = string(candidate, attribute: kAXIdentifierAttribute),
-                identifiers.contains(identifier)
-            {
-                matches.append((identifier, candidate))
+    @MainActor
+    private struct Access {
+        let deadline: ContinuousClock.Instant
+        var complete = true
+
+        mutating func descendants(
+            identifiers: Set<String>, in root: AXUIElement
+        ) -> [(identifier: String, element: AXUIElement)] {
+            var queue = [root]
+            var index = 0
+            var matches: [(identifier: String, element: AXUIElement)] = []
+            while index < queue.count, withinDeadline() {
+                let candidate = queue[index]
+                index += 1
+                if let identifier = string(candidate, attribute: kAXIdentifierAttribute),
+                    identifiers.contains(identifier)
+                {
+                    matches.append((identifier, candidate))
+                    continue
+                }
+                _ = appendChildren(of: candidate, to: &queue)
             }
-            queue.append(contentsOf: children(of: candidate))
+            return matches
         }
-        return matches
-    }
 
-    /// The field's own value first: by length alone, its label would beat a short subject.
-    private static func subject(in field: AXUIElement, until deadline: ContinuousClock.Instant) -> String? {
-        if let value = string(field, attribute: kAXValueAttribute), usable(value) { return value }
-        return textCandidates(in: field, until: deadline).max { $0.count < $1.count }
-    }
+        mutating func subject(in field: AXUIElement) -> String? {
+            if let value = string(field, attribute: kAXValueAttribute), usable(value) { return value }
+            return textCandidates(in: field).max { $0.count < $1.count }
+        }
 
-    private static func textCandidates(
-        in root: AXUIElement, until deadline: ContinuousClock.Instant
-    ) -> [String] {
-        var queue = [root]
-        var index = 0
-        var candidates: [String] = []
-        while index < queue.count, index < maximumElements, ContinuousClock.now < deadline {
-            let candidate = queue[index]
-            index += 1
-            for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
-                if let text = string(candidate, attribute: attribute), usable(text) {
-                    candidates.append(text)
+        mutating func textCandidates(in root: AXUIElement) -> [String] {
+            var queue = [root]
+            var index = 0
+            var candidates: [String] = []
+            while index < queue.count, withinDeadline() {
+                let candidate = queue[index]
+                index += 1
+                var readable = false
+                var texts: [String] = []
+                var fieldValue: String?
+                for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+                    if let text = string(candidate, attribute: attribute) {
+                        readable = true
+                        if usable(text) {
+                            texts.append(text)
+                            if attribute == kAXValueAttribute { fieldValue = text }
+                        }
+                    }
+                }
+                let childCount = appendChildren(of: candidate, to: &queue)
+                let addresses = texts.filter { !EmailAddressPattern.matches(in: $0).isEmpty }
+                if !addresses.isEmpty {
+                    candidates.append(contentsOf: addresses)
+                } else if childCount == 0 {
+                    candidates.append(contentsOf: texts)
+                    if !readable { complete = false }
+                } else if let fieldValue {
+                    candidates.append(fieldValue)
                 }
             }
-            queue.append(contentsOf: children(of: candidate))
+            return candidates
         }
-        return candidates
-    }
 
-    private static func usable(_ value: String) -> Bool {
-        !value.replacingOccurrences(of: "\u{fffc}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+        private func usable(_ value: String) -> Bool {
+            !value.replacingOccurrences(of: "\u{fffc}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
 
-    private static func children(of element: AXUIElement) -> [AXUIElement] {
-        var value: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(
-                element, kAXChildrenAttribute as CFString, &value) == .success,
-            let children = value as? [AXUIElement]
-        else { return [] }
-        for child in children { AXUIElementSetMessagingTimeout(child, timeout) }
-        return children
-    }
+        private mutating func appendChildren(of element: AXUIElement, to queue: inout [AXUIElement]) -> Int {
+            guard let children = attribute(element, name: kAXChildrenAttribute) as? [AXUIElement]
+            else { return 0 }
+            let remaining = OutlookComposeContextReader.maximumElements - queue.count
+            if children.count > remaining { complete = false }
+            queue.append(contentsOf: children.prefix(remaining))
+            return children.count
+        }
 
-    private static func element(_ root: AXUIElement, attribute: String) -> AXUIElement? {
-        var value: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(root, attribute as CFString, &value) == .success,
-            let value, CFGetTypeID(value) == AXUIElementGetTypeID()
-        else { return nil }
-        // swiftlint:disable:next force_cast
-        let element = value as! AXUIElement
-        AXUIElementSetMessagingTimeout(element, timeout)
-        return element
-    }
+        mutating func element(_ root: AXUIElement, attribute name: String) -> AXUIElement? {
+            guard let value = attribute(root, name: name),
+                CFGetTypeID(value) == AXUIElementGetTypeID()
+            else { return nil }
+            // swiftlint:disable:next force_cast
+            return value as! AXUIElement
+        }
 
-    private static func string(_ element: AXUIElement, attribute: String) -> String? {
-        var value: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
-        else { return nil }
-        return value as? String
-    }
+        mutating func string(_ element: AXUIElement, attribute name: String) -> String? {
+            attribute(element, name: name) as? String
+        }
 
-    private static func selectedRange(in element: AXUIElement) -> NSRange? {
-        var value: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(
-                element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
-            let value, CFGetTypeID(value) == AXValueGetTypeID()
-        else { return nil }
-        // swiftlint:disable:next force_cast
-        let axValue = value as! AXValue
-        guard AXValueGetType(axValue) == .cfRange else { return nil }
-        var range = CFRange()
-        guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
-        return NSRange(location: range.location, length: range.length)
+        mutating func selectedRange(in element: AXUIElement) -> NSRange? {
+            guard let value = attribute(element, name: kAXSelectedTextRangeAttribute),
+                CFGetTypeID(value) == AXValueGetTypeID()
+            else { return nil }
+            // swiftlint:disable:next force_cast
+            let axValue = value as! AXValue
+            guard AXValueGetType(axValue) == .cfRange else { return nil }
+            var range = CFRange()
+            guard AXValueGetValue(axValue, .cfRange, &range) else { return nil }
+            return NSRange(location: range.location, length: range.length)
+        }
+
+        private mutating func attribute(_ element: AXUIElement, name: String) -> CFTypeRef? {
+            guard withinDeadline() else { return nil }
+            guard AXUIElementSetMessagingTimeout(element, OutlookComposeContextReader.timeout) == .success else {
+                complete = false
+                return nil
+            }
+            guard withinDeadline() else { return nil }
+            var value: CFTypeRef?
+            let status = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            guard status == .success else {
+                if status != .attributeUnsupported && status != .noValue { complete = false }
+                return nil
+            }
+            return value
+        }
+
+        private mutating func withinDeadline() -> Bool {
+            guard ContinuousClock.now < deadline else {
+                complete = false
+                return false
+            }
+            return true
+        }
     }
 }
