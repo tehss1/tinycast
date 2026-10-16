@@ -56,6 +56,7 @@ struct SettingsFileTest {
         let grantPaths = [
             "snippets.enabled", "extensions.enabled", "calendar.enabled",
             "calendar.autoJoinMeetings", "calendar.cameraPreview", "quickActions.enabled",
+            "quickActions.outlookContext", "quickActions.usesOutlookContextForRewrite",
             "ai.mcpEnabled", "mcp.enabled", "clipboard.textSearchEnabled", "dictation.enabled"
         ]
         check(

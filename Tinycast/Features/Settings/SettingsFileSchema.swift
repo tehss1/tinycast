@@ -76,6 +76,7 @@ enum SettingsFileSchema {
         case .aiToolRounds: return bind(ai, \.toolRounds)
         case .aiCommands: return launcher.commandsBinding(for: key, owner: .ai)
         case .quickActionLanguage: return bind(quickActions, \.settings.targetLanguage)
+        case .quickActionInternalDomains: return bind(quickActions, \.settings.internalEmailDomains)
         case .quickActionCommands: return launcher.commandsBinding(for: key, owner: .quickActions)
         case .fileSearchEnabled: return bind(settings, \.fileSearchEnabled)
         case .fileSearchScopes: return bind(settings, \.fileSearchScopes)

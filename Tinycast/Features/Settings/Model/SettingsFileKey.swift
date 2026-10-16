@@ -50,6 +50,7 @@ enum SettingsFileKey: String, CaseIterable, Sendable {
     case aiToolRounds = "ai.toolRounds"
     case aiCommands = "ai.commands"
     case quickActionLanguage = "quickActions.targetLanguage"
+    case quickActionInternalDomains = "quickActions.internalEmailDomains"
     case quickActionCommands = "quickActions.commands"
     case dictationMode = "dictation.mode"
     case dictationShortcut = "dictation.shortcut"
