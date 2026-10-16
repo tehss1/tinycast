@@ -143,7 +143,7 @@ enum OutlookComposeContextReader {
                 CFGetTypeID(value) == AXUIElementGetTypeID()
             else { return nil }
             // swiftlint:disable:next force_cast
-            return value as! AXUIElement
+            return (value as! AXUIElement)
         }
 
         mutating func string(_ element: AXUIElement, attribute name: String) -> String? {
