@@ -67,7 +67,7 @@ final class ComposerTextTarget {
         scope = .outlookDraft
         selectionText = nil
         characterCount = body.utf16.count
-        replacementRange = selectedRange
+        replacementRange = ComposerDraftAnchor.replacementRange(in: body, selectedRange: selectedRange)
     }
 
     private init(field: AXUIElement, selection: NSRange?) {

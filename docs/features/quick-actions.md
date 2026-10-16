@@ -437,7 +437,8 @@ Outlook Composer formats only a target that starts at a line start and ends at a
 caret on an empty line. **Insert** preserves following line breaks and adds one only when none exists.
 A selected-text Replace ending with `Best,` adds only the line breaks needed to reach two before the
 existing signature; reopening and replacing the same draft never adds another blank paragraph.
-A selection that includes its paragraph's trailing newline gets that newline back after the draft.
+A selection's own leading and trailing line breaks are left in Outlook rather than replaced, since
+Outlook drops a pasted trailing line break and a triple-clicked paragraph would lose its blank line.
 A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
 Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,
 apps and Quick Actions keep the provider's output unchanged. Completion strips a leading
