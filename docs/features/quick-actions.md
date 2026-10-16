@@ -67,9 +67,11 @@ selectable Markdown renderer with AI Chat.
   whole feature.
 - **Built-in instructions distinguish source text from a writing request.** A selected draft is
   untrusted material to transform, never an instruction to follow. In caret-first Composer, the first
-  panel entry is a writing request to follow. In both modes, the model returns only the finished body
-  text. Composer appends that body-only rule after any custom style prompt. `QuickActionOutput` also
-  removes a leading `Subject:` line before the panel, history, copy or delivery can use the draft.
+  panel entry is a writing request to follow, with its own composition style rather than selected-text
+  rewrite or approximate-length restrictions. Caret-first refinements retain that composition style.
+  In both modes, the model returns only the finished body text. Composer appends that body-only rule
+  after any custom style prompt. `QuickActionOutput` also removes a leading `Subject:` line before
+  the panel, history, copy or delivery can use the draft.
   Composer also appends a natural-voice rule that forbids em dashes, stock AI phrasing, inflated
   formality, filler and invented warmth. A narrow output guard removes any em dash or familiar AI
   boilerplate that a provider returns despite those instructions, without paraphrasing names,
@@ -84,28 +86,37 @@ selectable Markdown renderer with AI Chat.
   `ComposerDraftAnchor` stores fingerprints of the surrounding text so later replacements cover the
   draft without duplicating it. Caret-first Insert keeps Outlook's signature boundary untouched,
   including rich content such as a logo, and adds a line break only when none follows the caret.
-  The context is marked as untrusted reference material in the prompt.
+  The context is enclosed in paired, collision-free begin/end markers and identified as untrusted
+  reference material in the prompt; the writing request or selected text follows the closing marker.
+  Every remote Accessibility read has a 25 ms timeout and checks a shared 350 ms deadline, beginning
+  with editor capture. A failed or truncated recipient walk reports partial context.
   Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
   reads or sends.
 - **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc
-  address
-  with the internal domains configured in Quick Actions settings. When every address is an exact
+  address with the internal domains configured in Quick Actions settings. When every address is an exact
   match or a subdomain, the prompt asks for a relaxed, concise coworker tone. A mixed list, an
-  outside address, an unreadable recipient or an empty domain list uses the safer polished external
-  tone. The footer names the effective choice, marks a manual choice and its menu can override it for
-  one conversation;
-  that override follows the conversation through its seven-day history. The configured domains are
-  excluded from settings backups because they identify an organization and change model behavior.
+  outside address, an unreadable recipient, an interrupted To/Cc/Bcc walk or an empty domain list
+  uses the safer polished external tone. Partial recipient captures preserve known addresses and
+  carry an explicit unavailable-recipient notice, so automatic tone remains External when the
+  conversation is reopened. The footer names the effective choice, marks a manual choice and its menu
+  can override it for one conversation; that override follows the conversation through its seven-day
+  history. The configured domains are excluded from settings backups because they identify an
+  organization and change model behavior.
 - **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
   to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
   AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. When Keychain cannot supply the key the
-  history is neither read nor written, and a new key is made only when none exists. A malformed
-  existing Keychain value is preserved rather than replaced. The old plaintext `rewrite-history.json`
-  is deleted on load; it is not migrated. Opening Composer,
+  history is neither read nor written, and a new key is made only when none exists. Key creation
+  never replaces an existing key, including one created by another instance at the same time, and a
+  malformed existing Keychain value is preserved rather than replaced. Launching with no history file
+  never accesses Keychain; the first save acquires the key. The old plaintext `rewrite-history.json`
+  is deleted on load without being read; it is not migrated. Opening Composer,
   saving a transcript, launching the app or the calendar day changing removes records whose latest
   revision is older than seven days. The file is readable only by its owner and excluded from
-  backups. An unexpired file that cannot be read, authenticated or decoded is preserved and blocks
-  writes, so an unexpected key or schema cannot replace unread history with an empty list.
+  backups. Saves stage the encrypted file with owner-only permissions and backup exclusion before
+  atomically replacing the destination, so a failed save leaves the previous file intact. An
+  unexpired file that cannot be read or authenticated is preserved and blocks writes, so an
+  unexpected key cannot replace unread history with an empty list. Inside an authenticated file,
+  individual malformed records are skipped rather than discarding the rest.
   A file last written more than seven days ago is deleted at launch without its key, since every
   save rewrites it. Running Composer again on the same Outlook email restores its transcript and latest completed
   draft without another model request. Tinycast stores context and individual-message fingerprints
@@ -248,8 +259,10 @@ opens its install page; the sign-in itself needs a terminal, so opening the menu
 Reasoning choices come
 from the selected provider's catalog. Changes apply to the next request, including refinements,
 without regenerating the draft or changing AI Chat's model. Footer controls are disabled during
-generation. Escape closes an open inspector or menu before closing Composer; Return chooses a
-highlighted menu item without replacing the Outlook draft.
+generation. Escape closes an open inspector or menu, including a sidebar row's right-click menu,
+before closing Composer; Return chooses a highlighted menu item without submitting the field or
+replacing the Outlook draft. While an input method has marked text in the field, every key goes to
+the input method first, so Escape cancels the composition rather than the panel.
 
 It could not have been built on `HUDPresenter`: `HUDPanel` sets `ignoresMouseEvents` and returns
 `false` from `canBecomeKey`, so it is click-through and hosts no buttons. Nor on `DialogAccessory`,
@@ -273,7 +286,13 @@ reaches the target app until Insert or
 Replace. Generation errors appear in the transcript, and the failed request returns to
 the input field. Retrying excludes failed turns from the model conversation. Stop keeps the last
 completed draft available for Copy, Insert or Replace. Reopening an interrupted session marks
-unfinished responses as failed.
+unfinished responses as failed. A selected-text conversation reopened without a draft offers Retry,
+because the selection is already its request.
+
+A Composer panel dismissed during generation stays reachable after the draft arrives. Pressing the
+shortcut again with the same app and text field focused reopens it, until another Composer panel
+opens. This applies only outside an Outlook-context draft. That draft is restored from history
+instead, so its captured body is never stale.
 
 Composer opens centered over the visible source editor, using bounds captured before its panel opens.
 `ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
@@ -374,6 +393,12 @@ delivery queue, after activation. It selects the captured draft range and verifi
 accepted the selection before replacement. A mismatch leaves the source untouched and copies the
 result instead. The event fallback checks the target again immediately before insertion.
 
+Every other external target gets the same check in a narrower form. When the shortcut is pressed,
+the coordinator captures the focused Accessibility element and its selected range, or the caret,
+for every Quick Action. After activation, delivery requires that same element to hold focus, and
+the same range when the app reported one. Otherwise nothing is typed and the result is copied.
+An app that exposes no focused element cannot be checked, so activation is its only guard.
+
 When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
 Outlook edits become a new draft in the conversation and supply the starting text for further changes.
 If the surrounding text changed or no saved boundary exists, an explicit selection supplies the range.
@@ -397,6 +422,16 @@ to select the draft and reopen Composer.
   models the next time it opens after sign-in.
   During generation, confirm both controls are disabled. Open a menu, use arrows and Return, and
   confirm Outlook stays untouched.
+- Right-click a sidebar row with text in the request field. Confirm Escape closes only the menu,
+  arrows stay in the menu, and Return deletes the conversation without sending the request or
+  replacing anything in Outlook.
+- Compose Japanese or Chinese text in Composer's field with an input method. Confirm Escape cancels
+  the composition and Return commits it, while the panel stays open.
+- In TextEdit, run Fix Grammar in Replace mode and click elsewhere in the document before it
+  finishes. Confirm the text is untouched and the result is copied. Repeat after moving focus into
+  its Find bar, and confirm the Find field receives nothing.
+- In TextEdit, start Composer generation, dismiss the panel and wait for it to finish. Press the
+  shortcut in the same field and confirm the finished draft reopens, ready for refinement or Insert.
 
 - Select text in Safari, Chrome, Brave, Slack, Mail, Notes, VS Code and Terminal, press Fix Grammar,
   and confirm the selection is **replaced** rather than appended to.

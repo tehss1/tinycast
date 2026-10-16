@@ -41,6 +41,11 @@ final class QuickActionPanel: NSPanel {
             super.sendEvent(event)
             return
         }
+        // An input method owns Escape and Return until it commits or cancels its marked text.
+        if let editor = firstResponder as? NSTextView, editor.hasMarkedText() {
+            super.sendEvent(event)
+            return
+        }
         if let handled = onAccessoryKey?(event) {
             if !handled { super.sendEvent(event) }
             return

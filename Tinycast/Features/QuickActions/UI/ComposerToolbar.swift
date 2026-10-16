@@ -118,7 +118,11 @@ struct ComposerToolbar: View {
                     detail: mark(coordinator.composerModel?.effort == effort.id)
                 ) { coordinator.selectComposerEffort(effort) }
             }
-        default: return []
+        case .history(let id):
+            return [PopoverMenuItem(
+                title: "Delete Conversation", systemImage: "trash", isDestructive: true
+            ) { coordinator.deleteComposerConversation(id, from: state) }]
+        case .context, nil: return []
         }
     }
 
@@ -193,6 +197,7 @@ struct ComposerToolbar: View {
             case .audience: "Audience tone"
             case .model: "Composer model"
             case .reasoning: "Reasoning level"
+            case .history: "Conversation"
             case .context, nil: "Composer"
             }
         }

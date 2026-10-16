@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QuickActionResultView: View {
 
+    @Environment(QuickActionCoordinator.self) private var coordinator
     @Environment(\.metrics) private var metrics
     @Bindable var state: QuickActionPanelState
     let history: RewriteHistoryStore
@@ -11,7 +12,6 @@ struct QuickActionResultView: View {
     let onInstructionChange: () -> Void
     let onReplace: () -> Void
     let onCopy: (String) -> Void
-    let onDeleteHistory: (UUID) -> Bool
     let onSelectionChange: (String, Bool) -> Void
     let onCancel: () -> Void
     let onRetranslate: (Locale.Language) -> Void
@@ -26,8 +26,6 @@ struct QuickActionResultView: View {
     @State private var retainedRewriteHeight: CGFloat = 0
     @State private var followsTranscriptTail = true
     @State private var selectedHistoryID: UUID?
-    @State private var historyMenuID: UUID?
-    @State private var historyMenuSelection = 0
     @State private var transcriptScrollTask: Task<Void, Never>?
     @FocusState private var refinementFocused: Bool
 
@@ -50,13 +48,15 @@ struct QuickActionResultView: View {
             .frame(width: panelWidth, height: panelHeight)
             .background(Theme.Colors.panelScrim)
             .background(GlassEffectView())
-            .overlay { historyMenuDismissalLayer }
-            .overlay(alignment: .bottomLeading) { historyMenu }
             .overlay {
                 if state.accessory != nil {
-                    Color.clear.contentShape(Rectangle()).onTapGesture { state.accessory = nil }
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { state.accessory = nil }
+                        .onRightClick { state.accessory = nil }
                 }
             }
+            .overlay(alignment: .bottomLeading) { historyMenu }
             .overlay(alignment: .topTrailing) {
                 if state.accessory == .context {
                     ComposerToolbar.AccessoryView(state: state, isViewingActive: isViewingActive,
@@ -102,6 +102,12 @@ struct QuickActionResultView: View {
                 refinementFocused = shouldFocusInstruction
             }
             .onChange(of: state.refinementInstruction) { onInstructionChange() }
+            .onChange(of: history.records.map(\.id)) { _, ids in
+                guard let selectedHistoryID, selectedHistoryID != state.historyID,
+                    !ids.contains(selectedHistoryID)
+                else { return }
+                self.selectedHistoryID = state.historyID
+            }
     }
 
     @ViewBuilder
@@ -535,65 +541,40 @@ struct QuickActionResultView: View {
         return [current] + history.records.filter { $0.id != current.id }
     }
 
-    @ViewBuilder
-    private var historyMenuDismissalLayer: some View {
-        if historyMenuID != nil {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { closeHistoryMenu() }
-                .onRightClick { closeHistoryMenu() }
-        }
-    }
-
+    /// An accessory, so the panel's key routing reaches it before the field or Replace can.
     @ViewBuilder
     private var historyMenu: some View {
-        if let id = historyMenuID,
+        if case .history(let id) = state.accessory,
             let record = historyEntries.first(where: { $0.id == id })
         {
-            let items = [
-                PopoverMenuItem(
-                    title: "Delete Conversation", systemImage: "trash",
-                    isDestructive: true
-                ) {
-                    deleteHistory(id)
-                }
-            ]
+            let items = ComposerToolbar.menuItems(state: state, coordinator: coordinator)
             PopoverMenu(
                 header: record.title, items: items,
-                selection: $historyMenuSelection,
-                onActivate: { items[$0].action() })
+                selection: $state.accessorySelection,
+                onActivate: { index in
+                    guard items.indices.contains(index), items[index].isSelectable else { return }
+                    items[index].action()
+                    state.accessory = nil
+                })
                 .padding(metrics.spacing.md)
         }
     }
 
     private func selectHistory(_ id: UUID) {
         state.accessory = nil
-        closeHistoryMenu()
         selectedHistoryID = id
     }
 
     private func openHistoryMenu(_ id: UUID) {
-        state.accessory = nil
         selectedHistoryID = id
-        historyMenuSelection = 0
-        historyMenuID = id
-    }
-
-    private func closeHistoryMenu() {
-        historyMenuID = nil
+        state.accessorySelection = 0
+        state.accessory = .history(id)
     }
 
     private func toggleHistory() {
-        closeHistoryMenu()
+        state.accessory = nil
         if historyExpanded { selectedHistoryID = state.historyID }
         historyExpanded.toggle()
-    }
-
-    private func deleteHistory(_ id: UUID) {
-        let deletingActive = id == state.historyID
-        guard onDeleteHistory(id) else { return }
-        historyMenuID = nil
-        if !deletingActive { selectedHistoryID = state.historyID }
     }
 
     private var isViewingActive: Bool {

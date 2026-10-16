@@ -1,7 +1,6 @@
 import AppKit
 import Observation
 
-/// The single funnel for every Quick Action, however it was started.
 /// What stands between Composer and the signed-in Claude CLI.
 enum ComposerClaudeSetup: Equatable {
     case turnOn
@@ -11,6 +10,7 @@ enum ComposerClaudeSetup: Equatable {
     case failed(String)
 }
 
+/// The single funnel for every Quick Action, however it was started.
 @MainActor
 @Observable
 final class QuickActionCoordinator {
@@ -146,8 +146,10 @@ final class QuickActionCoordinator {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activeComposer: QuickActionPanelState?
     @ObservationIgnored private var composerApp: Target?
+    @ObservationIgnored private var composerDismissedWhileRunning = false
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
     @ObservationIgnored private var progressOwner: Int?
+    @ObservationIgnored private var reportedHistoryFailure = false
 
     init(
         settings: AppSettings, store: QuickActionSettingsStore, history: RewriteHistoryStore,
@@ -194,7 +196,7 @@ final class QuickActionCoordinator {
             settings.quickActionsEnabled = false
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         Task {
             guard
                 await core.confirm(
@@ -219,7 +221,7 @@ final class QuickActionCoordinator {
             store.settings.usesOutlookContextForRewrite = false
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         Task {
             guard
                 await core.confirm(
@@ -310,12 +312,14 @@ final class QuickActionCoordinator {
 
     func run(_ action: QuickAction) {
         guard settings.quickActionsEnabled else { return }
+        if action == .rewrite, let activeComposer, let composerApp,
+            reopens(activeComposer, target: composerApp)
+        {
+            present(activeComposer, target: composerApp)
+            return
+        }
         if running != nil {
-            if action == .rewrite, let activeComposer, activeComposer.isRunning {
-                present(activeComposer, target: composerApp ?? Target())
-            } else {
-                core.showMessage("A Quick Action is still running")
-            }
+            core.showMessage("A Quick Action is still running")
             return
         }
         var target = Target(app: paletteCoordinator.targetApp)
@@ -333,6 +337,16 @@ final class QuickActionCoordinator {
         }
         let capturedTarget = target
         start { [weak self] in await self?.begin(action, target: capturedTarget) }
+    }
+
+    /// A draft that finished behind a dismissed panel stays reachable from the field it was for.
+    private func reopens(_ state: QuickActionPanelState, target: Target) -> Bool {
+        if state.isRunning { return running != nil }
+        guard running == nil, composerDismissedWhileRunning, let app = target.app,
+            app.processIdentifier == paletteCoordinator.targetApp?.processIdentifier,
+            let text = target.text, case .focusedField = text.scope
+        else { return false }
+        return text.isFocused(in: app)
     }
 
     func cancel() {
@@ -359,6 +373,7 @@ final class QuickActionCoordinator {
     private func forgetComposer() {
         activeComposer = nil
         composerApp = nil
+        composerDismissedWhileRunning = false
     }
 
     /// The generation stops a superseded task from clearing the newer handle as it finishes.
@@ -375,7 +390,6 @@ final class QuickActionCoordinator {
 
     private func begin(_ action: QuickAction, target invoked: Target) async {
         var target = invoked
-        if action == .rewrite { history.prune() }
         let input: QuickActionRunner.Input
         do {
             if let noteSelection = target.note {
@@ -397,8 +411,10 @@ final class QuickActionCoordinator {
             ? OutlookComposeContextReader.read(in: target.app)
             : nil
         let context = capture?.context
+        if target.note == nil {
+            target.text = capture?.target ?? ComposerTextTarget.focusedField(in: target.app)
+        }
         if action == .rewrite {
-            target.text = capture?.target
             target.frame = ComposerPlacementReader.frame(
                 in: target.app, editor: capture?.target.editor)
         }
@@ -406,31 +422,28 @@ final class QuickActionCoordinator {
         case .selection(let text): text
         case .insertionPoint: ""
         }
+        // A match needs captured context, so a resumed record always has its Outlook capture.
         if action == .rewrite,
-            let record = history.resumableRecord(selection: selection, context: context)
+            let record = history.resumableRecord(selection: selection, context: context),
+            let capture
         {
             let state = QuickActionPanelState(
                 restoring: record, context: context, targetLanguage: targetLanguage,
                 insertsAtCaret: input == .insertionPoint)
-            if let textTarget = capture?.target {
-                textTarget.restore(record, insertsAtCaret: state.insertsAtCaret)
-                state.draftAnchor = textTarget.anchor
-                if let draft = textTarget.draft {
-                    state.adoptSourceDraft(draft)
-                } else {
-                    state.replacementIssue =
-                        "Select the draft in Outlook and reopen Composer to replace it."
-                }
+            capture.target.restore(record, insertsAtCaret: state.insertsAtCaret)
+            state.draftAnchor = capture.target.anchor
+            if let draft = capture.target.draft {
+                state.adoptSourceDraft(draft)
             } else {
-                state.replacementIssue = "Reopen Composer in the Outlook draft before replacing it."
+                state.replacementIssue =
+                    "Select the draft in Outlook and reopen Composer to replace it."
             }
             present(state, target: target)
             if let resumed = state.historyRecord(
-                now: state.conversation == record.messages ? record.updatedAt : Date())
+                now: state.conversation == record.messages ? record.updatedAt : Date()),
+                !history.save(resumed)
             {
-                if !history.save(resumed) {
-                    core.showMessage("Couldn't save Composer history", tone: .danger)
-                }
+                reportHistoryFailure()
             }
             return
         }
@@ -461,7 +474,7 @@ final class QuickActionCoordinator {
             core.showMessage(failure.localizedDescription, tone: .danger)
             return
         }
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         Task {
             guard
                 await core.reportFailure(
@@ -609,30 +622,28 @@ final class QuickActionCoordinator {
             onStop: { [weak self] in self?.stopComposer() },
             onInstructionChange: { [weak self] in self?.schedulePendingSave(state) },
             onDismiss: { [weak self] in
-                self?.savePendingInstruction(state)
-            },
-            onDeleteHistory: { [weak self] id in
-                self?.deleteHistory(id, currentID: state.historyID) ?? false
+                guard let self else { return }
+                if state.action == .rewrite { composerDismissedWhileRunning = state.isRunning }
+                savePendingInstruction(state)
             },
             onReplace: { [weak self] text in
                 self?.deliver(
                     text, to: target, action: state.action, textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret)
             })
+        composerDismissedWhileRunning = false
     }
 
-    private func deleteHistory(_ id: UUID, currentID: UUID) -> Bool {
+    func deleteComposerConversation(_ id: UUID, from state: QuickActionPanelState) {
         guard history.remove(id: id) else {
             core.showMessage("Couldn't delete the Composer conversation", tone: .danger)
-            return false
+            return
         }
-        if id == currentID {
-            pendingSave?.cancel()
-            forgetComposer()
-            halt()
-            panels.dismiss(preservingDraft: false)
-        }
-        return true
+        guard id == state.historyID else { return }
+        pendingSave?.cancel()
+        forgetComposer()
+        halt()
+        panels.dismiss(preservingDraft: false)
     }
 
     private func rerun(_ state: QuickActionPanelState, target: Target) {
@@ -705,9 +716,14 @@ final class QuickActionCoordinator {
         guard state.action == .rewrite,
             let record = state.historyRecord()
         else { return }
-        if !history.save(record) {
-            core.showMessage("Couldn't save Composer history", tone: .danger)
-        }
+        if !history.save(record) { reportHistoryFailure() }
+    }
+
+    /// Autosave runs every 350 ms, so a history that cannot be kept says so only once.
+    private func reportHistoryFailure() {
+        guard !reportedHistoryFailure else { return }
+        reportedHistoryFailure = true
+        core.showMessage("Composer history couldn't be saved on this Mac", tone: .danger)
     }
 
     private func savePendingInstruction(_ state: QuickActionPanelState) {
@@ -724,9 +740,7 @@ final class QuickActionCoordinator {
         } else {
             saved = true
         }
-        if !saved {
-            core.showMessage("Couldn't save the unfinished Composer request", tone: .danger)
-        }
+        if !saved { reportHistoryFailure() }
     }
 
     private func schedulePendingSave(_ state: QuickActionPanelState) {

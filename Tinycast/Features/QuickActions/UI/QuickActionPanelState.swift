@@ -9,7 +9,7 @@ final class QuickActionPanelState {
         "Draft an appropriate response based only on the email context. Do not invent facts, "
         + "commitments, decisions or completed actions."
 
-    enum Accessory { case context, audience, model, reasoning }
+    enum Accessory: Equatable { case context, audience, model, reasoning, history(UUID) }
     var accessory: Accessory?
     var accessorySelection = 0
 
@@ -130,7 +130,6 @@ final class QuickActionPanelState {
         historyContextIdentity = context?.historyIdentity ?? record.contextIdentity
         historyContextFingerprints = context?.historyFingerprints ?? record.contextFingerprints ?? []
         output = restoredOutput
-        phase = restoredOutput.isEmpty ? .awaitingInstruction : .finished
         conversation = record.messages
         refinementInstruction = record.pendingInstruction ?? ""
         self.targetLanguage = targetLanguage
@@ -143,6 +142,19 @@ final class QuickActionPanelState {
                 conversation[index - 1].state = .failed
             }
         }
+        phase = Self.restoredPhase(
+            output: restoredOutput, conversation: conversation,
+            awaitsInstruction: originalIsWritingInstruction)
+    }
+
+    /// A selected draft that never got a reply has no instruction to await, only one to retry.
+    private static func restoredPhase(
+        output: String, conversation: [RewriteConversationMessage], awaitsInstruction: Bool
+    ) -> Phase {
+        guard output.isEmpty else { return .finished }
+        guard !awaitsInstruction else { return .awaitingInstruction }
+        let failure = conversation.last { $0.role == .assistant && $0.state == .failed }
+        return .failed(failure?.text ?? "No draft was generated. Retry to send the text again.")
     }
 
     func adoptSourceDraft(_ text: String) {
@@ -159,7 +171,6 @@ final class QuickActionPanelState {
         conversation.append(RewriteConversationMessage(role: .assistant, text: text, state: .complete))
         output = text
         phase = .finished
-        cachedDiff = nil
     }
 
     func append(_ delta: String) {
@@ -195,7 +206,6 @@ final class QuickActionPanelState {
         output = ""
         phase = .running
         refinementInstruction = ""
-        cachedDiff = nil
         return instruction
     }
 
@@ -211,7 +221,6 @@ final class QuickActionPanelState {
         output = ""
         phase = .running
         refinementInstruction = ""
-        cachedDiff = nil
         return (previousOutput ?? "", requestMessages)
     }
 

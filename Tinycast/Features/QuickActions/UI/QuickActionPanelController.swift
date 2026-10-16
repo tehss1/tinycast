@@ -30,7 +30,6 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         onStop: @escaping () -> Void,
         onInstructionChange: @escaping () -> Void,
         onDismiss: @escaping () -> Void,
-        onDeleteHistory: @escaping (UUID) -> Bool,
         onReplace: @escaping (String) -> Void
     ) {
         dismiss()
@@ -49,7 +48,6 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
                 onInstructionChange: onInstructionChange,
                 onReplace: { [weak self] in self?.replace(state.output) },
                 onCopy: { [weak self] in self?.copyOutput($0) },
-                onDeleteHistory: onDeleteHistory,
                 onSelectionChange: { [weak self] text, isViewingActive in
                     self?.selectedOutput = text
                     self?.isViewingActiveConversation = isViewingActive

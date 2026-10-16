@@ -55,6 +55,10 @@ enum AccessibilityText {
     /// A zero-length range proves this is an insertion point, not merely an empty control.
     static func hasInsertionPoint(in app: NSRunningApplication) -> Bool {
         guard let element = focusedElement(in: app) else { return false }
+        return selectedRange(of: element)?.length == 0
+    }
+
+    static func selectedRange(of element: AXUIElement) -> NSRange? {
         var value: CFTypeRef?
         guard
             AXUIElementCopyAttributeValue(
@@ -63,13 +67,14 @@ enum AccessibilityText {
                 &value) == .success,
             let value,
             CFGetTypeID(value) == AXValueGetTypeID()
-        else { return false }
+        else { return nil }
 
         // swiftlint:disable:next force_cast
         let rangeValue = value as! AXValue
-        guard AXValueGetType(rangeValue) == .cfRange else { return false }
+        guard AXValueGetType(rangeValue) == .cfRange else { return nil }
         var range = CFRange()
-        return AXValueGetValue(rangeValue, .cfRange, &range) && range.length == 0
+        guard AXValueGetValue(rangeValue, .cfRange, &range) else { return nil }
+        return NSRange(location: range.location, length: range.length)
     }
 
     /// Chromium builds its tree only once asked, so Chrome and Electron answer nothing until this.

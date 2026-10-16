@@ -23,6 +23,8 @@ struct ComposerTests {
         stopKeepsCompletedDraft()
         manualEditsJoinConversation()
         try historyIsScopedAndRecoversInput()
+        try historyStorageRecoversValidRecords()
+        try historyKeyIsLazyAndWritesArePrivate()
         try updatedThreadKeepsConversation()
         newestQuoteIsIncluded()
         localizedQuoteIsIncluded()
@@ -195,6 +197,16 @@ struct ComposerTests {
         expect(selection.canRefine && selection.conversation.last?.state == .failed,
             "selected-text failures are also retryable and visible")
         expect(selection.retriesOriginalRequest, "a failed selection retries without new words")
+        for record in [makeState(caret: false).historyRecord()!, selection.historyRecord()!] {
+            let reopened = QuickActionPanelState(restoring: record, context: nil,
+                targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: false)
+            expect(!reopened.isAwaitingInstruction && reopened.retriesOriginalRequest,
+                "a reopened selection without a draft retries rather than awaiting a request")
+        }
+        let caretRecord = makeState().historyRecord()!
+        expect(QuickActionPanelState(restoring: caretRecord, context: nil,
+            targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: true)
+            .isAwaitingInstruction, "a reopened caret conversation still awaits its first request")
 
         let contextOnly = QuickActionPanelState(
             action: .rewrite, original: "",
@@ -463,6 +475,94 @@ struct ComposerTests {
                 && restored.composerAudience(internalDomains: "example.org")
                     == .externalRecipients,
             "the audience override follows the same email conversation")
+    }
+
+    static func historyStorageRecoversValidRecords() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerLossyHistory-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("rewrite-history.sealed")
+        let timestamp = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        let record = RewriteHistoryRecord(
+            id: UUID(), createdAt: timestamp, updatedAt: timestamp, subject: nil, recipient: nil,
+            original: "Keep this draft", messages: [])
+        guard let valid = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
+            as? [String: Any]
+        else { fatalError("the history fixture must encode as an object") }
+        var malformed = valid
+        malformed["id"] = "not-a-uuid"
+        let mixed: [Any] = [malformed, valid, NSNull(), ["futureSchema": true], valid]
+        let data = try JSONSerialization.data(withJSONObject: mixed)
+        let sealed = try AES.GCM.seal(data, using: historyKey).combined!
+        try sealed.write(to: file)
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { timestamp })
+        store.load()
+        expect(store.records == [record, record],
+            "bad records before and between valid records do not discard valid history")
+        let preserved = try Data(contentsOf: file)
+        expect(preserved == sealed,
+            "lossy decoding preserves the encrypted source file")
+
+        let malformedData = try AES.GCM.seal(Data("not json".utf8), using: historyKey).combined!
+        try malformedData.write(to: file)
+        let unreadable = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { timestamp })
+        unreadable.load()
+        expect(unreadable.records.isEmpty && FileManager.default.fileExists(atPath: file.path),
+            "an authenticated file with invalid JSON is left intact")
+
+        let wrongKey = SymmetricKey(size: .bits256)
+        let unauthenticated = RewriteHistoryStore(directory: directory, key: { wrongKey }, now: { timestamp })
+        unauthenticated.load()
+        expect(!FileManager.default.fileExists(atPath: file.path),
+            "a file that fails AES-GCM authentication is deleted")
+    }
+
+    static func historyKeyIsLazyAndWritesArePrivate() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerPrivateHistory-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = directory.appendingPathComponent("rewrite-history.json")
+        try Data("obsolete private draft".utf8).write(to: legacy)
+        var keyReads = 0
+        let store = RewriteHistoryStore(directory: directory, key: {
+            keyReads += 1
+            return historyKey
+        })
+        store.load()
+        expect(keyReads == 0, "an absent history file never opens Keychain at launch")
+        expect(!FileManager.default.fileExists(atPath: legacy.path),
+            "obsolete plaintext is removed even when no encrypted history exists")
+        let record = RewriteHistoryRecord(
+            id: UUID(), createdAt: Date(), updatedAt: Date(), subject: nil, recipient: nil,
+            original: "Private draft", messages: [])
+        expect(store.save(record), "the first save creates encrypted history")
+        expect(keyReads == 1, "the first save loads the key once")
+        let file = directory.appendingPathComponent("rewrite-history.sealed")
+        for _ in 0..<2 {
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600,
+                "new and atomically replaced history files are owner-only")
+            let resources = try file.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            expect(resources.isExcludedFromBackup == true,
+                "new and atomically replaced history files stay excluded from backup")
+            expect(store.save(record), "replacing encrypted history succeeds")
+        }
+        expect(keyReads == 1, "later saves reuse the same key")
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        let marker = file.appendingPathComponent("keep")
+        try Data("unchanged".utf8).write(to: marker)
+        var changed = record
+        changed.pendingInstruction = "Must not land"
+        expect(!store.save(changed), "a failed atomic replacement reports failure")
+        expect(store.records == [record], "a failed replacement leaves published history unchanged")
+        let preservedMarker = try String(contentsOf: marker, encoding: .utf8)
+        expect(preservedMarker == "unchanged",
+            "a failed replacement leaves the existing destination unchanged")
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        expect(remaining == ["rewrite-history.sealed"], "failed writes remove only their staging file")
     }
 
     static func panelFollowsComposeArea() {

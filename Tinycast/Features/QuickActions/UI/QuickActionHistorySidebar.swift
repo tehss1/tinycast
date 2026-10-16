@@ -17,7 +17,7 @@ struct QuickActionHistorySidebar: View {
                     .font(metrics.typography.panelTitle)
                 Spacer(minLength: 0)
                 Button(action: onCollapse) {
-                    Image(systemName: "sidebar.left")
+                    SymbolImage(name: "sidebar.left", size: metrics.size.quickActionHeaderIcon)
                         .foregroundStyle(Theme.Colors.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -52,7 +52,7 @@ struct QuickActionHistorySidebar: View {
                 .padding(.vertical, metrics.spacing.md)
         }
         .frame(width: metrics.size.quickActionHistorySidebar, height: height)
-        .background(Theme.Colors.controlSurface.opacity(0.35))
+        .background(Theme.Colors.sheen)
     }
 
     private struct HistoryRow: View {
