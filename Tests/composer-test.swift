@@ -23,6 +23,11 @@ struct ComposerTests {
         openerOnlyReplyFails()
         deliveryLabelMatchesInvocation()
         resumedTargetFollowsThePress()
+        resumedSourceDecision()
+        differentSelectionRequiresRewrite()
+        try selectedSourceSurvivesInterruption()
+        explicitSelectionReanchorsDraft()
+        savedDraftAndCaretKeepTheirBehavior()
         blankInitialRequestUsesEmailContext()
         firstFailureCanRetry()
         stopKeepsCompletedDraft()
@@ -271,19 +276,196 @@ struct ComposerTests {
         ]
         for (press, title) in presses {
             let target = restored(press, caret: press.length == 0)
+            let resumeTarget = QuickActionPanelState.resumeTarget(
+                savedDraft: draftRange, replacementRange: target)
             let state = QuickActionPanelState(
                 restoring: record, context: nil, targetLanguage: Locale.Language(identifier: "en"),
-                insertsAtCaret: target.map { $0.length == 0 } ?? (press.length == 0))
+                insertsAtCaret: resumeTarget == .insertionPoint)
             expect(state.deliveryActionTitle == title,
                 "a resumed conversation names the delivery its effective target will perform")
         }
 
         let selected = makeState(caret: false)
         selected.finish("Saved draft.")
-        selected.adoptSourceDraft(other, selectedElsewhere: true)
-        expect(selected.output == other
-            && selected.conversation.dropLast().last?.text.contains("selected other text") == true,
-            "a different selection joins the conversation as the text to work on")
+        expect(selected.resumeSource(.selectedText, text: other, anchor: nil),
+            "a different selection requests an automatic refinement")
+        expect(selected.output == other && !selected.canReplace,
+            "a different selection is source text until its rewrite finishes")
+    }
+
+    static func resumedSourceDecision() {
+        let saved = NSRange(location: 10, length: 5)
+        let selected = NSRange(location: 20, length: 8)
+        let caret = NSRange(location: 30, length: 0)
+        let cases: [(NSRange?, NSRange?, QuickActionPanelState.ResumeTarget)] = [
+            (saved, saved, .savedDraft),
+            (saved, selected, .selectedText),
+            (nil, selected, .reanchoredSelection),
+            (saved, caret, .insertionPoint),
+            (nil, caret, .insertionPoint),
+            (saved, nil, .unavailable),
+            (nil, nil, .unavailable),
+            (caret, caret, .insertionPoint),
+            (caret, selected, .selectedText),
+        ]
+        for (savedDraft, replacement, expected) in cases {
+            expect(QuickActionPanelState.resumeTarget(
+                savedDraft: savedDraft, replacementRange: replacement) == expected,
+                "the shipped resume policy chooses the source action from the effective range")
+        }
+    }
+
+    static func differentSelectionRequiresRewrite() {
+        let body = "Saved draft.\n\nAnother paragraph.\n\nSignature"
+        let saved = NSRange(location: 0, length: "Saved draft.".utf16.count)
+        let anchor = ComposerDraftAnchor(body: body, range: saved)
+        for (source, caret) in [
+            ("Another paragraph.", false), ("Rough notes", false),
+            ("Saved draft.", false), ("Another paragraph.", true),
+        ] {
+            let state = makeState(caret: caret)
+            if caret {
+                state.refinementInstruction = "Write a reply"
+                _ = state.beginInitialRewrite()
+            }
+            state.finish("Saved draft.")
+            state.draftAnchor = anchor
+            let previous = state.conversation
+            let historyID = state.historyID
+            expect(state.resumeSource(.selectedText, text: source, anchor: nil),
+                "a different range always requests rewriting, even when its text matches an older draft")
+            expect(state.historyID == historyID && Array(state.conversation.dropLast()) == previous,
+                "the selected source keeps the email's conversation")
+            expect(state.conversation.last?.role == .user
+                && state.conversation.last?.text.hasSuffix(source) == true,
+                "the selected source is honestly attributed to the reader")
+            expect(!state.canReplace && state.canRefine && state.output == source,
+                "adopting source text enables refinement and keeps delivery disabled")
+            expect(state.historyRecord()?.latestDraft == "Saved draft.",
+                "selecting other text never saves it as a completed model draft")
+
+            let request = state.beginRefinement()
+            expect(request?.draft == source && state.isRunning && !state.canReplace,
+                "the automatic refinement works on the selected text, with delivery unavailable")
+            expect(request?.messages.last?.text == QuickActionPanelState.selectedRewriteInstruction,
+                "the model receives the explicit rewrite request as the latest user turn")
+            expect(request?.messages.contains {
+                $0.role == .user && $0.text.hasSuffix(source)
+            } == true, "the selected source reaches the model with the saved conversation")
+            state.append("Partial reply")
+            state.fail("Stopped")
+            expect(state.output == source && !state.canReplace && state.canRefine,
+                "a failed or stopped automatic rewrite retains its source for retry, never delivery")
+            expect(state.refinementInstruction == QuickActionPanelState.selectedRewriteInstruction,
+                "the automatic request returns to the field after failure")
+            expect(state.draftAnchor == anchor,
+                "an unsuccessful different-selection rewrite never moves the saved boundary")
+
+            let restored = QuickActionPanelState(
+                restoring: state.historyRecord()!, context: nil,
+                targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: false)
+            expect(restored.output == source && !restored.canReplace && restored.canRefine,
+                "a saved failed selection rewrite restores the source and its delivery restriction")
+            expect(restored.beginRefinement()?.draft == source,
+                "retry after reopening still rewrites the selection rather than the earlier draft")
+            expect(!restored.finish("I hope this email finds you well.") && !restored.canReplace,
+                "an unusable automatic reply cannot enable delivery")
+            _ = restored.beginRefinement()
+            restored.finish("Rewritten selection.")
+            expect(restored.canReplace && restored.output == "Rewritten selection.",
+                "only a successful model turn makes the selection deliverable")
+            expect(restored.draftAnchor == anchor,
+                "generation alone keeps the saved boundary until successful delivery")
+        }
+    }
+
+    static func selectedSourceSurvivesInterruption() throws {
+        let state = makeState(caret: false)
+        state.finish("Earlier draft.")
+        _ = state.resumeSource(.selectedText, text: "Selected source.", anchor: nil)
+        _ = state.beginRefinement()
+        state.append("Interrupted reply")
+        let clock = Date(timeIntervalSince1970: 1_000_000)
+        let data = try JSONEncoder().encode(state.historyRecord(now: clock)!)
+        let record = try JSONDecoder().decode(RewriteHistoryRecord.self, from: data)
+        let restored = QuickActionPanelState(
+            restoring: record, context: nil,
+            targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: true)
+        expect(restored.output == "Selected source." && !restored.canReplace && restored.canRefine,
+            "an interrupted selected-source request restores its source, never its partial output")
+        expect(restored.deliveryActionTitle == "Insert" && !restored.canReplace,
+            "reopening at an insertion point cannot deliver an unfinished selected-source request")
+        expect(!restored.conversation.contains { $0.state == .streaming },
+            "a recovered selected-source request has no abandoned streaming row")
+        restored.refinementInstruction = "Make it shorter"
+        let retry = restored.beginRefinement()
+        expect(retry?.draft == "Selected source."
+            && retry?.messages.contains { $0.text.hasSuffix("Selected source.") } == true,
+            "editing the retry instruction keeps the selected source in the model conversation")
+        expect(retry?.messages.contains {
+            $0.text == QuickActionPanelState.selectedRewriteInstruction
+        } == false, "retry excludes the interrupted automatic request")
+        restored.finish("Short source.")
+        let finished = QuickActionPanelState(
+            restoring: restored.historyRecord(now: clock)!, context: nil,
+            targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: false)
+        expect(finished.output == "Short source." && finished.canReplace,
+            "a completed selected-source rewrite restores as an ordinary deliverable draft")
+    }
+
+    static func explicitSelectionReanchorsDraft() {
+        let original = "Rough notes\n\nSignature"
+        let oldAnchor = ComposerDraftAnchor(
+            body: original, range: NSRange(location: 0, length: "Rough notes".utf16.count))
+        let body = "New introduction\n\nRough notes\n\nChanged signature"
+        let selection = NSRange(
+            location: "New introduction\n\n".utf16.count, length: "Rough notes".utf16.count)
+        let newAnchor = ComposerDraftAnchor(body: body, range: selection)
+        for savedAnchor in [oldAnchor, nil] {
+            let state = makeState(caret: false)
+            state.finish("Earlier generated draft.")
+            state.draftAnchor = savedAnchor
+            let savedDraft = savedAnchor?.rangePreservingTrailingLineBreaks(in: body)
+            let replacement = ComposerDraftAnchor.restoredRange(
+                in: body, anchor: savedAnchor, selectedRange: selection, insertsAtCaret: false)
+            let target = QuickActionPanelState.resumeTarget(
+                savedDraft: savedDraft, replacementRange: replacement)
+            expect(target == .reanchoredSelection,
+                "an explicit selection recovers both a stale boundary and a missing one")
+            expect(!state.resumeSource(target, text: "Rough notes", anchor: newAnchor),
+                "re-anchoring manual edits does not automatically run the model")
+            expect(state.draftAnchor == newAnchor && state.output == "Rough notes"
+                && state.canReplace, "re-anchoring adopts the explicit selection even if it equals the original")
+            expect(state.conversation.dropLast().last?.text
+                == "I edited the draft in Outlook. Use this version for further changes.",
+                "a recovered boundary uses the manual-edit wording")
+            expect(state.historyRecord()?.draftAnchor == newAnchor
+                && state.historyRecord()?.latestDraft == "Rough notes",
+                "the re-anchored selection and its boundary are saved together")
+            let count = state.conversation.count
+            expect(!state.resumeSource(.savedDraft, text: "Rough notes", anchor: newAnchor)
+                && state.conversation.count == count,
+                "reopening the re-anchored selection adds neither a turn nor a model request")
+        }
+    }
+
+    static func savedDraftAndCaretKeepTheirBehavior() {
+        let state = makeState(caret: false)
+        state.finish("Saved draft.")
+        let body = "Edited draft.\n\nSignature"
+        let anchor = ComposerDraftAnchor(
+            body: body, range: NSRange(location: 0, length: "Edited draft.".utf16.count))
+        expect(!state.resumeSource(.savedDraft, text: "Edited draft.", anchor: anchor),
+            "editing the saved draft does not generate automatically")
+        expect(state.output == "Edited draft." && state.draftAnchor == anchor && state.canReplace,
+            "manual edits inside the saved boundary remain deliverable")
+        let conversation = state.conversation
+        expect(!state.resumeSource(.insertionPoint, text: "", anchor: nil)
+            && state.output == "Edited draft." && state.conversation == conversation
+            && state.draftAnchor == anchor, "a caret outside the draft keeps its conversation and saved boundary")
+        expect(!state.resumeSource(.unavailable, text: nil, anchor: nil)
+            && !state.canReplace && state.replacementIssue != nil,
+            "an unavailable selection disables delivery and asks the reader to capture afresh")
     }
 
     static func blankInitialRequestUsesEmailContext() {

@@ -463,21 +463,21 @@ final class QuickActionCoordinator {
             let capture
         {
             capture.target.restore(record, insertsAtCaret: input == .insertionPoint)
-            let state = QuickActionPanelState(
-                restoring: record, context: context, targetLanguage: targetLanguage,
-                insertsAtCaret: capture.target.replacementRange.map { $0.length == 0 }
-                    ?? (input == .insertionPoint))
             let savedDraft = record.draftAnchor?.rangePreservingTrailingLineBreaks(
                 in: capture.target.body)
-            if let draft = capture.target.draft {
-                let targetsSavedDraft = savedDraft == capture.target.replacementRange
-                if targetsSavedDraft { state.draftAnchor = capture.target.anchor }
-                state.adoptSourceDraft(draft, selectedElsewhere: !targetsSavedDraft)
-            } else {
-                state.replacementIssue =
-                    "Select the draft in Outlook and reopen Composer to replace it."
-            }
+            let resumeTarget = QuickActionPanelState.resumeTarget(
+                savedDraft: savedDraft, replacementRange: capture.target.replacementRange)
+            let state = QuickActionPanelState(
+                restoring: record, context: context, targetLanguage: targetLanguage,
+                insertsAtCaret: resumeTarget == .insertionPoint
+                    || (resumeTarget == .unavailable && input == .insertionPoint))
+            let rewritesSelection = state.resumeSource(
+                resumeTarget, text: capture.target.draft, anchor: capture.target.anchor)
             present(state, target: target)
+            if rewritesSelection {
+                refine(state, target: target)
+                return
+            }
             if let resumed = state.historyRecord(
                 now: state.conversation == record.messages ? record.updatedAt : Date()),
                 !history.save(resumed)

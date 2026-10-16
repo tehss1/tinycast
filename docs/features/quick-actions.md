@@ -126,8 +126,11 @@ selectable Markdown renderer with AI Chat.
   unexpected key cannot replace unread history with an empty list. Inside an authenticated file,
   individual malformed records are skipped rather than discarding the rest.
   A file last written more than seven days ago is deleted at launch without its key, since every
-  save rewrites it. Running Composer again on the same Outlook email restores its transcript and latest completed
-  draft without another model request. Tinycast stores context and individual-message fingerprints
+  save rewrites it. Running Composer again on the same Outlook email restores its transcript. When
+  no rewrite is pending, a press targeting its saved draft or an outside caret restores the latest
+  completed draft without another model request; selecting different text starts a rewrite in that
+  conversation.
+  Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. The context identity uses the subject
   and quoted thread, or the native editor identity when no thread exists; recipient order and
   completeness do not affect it. Each record also remembers its Outlook editor, and that editor's own
@@ -311,9 +314,10 @@ it again, returning to the active conversation. Older entries are view and copy 
 reaches the target app until Insert or
 Replace. Generation errors appear in the transcript, and the failed request returns to
 the input field. Retrying excludes failed turns from the model conversation. Stop keeps the last
-completed draft available for Copy, Insert or Replace. Reopening an interrupted session marks
-unfinished responses as failed. A selected-text conversation reopened without a draft offers Retry,
-because the selection is already its request.
+completed draft available for Copy, Insert or Replace, except when a different Outlook selection is
+awaiting its first successful rewrite. That selection remains source text and cannot be delivered.
+Reopening an interrupted session marks unfinished responses as failed. A selected-text conversation
+reopened without a draft offers Retry, because the selection is already its request.
 
 A dismissed Composer conversation stays reachable, whether its draft arrived behind the closed
 panel or before it closed. Pressing the shortcut again in the same text field with the same
@@ -438,11 +442,15 @@ cannot be checked, so activation is its only guard.
 When Composer resumes a saved email, the boundary fingerprints locate its current draft, and the
 press decides the target. Selecting that draft, or placing the caret inside it or at its edges,
 targets the whole draft. Manual Outlook edits become a new draft in the conversation and supply the
-starting text for further changes. A different selection targets that text instead and joins the
-conversation as the text to work on. A caret anywhere else inserts there, including when the saved
-boundary has gone stale. The button says **Replace** or **Insert** by that effective target, and the
-saved boundary moves only once a draft lands somewhere else. A selected-text press without a usable
-range disables Replace with a request to select the draft and reopen Composer.
+starting text for further changes. A different selection targets that text instead, adds it as
+user-supplied source text and automatically requests a rewrite in the same conversation. Delivery
+stays disabled until that model turn succeeds; failure or Stop retains the selected source and request
+for retry, including after reopening. When the saved boundary no longer resolves, or none was saved,
+an explicit selection instead re-anchors the conversation and is recorded as a manual Outlook edit,
+without a model request. A caret anywhere else inserts there, including when the saved boundary has
+gone stale. The button says **Replace** or **Insert** by that effective target. A different selection
+or outside caret moves a valid saved boundary only once a draft lands there. A selected-text press
+without a usable range disables Replace with a request to select the draft and reopen Composer.
 
 ### Manual sweep
 
@@ -526,13 +534,21 @@ range disables Replace with a request to select the draft and reopen Composer.
   restores the current draft. Switch between short and long conversations and confirm the panel does
   not shrink. Move the stored clock past seven days and confirm the old tab is gone.
 - Dismiss Composer, navigate to another message, then return to the same Outlook email and run Composer
-  again. Confirm the saved transcript and latest draft reopen without generating a new first draft.
+  again with the caret inside its saved draft. Confirm the transcript and latest draft reopen without
+  generating a new first draft.
   If the sidebar contained duplicate rows for that email, confirm they collapse into one conversation.
 - In an Outlook reply, select a paragraph, run Composer and Replace. Select a different paragraph and
-  run Composer again: confirm the same conversation opens with that paragraph as the text to work on,
-  the button says Replace, and only that paragraph changes. Place the caret outside both and confirm
+  run Composer again: confirm the same conversation opens with that paragraph as user-supplied source
+  text, shows a rewrite request and starts generation automatically. Confirm Replace and ⌘↵ remain
+  unavailable until the model finishes, then only that paragraph changes. Repeat with a slow or
+  failing model, Stop, dismiss and reopen: the selected source and request must remain retryable and
+  unavailable for delivery until a rewrite succeeds. Place the caret outside both and confirm
   the button says Insert and the draft lands at the caret; place it inside the first draft and
   confirm the button says Replace and that draft is replaced.
+- Change text outside a saved Outlook draft so its boundary no longer resolves, explicitly select
+  the edited draft and reopen Composer. Confirm the transcript says it was edited in Outlook, no
+  generation starts, and further changes replace that selection. Reopen again and confirm the new
+  boundary resolves. Repeat with a conversation that has no saved boundary.
 - Run Composer in a private reply to one person, then open Reply All to the same message and run
   Composer. Confirm a new conversation starts, both stay in the sidebar, and each editor reopens its
   own.
