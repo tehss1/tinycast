@@ -823,24 +823,25 @@ struct QuickActionTests {
                 "a paragraph selected with its own trailing newline ends at a line boundary")
             expect(QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, boundaries: selection)
-                == "First sentence.\n\nSecond sentence.",
-                "a triple-clicked paragraph still receives whole-line paragraph formatting")
+                == "First sentence.\n\nSecond sentence.\n",
+                "a triple-clicked paragraph is formatted and keeps the newline it selected")
             expect(QuickActionOutput.preparedForDelivery(
                 "Please review.\n\nBest,", action: .rewrite, toOutlook: true, boundaries: selection)
                 == "Please review.\n\nBest,\n\n",
                 "a selected paragraph's consumed newline does not count as a following signature break")
         }
-        for (body, offset, suffix) in [
-            ("Intro text", 5, "\n"),
-            ("Intro\nBest,", 5, ""),
-            ("Intro\r\n\r\nBest,", 5, ""),
+        for (body, offset, prefix, suffix) in [
+            ("Intro text", 5, "", "\n"),
+            ("Intro\nBest,", 5, "\n\n", ""),
+            ("Intro\r\n\r\nBest,", 5, "\n\n", ""),
+            ("Intro text", 10, "\n\n", "\n"),
         ] {
             let boundaries = ComposerDraftAnchor.TextBoundaries(
                 body: body, range: NSRange(location: offset, length: 0))
             expect(QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, insertsAtCaret: true, boundaries: boundaries)
-                == draft + suffix,
-                "known carets preserve following breaks without reflowing mid-line text")
+                == prefix + draft + suffix,
+                "known carets keep line breaks, and a caret ending a line opens a new paragraph")
         }
         expect(QuickActionOutput.preparedForDelivery(
             draft + " Best,", action: .rewrite, toOutlook: true, insertsAtCaret: true)

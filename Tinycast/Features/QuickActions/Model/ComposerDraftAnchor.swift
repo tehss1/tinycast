@@ -6,6 +6,7 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         let startsAtLineStart: Bool
         let endsAtLineEnd: Bool
         let followingLineBreakCount: Int
+        let selectedLineBreakCount: Int
 
         var coversWholeLines: Bool { startsAtLineStart && endsAtLineEnd }
 
@@ -17,6 +18,7 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
                 || body[selection.upperBound].isNewline
                 || (!selection.isEmpty && body[body.index(before: selection.upperBound)].isNewline)
             followingLineBreakCount = body[selection.upperBound...].prefix(while: \.isNewline).count
+            selectedLineBreakCount = body[selection].reversed().prefix(while: \.isNewline).count
         }
     }
 

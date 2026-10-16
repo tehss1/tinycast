@@ -193,11 +193,14 @@ struct QuickActionContext: Equatable, Sendable {
     /// Outlook writes the quoted header in the sender's display language, not the reader's.
     private static let senderLabels = ["From:", "Von:", "De:", "Da:", "Van:", "Från:", "Fra:", "Od:"]
     private static let replyAttributions = [
-        " schrieb:", " a écrit :", " escribió:", " ha scritto:", " escreveu:", " schreef:"
+        " schrieb:", " a écrit:", " escribió:", " ha scritto:", " escreveu:", " schreef:"
     ]
 
     private static func isMessageBoundary(_ line: String) -> Bool {
+        // French puts a space, often non-breaking, before every colon.
         let trimmed = line.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "\u{a0}", with: " ")
+            .replacingOccurrences(of: " :", with: ":")
         return senderLabels.contains { trimmed.hasPrefix($0) }
             || (trimmed.hasPrefix("On ") && trimmed.hasSuffix(" wrote:"))
             || replyAttributions.contains { trimmed.hasSuffix($0) }

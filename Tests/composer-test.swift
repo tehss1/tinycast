@@ -145,15 +145,15 @@ struct ComposerTests {
     static func paragraphFormattingRequiresWholeLines() {
         let draft = "First sentence. Second sentence."
         let split = "First sentence.\n\nSecond sentence."
-        for (body, range, wholeLines) in [
-            ("Rough notes\nSignature", NSRange(location: 0, length: 11), true),
-            ("🙂 Rough notes", NSRange(location: 3, length: 11), false),
-            ("Rough notes continue", NSRange(location: 0, length: 11), false),
-            ("🙂 Rough notes continue", NSRange(location: 3, length: 11), false),
-            ("", NSRange(location: 0, length: 0), true),
-            ("Intro\n\nSignature", NSRange(location: 6, length: 0), true),
-            ("Intro text", NSRange(location: 5, length: 0), false),
-            ("Intro text", NSRange(location: 10, length: 0), false),
+        for (body, range, wholeLines, leading) in [
+            ("Rough notes\nSignature", NSRange(location: 0, length: 11), true, ""),
+            ("🙂 Rough notes", NSRange(location: 3, length: 11), false, ""),
+            ("Rough notes continue", NSRange(location: 0, length: 11), false, ""),
+            ("🙂 Rough notes continue", NSRange(location: 3, length: 11), false, ""),
+            ("", NSRange(location: 0, length: 0), true, ""),
+            ("Intro\n\nSignature", NSRange(location: 6, length: 0), true, ""),
+            ("Intro text", NSRange(location: 5, length: 0), false, ""),
+            ("Intro text", NSRange(location: 10, length: 0), false, "\n\n"),
         ] {
             let boundaries = ComposerDraftAnchor.TextBoundaries(body: body, range: range)
             expect(boundaries?.coversWholeLines == wholeLines,
@@ -163,7 +163,7 @@ struct ComposerTests {
                 boundaries: boundaries)
             let trailing = range.length == 0
                 && boundaries?.followingLineBreakCount == 0 ? "\n" : ""
-            expect(delivery == (wholeLines ? split : draft) + trailing,
+            expect(delivery == leading + (wholeLines ? split : draft) + trailing,
                 "only whole-line replacements and carets on empty lines split into paragraphs")
         }
         expect(QuickActionOutput.preparedForDelivery(
@@ -799,6 +799,15 @@ struct ComposerTests {
             "a reply attribution in another language begins the newest message")
         expect(context?.recentThread?.contains("Signature") == false,
             "the draft signature stays out of a localized thread")
+
+        for header in ["De : Jean Dupont", "De\u{a0}: Jean Dupont", "Le jeudi, Jean a écrit\u{a0}:"] {
+            let french = QuickActionContext.outlook(
+                body: "Signature\n" + header + "\nNouvelle question",
+                selectedRange: NSRange(location: 0, length: 0), recipient: nil, subject: nil)
+            expect(french?.recentThread?.contains("Nouvelle question") == true
+                && french?.recentThread?.contains("Signature") == false,
+                "a French header with a space before its colon begins the newest message")
+        }
     }
 
     static func updatedThreadKeepsConversation() throws {

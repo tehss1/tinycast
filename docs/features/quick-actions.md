@@ -91,6 +91,7 @@ selectable Markdown renderer with AI Chat.
   `ComposerDraftAnchor` stores fingerprints of the surrounding text so later replacements cover the
   draft without duplicating it. Caret-first Insert keeps Outlook's signature boundary untouched,
   including rich content such as a logo, and adds a line break only when none follows the caret.
+  A caret at the end of a nonempty line starts a new paragraph instead of joining that line.
   The context is enclosed in paired, collision-free begin/end markers and identified as untrusted
   reference material in the prompt; the writing request or selected text follows the closing marker.
   Every remote Accessibility read has a timeout of at most 100 ms, capped to the shared 750 ms
@@ -433,6 +434,7 @@ Outlook Composer formats only a target that starts at a line start and ends at a
 caret on an empty line. **Insert** preserves following line breaks and adds one only when none exists.
 A selected-text Replace ending with `Best,` adds only the line breaks needed to reach two before the
 existing signature; reopening and replacing the same draft never adds another blank paragraph.
+A selection that includes its paragraph's trailing newline gets that newline back after the draft.
 A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
 Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,
 apps and Quick Actions keep the provider's output unchanged. Completion strips a leading
