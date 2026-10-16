@@ -676,6 +676,18 @@ struct QuickActionTests {
             QuickActionPrompt.maxOutputTokens(for: .fixGrammar, selection: japanese)
                 >= japanese.count * 2,
             "a CJK selection, about a token per character, gets room for its whole reply")
+        let explain = QuickAction.custom(CustomQuickAction(name: "Explain", instructions: "Explain."))
+        expect(
+            QuickActionPrompt.maxOutputTokens(for: explain, selection: "MTTR")
+                == QuickActionPrompt.outputTokenCeiling
+                && !QuickActionPrompt.budgetFollowsSelection(for: explain, outgrowsSelection: false),
+            "a custom action's reply is not sized by its selection")
+        expect(
+            QuickActionFailure.replyTooLong(selectionSized: false).errorDescription?
+                .contains("Select less") == false
+                && QuickActionFailure.replyTooLong(selectionSized: true).errorDescription?
+                .contains("Select less") == true,
+            "only a selection-sized budget tells the reader to select less")
         let context = QuickActionContext(
             recipient: "Christina", subject: "Conference room",
             recentThread: "That would be great, thanks so much!")

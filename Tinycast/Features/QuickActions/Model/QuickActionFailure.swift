@@ -8,7 +8,8 @@ enum QuickActionFailure: LocalizedError, Equatable {
     case unreadableApp(String)
     case noSelection
     case tooLong
-    case replyTooLong
+    /// Whether the budget came from the selection, so selecting less would raise the odds.
+    case replyTooLong(selectionSized: Bool)
 
     var errorDescription: String? {
         switch self {
@@ -22,9 +23,9 @@ enum QuickActionFailure: LocalizedError, Equatable {
             return "Select some text first."
         case .tooLong:
             return "That selection is too long to work on."
-        case .replyTooLong:
+        case .replyTooLong(let selectionSized):
             return "The reply hit the model's length limit, so nothing was replaced. "
-                + "Select less text and try again."
+                + (selectionSized ? "Select less text and try again." : "Ask for a shorter reply.")
         }
     }
 

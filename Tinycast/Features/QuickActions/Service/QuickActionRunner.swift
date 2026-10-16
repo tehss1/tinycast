@@ -68,7 +68,11 @@ final class QuickActionRunner {
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
                 for: action, selection: selection,
                 outgrowsSelection: selectionIsWritingInstruction))
-        let text = try await stream(request, using: provider, onDelta: onDelta)
+        let text = try await stream(
+            request, using: provider,
+            selectionSized: QuickActionPrompt.budgetFollowsSelection(
+                for: action, outgrowsSelection: selectionIsWritingInstruction),
+            onDelta: onDelta)
         return try action == .rewrite
             ? composerDraft(text, source: selectionIsWritingInstruction ? "" : selection) : text
     }
@@ -95,7 +99,8 @@ final class QuickActionRunner {
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
                 for: .rewrite, selection: latestDraft, outgrowsSelection: true))
         return try composerDraft(
-            try await stream(request, using: provider, onDelta: onDelta), source: latestDraft)
+            try await stream(request, using: provider, selectionSized: false, onDelta: onDelta),
+            source: latestDraft)
     }
 
     private static func composerDraft(_ text: String, source: String) throws -> String {
@@ -106,13 +111,15 @@ final class QuickActionRunner {
     }
 
     private static func stream(
-        _ request: AIRequest, using provider: any AIProvider,
+        _ request: AIRequest, using provider: any AIProvider, selectionSized: Bool,
         onDelta: @MainActor (String) -> Void
     ) async throws -> String {
         var text = ""
         for try await event in provider.stream(request) {
             // A cut-off reply would replace the whole selection with part of it.
-            if event == .outputLimitReached { throw QuickActionFailure.replyTooLong }
+            if event == .outputLimitReached {
+                throw QuickActionFailure.replyTooLong(selectionSized: selectionSized)
+            }
             guard case .text(let delta) = event else { continue }
             text += delta
             onDelta(delta)

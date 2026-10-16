@@ -10,10 +10,19 @@ enum QuickActionPrompt {
     static func maxOutputTokens(
         for action: QuickAction, selection: String, outgrowsSelection: Bool = false
     ) -> Int {
-        guard !outgrowsSelection else { return outputTokenCeiling }
+        guard budgetFollowsSelection(for: action, outgrowsSelection: outgrowsSelection) else {
+            return outputTokenCeiling
+        }
         let approximateTokens = max(selection.utf8.count / 3, 64)
         return action == .summarize
             ? min(approximateTokens, 512) : min(approximateTokens * 2, outputTokenCeiling)
+    }
+
+    /// A custom action's instructions can ask for anything, such as an explanation longer than
+    /// the selection, so only built-in actions size their reply by it.
+    static func budgetFollowsSelection(for action: QuickAction, outgrowsSelection: Bool) -> Bool {
+        guard !outgrowsSelection, case .builtIn = action else { return false }
+        return true
     }
 
     static func instructions(
