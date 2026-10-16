@@ -2,14 +2,16 @@ import Foundation
 
 /// Chat's `AIPreamble` is not sent here: it describes a launcher nobody is asking the model about.
 enum QuickActionPrompt {
-    static let outputTokenCeiling = 2_048
+    /// Roughly the longest selection's reply; the on-device route clamps it to its own window.
+    static let outputTokenCeiling = 8_192
 
     /// The on-device window counts the prompt and the reply against one budget, so both need a cap.
+    /// Counted in UTF-8 bytes: three per token is generous for English and right for CJK text.
     static func maxOutputTokens(
         for action: QuickAction, selection: String, outgrowsSelection: Bool = false
     ) -> Int {
         guard !outgrowsSelection else { return outputTokenCeiling }
-        let approximateTokens = max(selection.count / 3, 64)
+        let approximateTokens = max(selection.utf8.count / 3, 64)
         return action == .summarize
             ? min(approximateTokens, 512) : min(approximateTokens * 2, outputTokenCeiling)
     }

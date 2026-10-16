@@ -111,6 +111,8 @@ final class QuickActionRunner {
     ) async throws -> String {
         var text = ""
         for try await event in provider.stream(request) {
+            // A cut-off reply would replace the whole selection with part of it.
+            if event == .outputLimitReached { throw QuickActionFailure.replyTooLong }
             guard case .text(let delta) = event else { continue }
             text += delta
             onDelta(delta)

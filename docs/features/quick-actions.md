@@ -43,6 +43,12 @@ selectable Markdown renderer with AI Chat.
   Stop cancels generation and restores the request for editing. A generation token prevents a
   cancelled task from appending to a later request or clearing its handle. Send or a new language
   in an open panel says another action is running instead of cancelling it.
+- **A cut-off reply never replaces anything.** The reply budget is estimated from the selection's
+  UTF-8 size (three bytes a token, so CJK text gets room too) and capped at 8,192 tokens; the
+  on-device route clamps it to its own 1,024. A route that stops at the cap says so: Anthropic's
+  `max_tokens`, an OpenAI-shaped `length`, or, on macOS 26.4 and later, an on-device reply that
+  re-counts to the cap. `AIStreamEvent.outputLimitReached` then fails the run with "The reply hit
+  the model's length limit", so part of a long selection can never overwrite all of it.
 - **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
   what keeps `FoundationModels`, `Translation` and `NaturalLanguage` in `Service/` and `UI/`.
 - **Quick Actions route themselves.** `quickActionModel` is a second routing decision, defaulting to

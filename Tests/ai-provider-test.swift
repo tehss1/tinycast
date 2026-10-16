@@ -191,6 +191,30 @@ struct AIProviderTests {
         expect(
             none == [.finished],
             "a turn that called nothing emits no tool event at all")
+
+        var cutAnthropic = AIStreamDecoder(shape: .anthropic)
+        var cutAnthropicEvents = (try? cutAnthropic.feed(Data(
+            """
+            data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":64}}
+
+            """.utf8))) ?? []
+        var cutOpenAI = AIStreamDecoder(shape: .openAICompatible)
+        var cutOpenAIEvents = (try? cutOpenAI.feed(Data(
+            """
+            data: {"choices":[{"delta":{},"finish_reason":"length"}]}
+
+            """.utf8))) ?? []
+        cutAnthropicEvents += (try? cutAnthropic.finish()) ?? []
+        cutOpenAIEvents += (try? cutOpenAI.finish()) ?? []
+        expect(
+            cutAnthropicEvents.contains(.outputLimitReached),
+            "an Anthropic reply cut off at max_tokens says so")
+        expect(
+            cutOpenAIEvents.contains(.outputLimitReached),
+            "an OpenAI-shaped reply cut off at length says so")
+        expect(
+            !anthropicEvents.contains(.outputLimitReached),
+            "a tool turn is not mistaken for a cut-off reply")
     }
 
     /// Gemini 3 400s on the follow-up turn if a call's signature doesn't come back unchanged.

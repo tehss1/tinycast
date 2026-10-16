@@ -134,6 +134,7 @@ struct AIStreamDecoder: Sendable {
             }
             for fragment in choice.delta?.toolCalls ?? [] { absorb(fragment) }
             if choice.finishReason == "tool_calls" { events.append(contentsOf: flushToolCalls()) }
+            if choice.finishReason == "length" { events.append(.outputLimitReached) }
         }
         if let reported = chunk.usage {
             usage.inputTokens = reported.promptTokens ?? usage.inputTokens
@@ -194,6 +195,7 @@ struct AIStreamDecoder: Sendable {
         case "message_delta":
             usage.outputTokens = event.usage?.outputTokens ?? usage.outputTokens
             // The calls are complete here, and `message_stop` may never arrive on a tool turn.
+            if event.delta?.stopReason == "max_tokens" { return [.usage(usage), .outputLimitReached] }
             guard event.delta?.stopReason == "tool_use" else { return [.usage(usage)] }
             return [.usage(usage)] + flushToolCalls()
         case "message_stop":

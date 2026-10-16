@@ -8,6 +8,7 @@ enum QuickActionFailure: LocalizedError, Equatable {
     case unreadableApp(String)
     case noSelection
     case tooLong
+    case replyTooLong
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +22,9 @@ enum QuickActionFailure: LocalizedError, Equatable {
             return "Select some text first."
         case .tooLong:
             return "That selection is too long to work on."
+        case .replyTooLong:
+            return "The reply hit the model's length limit, so nothing was replaced. "
+                + "Select less text and try again."
         }
     }
 
