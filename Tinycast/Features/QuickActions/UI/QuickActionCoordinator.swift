@@ -427,6 +427,7 @@ final class QuickActionCoordinator {
     }
 
     private func begin(_ action: QuickAction, target invoked: Target) async {
+        if action == .rewrite { history.prepareKey() }
         var target = invoked
         let input: QuickActionRunner.Input
         do {

@@ -13,14 +13,24 @@ final class RewriteHistoryStore {
 
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let unsealedURL: URL
-    @ObservationIgnored private let keySource: () -> SymmetricKey?
+    @ObservationIgnored private let keySource: @Sendable () -> SymmetricKey?
     /// Asked once: a key arriving after a failed load would let a save replace unread history.
-    @ObservationIgnored private lazy var key: SymmetricKey? = keySource()
+    @ObservationIgnored private var keyState = KeyState.unrequested
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var dayObserver: NotificationToken?
     @ObservationIgnored private var unreadableFile = false
 
-    init(directory: URL, key: @escaping () -> SymmetricKey?, now: @escaping () -> Date = Date.init) {
+    private enum KeyState {
+        case unrequested
+        /// Keychain is still answering, perhaps behind a prompt; nothing is read or written meanwhile.
+        case pending(Task<SymmetricKey?, Never>)
+        case answered(SymmetricKey?)
+    }
+
+    init(
+        directory: URL, key: @escaping @Sendable () -> SymmetricKey?,
+        now: @escaping () -> Date = Date.init
+    ) {
         fileURL = directory.appendingPathComponent("rewrite-history.sealed")
         unsealedURL = directory.appendingPathComponent("rewrite-history.json")
         keySource = key
@@ -28,11 +38,60 @@ final class RewriteHistoryStore {
     }
 
     func load() {
+        guard prepareLoad() else { return }
+        open(with: key)
+    }
+
+    /// The launch path: Keychain is asked away from the main actor, so a prompt for a rebuilt app
+    /// leaves the app responsive. Until it answers, history reads as empty and saves fail.
+    func loadWithoutWaitingForKeychain() async {
+        guard prepareLoad() else { return }
+        open(with: await requestedKey())
+    }
+
+    /// Composer calls this when it opens, so the first save doesn't ask Keychain on the main actor.
+    func prepareKey() {
+        guard case .unrequested = keyState else { return }
+        Task { _ = await requestedKey() }
+    }
+
+    /// Whether there is a history file left to open.
+    private func prepareLoad() -> Bool {
         observeDayChange()
         try? FileManager.default.removeItem(at: unsealedURL)
         removeStagedFiles()
         if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
         unreadableFile = FileManager.default.fileExists(atPath: fileURL.path)
+        return unreadableFile
+    }
+
+    /// The key once Keychain has answered; `nil` while it is still being asked.
+    private var key: SymmetricKey? {
+        switch keyState {
+        case .answered(let key): return key
+        case .pending: return nil
+        case .unrequested:
+            let key = keySource()
+            keyState = .answered(key)
+            return key
+        }
+    }
+
+    private func requestedKey() async -> SymmetricKey? {
+        switch keyState {
+        case .answered(let key): return key
+        case .pending(let request): return await request.value
+        case .unrequested:
+            let source = keySource
+            let request = Task.detached(priority: .userInitiated) { source() }
+            keyState = .pending(request)
+            let key = await request.value
+            keyState = .answered(key)
+            return key
+        }
+    }
+
+    private func open(with key: SymmetricKey?) {
         guard let sealed = try? Data(contentsOf: fileURL), let key,
             let data = Self.opened(sealed, with: key),
             let decoded = try? JSONDecoder().decode(DecodedRecords.self, from: data).records
