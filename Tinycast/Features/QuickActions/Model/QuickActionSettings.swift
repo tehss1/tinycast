@@ -31,13 +31,18 @@ struct QuickActionSettings: Equatable, Sendable {
         action.builtInAction.flatMap(instructionOverride)
     }
 
+    /// Blank instructions are no instructions: the model would get no prompt and no boundary.
     func instructionOverride(for action: BuiltInQuickAction) -> String? {
-        instructionOverrides[action]
+        instructionOverrides[action].flatMap { Self.isBlank($0) ? nil : $0 }
     }
 
     mutating func setInstructionOverride(_ instructions: String?, for action: BuiltInQuickAction) {
         guard !action.usesTranslationFramework else { return }
-        instructionOverrides[action] = instructions
+        instructionOverrides[action] = instructions.flatMap { Self.isBlank($0) ? nil : $0 }
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Round-trips through `UserDefaults`; an unknown key is an action that no longer exists.

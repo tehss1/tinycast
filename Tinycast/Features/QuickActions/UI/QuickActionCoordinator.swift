@@ -631,8 +631,10 @@ final class QuickActionCoordinator {
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
         onDelivered delivered: @escaping @MainActor () -> Void = {}
     ) {
+        // A note floats over the frontmost app, so Outlook behind it is not where the text lands.
+        let toOutlook = target.note == nil && OutlookComposeContextReader.isOutlook(target.app)
         let deliveredText = QuickActionOutput.preparedForDelivery(
-            text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
+            text, action: action, toOutlook: toOutlook,
             insertsAtCaret: insertsAtCaret,
             boundaries: textTarget?.textBoundaries, replacing: insertsAtCaret ? "" : selection)
         if let note = target.note {
@@ -651,7 +653,10 @@ final class QuickActionCoordinator {
         let verb = insertsAtCaret ? "insert" : "replace"
         injector.replaceSelection(
             with: deliveredText, in: target.app,
-            prepareTarget: { textTarget?.prepare(in: target.app) ?? true },
+            prepareTarget: {
+                textTarget?.prepare(
+                    in: target.app, excludingSelectionEdges: toOutlook && !insertsAtCaret) ?? true
+            },
             onDelivered: { [weak self] in
                 delivered()
                 self?.core.showMessage("\(action.title) applied")

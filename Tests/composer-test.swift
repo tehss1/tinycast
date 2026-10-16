@@ -22,6 +22,7 @@ struct ComposerTests {
         insertedParagraphSurvivesReplace()
         selectedParagraphKeepsSurroundingBreaks()
         selectedLineKeepsItsBreaksOutsideOutlook()
+        selectionEdgeSpacesSurviveDelivery()
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
         openerOnlyReplyFails()
@@ -234,6 +235,33 @@ struct ComposerTests {
         expect(QuickActionOutput.preparedForDelivery(
             "Fixed\n", action: .rewrite, toOutlook: false, replacing: "fixd") == "Fixed\n",
             "a selection without edge line breaks leaves the result as it was")
+    }
+
+    static func selectionEdgeSpacesSurviveDelivery() {
+        for (selection, result, delivered) in [
+            ("teh ", "the", "the "), (" teh", "the", " the"), ("\tteh \n", "the", "\tthe \n"),
+            ("teh", "the", "the"),
+        ] {
+            expect(QuickActionOutput.preparedForDelivery(
+                result, action: .fixGrammar, toOutlook: false, replacing: selection) == delivered,
+                "\(selection.debugDescription) keeps its edge whitespace around the result")
+        }
+        let range = NSRange(location: 10, length: 0)
+        for (selection, inner) in [
+            ("Brokn para.\n", NSRange(location: 10, length: 11)),
+            ("\r\nBrokn para.\r\n", NSRange(location: 12, length: 11)),
+            ("🙂 teh ", NSRange(location: 10, length: 6)),
+        ] {
+            expect(QuickActionOutput.innerRange(
+                of: selection, at: NSRange(location: 10, length: selection.utf16.count)) == inner,
+                "Outlook deselects \(selection.debugDescription)'s edge whitespace")
+        }
+        expect(QuickActionOutput.innerRange(of: "Para.", at: NSRange(location: 3, length: 5)) == nil,
+            "a selection without edge whitespace is left as it is")
+        expect(QuickActionOutput.innerRange(of: " \n", at: NSRange(location: 3, length: 2)) == nil,
+            "a whitespace-only selection is left as it is")
+        expect(QuickActionOutput.innerRange(of: "Para.\n", at: range) == nil,
+            "a range that no longer matches the selected text is left as it is")
     }
 
     static func paragraphFormattingRequiresWholeLines() {

@@ -105,10 +105,18 @@ final class ComposerTextTarget {
     }
 
     /// Activation precedes this check, so a different editor cannot receive the draft.
-    func prepare(in app: NSRunningApplication?) -> Bool {
+    /// `excludingSelectionEdges` is for Outlook, which drops a pasted trailing line break: the
+    /// selection's edge whitespace is deselected instead, so it stays in the draft.
+    func prepare(in app: NSRunningApplication?, excludingSelectionEdges: Bool = false) -> Bool {
         preparationFailure = nil
         if case .focusedField(let selection) = scope {
-            return prepareField(in: app, selection: selection)
+            guard prepareField(in: app, selection: selection) else { return false }
+            if excludingSelectionEdges, let app,
+                let focused = AccessibilityText.focusedElement(in: app)
+            {
+                deselectEdges(in: focused)
+            }
+            return true
         }
         guard let app, let replacementRange else {
             preparationFailure = .targetUnavailable
@@ -151,6 +159,23 @@ final class ComposerTextTarget {
             && observedRange.location == range.location && observedRange.length == range.length
         if !accepted { preparationFailure = .selectionRejected }
         return accepted
+    }
+
+    /// Best effort: a field that refuses the narrower range keeps the selection as it was.
+    private func deselectEdges(in field: AXUIElement) {
+        guard let selectionText, let selected = AccessibilityText.selectedRange(of: field),
+            let inner = QuickActionOutput.innerRange(of: selectionText, at: selected)
+        else { return }
+        if !Self.select(inner, in: field) { _ = Self.select(selected, in: field) }
+    }
+
+    private static func select(_ range: NSRange, in field: AXUIElement) -> Bool {
+        var wanted = CFRange(location: range.location, length: range.length)
+        guard let value = AXValueCreate(.cfRange, &wanted),
+            AXUIElementSetAttributeValue(
+                field, kAXSelectedTextRangeAttribute as CFString, value) == .success
+        else { return false }
+        return AccessibilityText.selectedRange(of: field) == range
     }
 
     private func prepareField(in app: NSRunningApplication?, selection: NSRange?) -> Bool {
