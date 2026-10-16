@@ -254,6 +254,8 @@ final class RewriteHistoryStore {
             }
             return sharesThread(record, context: context) && sameSubject(record, context: context)
         }
+        // A record with no headers came from another app, so its text alone proves nothing here.
+        guard record.subject != nil || record.recipient != nil else { return false }
         return contentMatches(record, selection: selection) && sameEnvelope(record, context: context)
     }
 

@@ -399,6 +399,9 @@ struct QuickActionTests {
                 expect(prompt.components(separatedBy: "approximate length").count == 2,
                     "customized selected-text prompts contain rewrite restrictions exactly once")
             }
+            expect(selectedRefinement.contains("overriding the first rewrite's limits")
+                && !selection.contains("overriding the first rewrite's limits"),
+                "only a refinement request may lift the first rewrite's length and content limits")
             for prompt in [composition, refinement, selection, selectedRefinement] {
                 for block in fixedBlocks {
                     expect(prompt.components(separatedBy: block).count == 2,
@@ -1449,6 +1452,21 @@ struct QuickActionTests {
         expect(
             reopenedLegacy.records.map(\.id) == [richerLegacy.id],
             "the consolidated email conversation survives a relaunch")
+
+        let otherAppStore = RewriteHistoryStore(
+            directory: directory.appendingPathComponent("other-app"), key: { historyKey })
+        let otherAppRecord = RewriteHistoryRecord(
+            id: UUID(), createdAt: Date(), updatedAt: Date(), subject: nil, recipient: nil,
+            original: "Text rewritten in another app.",
+            messages: [
+                RewriteConversationMessage(
+                    role: .assistant, text: "Text revised in another app.", state: .complete)
+            ])
+        expect(otherAppStore.save(otherAppRecord), "a rewrite from another app is saved")
+        for selection in [otherAppRecord.original, "Text revised in another app."] {
+            expect(otherAppStore.resumableRecord(selection: selection, context: context) == nil,
+                "matching text from another app never resumes inside an Outlook email")
+        }
     }
 }
 

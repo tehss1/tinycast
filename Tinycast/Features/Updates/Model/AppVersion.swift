@@ -1,6 +1,6 @@
 import Foundation
 
-/// `MAJOR.MINOR.PATCH`, optionally `-beta.N` or `-composer.N`; a composer build sorts above its base.
+/// `MAJOR.MINOR.PATCH`, optionally `-beta.N` or `-composer.N`; composer sorts above its base.
 struct AppVersion: Comparable, Hashable, Sendable, CustomStringConvertible {
     let major: Int
     let minor: Int

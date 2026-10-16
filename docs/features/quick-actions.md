@@ -161,7 +161,8 @@ selectable Markdown renderer with AI Chat.
   conversation also closes its panel.
 - **Composer's fixed rules stay outside its editable style.** Selected-text Composer prepends
   `boundary` and its meaning, register and approximate-length rewrite restrictions; caret-first
-  composition and its refinements never add them. Both modes append the body-only, natural-voice,
+  composition and its refinements never add them. A selected-text refinement may change the length
+  or add details the request states. Both modes append the body-only, natural-voice,
   no-em-dash and untrusted-email-context rules exactly once. When displaying or building a Composer
   override, a pure function removes exact copies of those fixed blocks, including the selected-text
   rewrite restrictions, and preserves the remaining style text. This also handles stored full
@@ -307,8 +308,9 @@ It could not have been built on `HUDPresenter`: `HUDPanel` sets `ignoresMouseEve
 which is a closed two-case enum measured once at present time — a growing stream would clip.
 
 Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
-Keys go through `sendEvent`: `⌘↵` delivers, `⌘C` copies, `esc` dismisses. Composer labels delivery
-**Replace** when Hyper+R captured selected text and **Insert** when it captured only the caret. A
+Keys go through `sendEvent`: `⌘↵` delivers, as does `↵` outside a text field, `⌘C` copies the shown
+result outside a text field, and `esc` dismisses. Composer labels delivery
+**Replace** when the shortcut captured selected text and **Insert** when it captured only the caret. A
 resumed Outlook conversation names its effective target instead, described under delivery below. In
 caret-first Composer, `↵` submits the first writing request. When that first field is blank and the
 captured context includes a quoted email message, `↵` visibly adds a context-only request and drafts

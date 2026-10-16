@@ -37,8 +37,7 @@ enum ReleaseFeed {
     static let fallbackRepository = "tehss1/tinycast"
     static let repositoryInfoKey = "TinycastUpdateRepository"
 
-    /// Where releases come from, and what every `@handle` and `#304` in their notes points at.
-    /// Fork release workflows stamp their own repository into Info.plist at build time.
+    /// Info.plist names a fork's own; every `@handle` and `#304` in release notes points at it.
     static var repository: String { repository(in: Bundle.main.infoDictionary) }
 
     static func repository(in info: [String: Any]?) -> String {
