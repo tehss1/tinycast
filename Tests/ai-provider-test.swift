@@ -111,6 +111,7 @@ struct AIProviderTests {
         brandsResolveFromModelIDs()
         requestBodiesCarryDocuments()
         codexProtocolFramesRoundTrip()
+        codexCompletedTextBackfillsOnlyWhatNeverStreamed()
         installedCLIStreamsDecode()
         settingsPersistAndRepairSelections()
         installedModelLoadingPreferencePersists()
@@ -992,6 +993,51 @@ struct AIProviderTests {
         } else {
             expect(false, "a valid Codex response parses")
         }
+    }
+
+    static func codexCompletedTextBackfillsOnlyWhatNeverStreamed() {
+        var repeated = CodexAppServerProtocol.StreamedAgentText()
+        repeated.append("Hel", to: "msg")
+        repeated.append("lo", to: "msg")
+        let repeatedBackfill = repeated.unstreamedSuffix(of: "Hello", for: "msg")
+        expect(repeatedBackfill == nil, "a completed message that only repeats its deltas adds nothing")
+
+        var unstreamed = CodexAppServerProtocol.StreamedAgentText()
+        let whole = unstreamed.unstreamedSuffix(of: "Hello", for: "msg")
+        let wholeAgain = unstreamed.unstreamedSuffix(of: "Hello", for: "msg")
+        expect(whole == "Hello", "a message that never streamed arrives whole from its completed item")
+        expect(wholeAgain == nil, "turn/completed repeating a backfilled item adds nothing")
+
+        var diverged = CodexAppServerProtocol.StreamedAgentText()
+        diverged.append("Hello there", to: "msg")
+        let rewritten = diverged.unstreamedSuffix(of: "Goodbye", for: "msg")
+        let shortened = diverged.unstreamedSuffix(of: "Hello", for: "msg")
+        let extendedAfter = diverged.unstreamedSuffix(of: "Hello there, friend", for: "msg")
+        expect(
+            rewritten == nil && shortened == nil,
+            "completed text that does not extend what streamed is never shown twice")
+        expect(
+            extendedAfter == ", friend",
+            "a divergent completion leaves the streamed text as the prefix to extend")
+
+        var extended = CodexAppServerProtocol.StreamedAgentText()
+        extended.append("Hel", to: "msg")
+        let suffix = extended.unstreamedSuffix(of: "Hello", for: "msg")
+        let suffixAgain = extended.unstreamedSuffix(of: "Hello", for: "msg")
+        let otherItem = extended.unstreamedSuffix(of: "World", for: "other")
+        expect(suffix == "lo", "completed text that extends the streamed prefix backfills only the suffix")
+        expect(suffixAgain == nil, "turn/completed repeating an extended item adds nothing")
+        expect(otherItem == "World", "each agent message is measured against its own deltas")
+
+        var empty = CodexAppServerProtocol.StreamedAgentText()
+        let emptyAlone = empty.unstreamedSuffix(of: "", for: "msg")
+        empty.append("Hi", to: "msg")
+        let emptyAfterText = empty.unstreamedSuffix(of: "", for: "msg")
+        empty.append("", to: "msg")
+        let afterEmptyDelta = empty.unstreamedSuffix(of: "Hi!", for: "msg")
+        expect(emptyAlone == nil, "an empty completed message with nothing streamed adds nothing")
+        expect(emptyAfterText == nil, "an empty completed message never erases what streamed")
+        expect(afterEmptyDelta == "!", "an empty delta leaves the streamed prefix unchanged")
     }
 
     static func conversationSettingsPersistAndDecide() {

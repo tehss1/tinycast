@@ -21,6 +21,25 @@ enum CodexAppServerProtocol {
         case invalid
     }
 
+    struct StreamedAgentText {
+        private var textByItem: [String: String] = [:]
+
+        mutating func append(_ delta: String, to itemID: String) {
+            textByItem[itemID, default: ""] += delta
+        }
+
+        /// Text that diverges from what streamed yields nothing, since showing it would duplicate.
+        mutating func unstreamedSuffix(of completed: String, for itemID: String) -> String? {
+            guard !completed.isEmpty else { return nil }
+            let streamed = textByItem[itemID] ?? ""
+            guard completed.hasPrefix(streamed) else { return nil }
+            let missing = String(completed.dropFirst(streamed.count))
+            guard !missing.isEmpty else { return nil }
+            textByItem[itemID] = completed
+            return missing
+        }
+    }
+
     static func request(id: Int, method: String, params: [String: Any]) throws -> Data {
         try line(["id": id, "method": method, "params": params])
     }

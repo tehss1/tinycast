@@ -35,7 +35,7 @@ final class CodexTurnRunner {
         let session: AIToolServerSession?
         var threadID: String?
         var turnID: String?
-        var agentText: [String: String] = [:]
+        var agentText = CodexAppServerProtocol.StreamedAgentText()
         let conversationID: UUID?
         var conversation: Conversation?
         var reply = ""
@@ -124,7 +124,7 @@ final class CodexTurnRunner {
         case "item/agentMessage/delta":
             guard let delta = params["delta"]?.stringValue, !delta.isEmpty else { return }
             if let itemID = params["itemId"]?.stringValue {
-                turn.agentText[itemID, default: ""] += delta
+                turn.agentText.append(delta, to: itemID)
             }
             if turn.conversation != nil { turn.reply += delta }
             continuation.yield(.text(delta))
@@ -469,13 +469,9 @@ final class CodexTurnRunner {
 
     private func yieldMissingAgentText(from item: [String: JSONValue], in turn: Turn) {
         guard let itemID = item["id"]?.stringValue,
-            let completed = item["text"]?.stringValue, !completed.isEmpty
+            let completed = item["text"]?.stringValue,
+            let missing = turn.agentText.unstreamedSuffix(of: completed, for: itemID)
         else { return }
-        let streamed = turn.agentText[itemID] ?? ""
-        guard completed.hasPrefix(streamed) else { return }
-        let missing = String(completed.dropFirst(streamed.count))
-        guard !missing.isEmpty else { return }
-        turn.agentText[itemID] = completed
         if turn.conversation != nil { turn.reply += missing }
         turn.continuation.yield(.text(missing))
     }
