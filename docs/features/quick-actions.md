@@ -98,7 +98,8 @@ selectable Markdown renderer with AI Chat.
   deadline beginning with editor capture. Discovery stops when all wanted fields are found, runs for
   at most 250 ms and reserves 350 ms for reading fields. A failed or truncated recipient walk reports
   partial context while retaining readable addresses. The subject is read before walking recipients,
-  so a slow or large recipient list cannot exhaust the budget before the subject read.
+  so a slow or large recipient list cannot exhaust the budget before the subject read. An empty
+  subject field reads as no subject, never as its own "Subject" label.
   Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
   reads or sends.
 - **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc

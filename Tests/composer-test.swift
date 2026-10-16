@@ -18,6 +18,7 @@ struct ComposerTests {
     static func main() throws {
         try replacementBoundaries()
         repeatedDeliveryKeepsSignatureSpacing()
+        insertedParagraphSurvivesReplace()
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
         openerOnlyReplyFails()
@@ -93,7 +94,7 @@ struct ComposerTests {
             "a caret insertion tracks the reply while preserving the rich signature")
         let previousAnchor = ComposerDraftAnchor(
             body: richSignature, range: NSRange(location: 0, length: 2))
-        expect(previousAnchor?.rangePreservingTrailingLineBreaks(in: "Reply\n" + richSignature.dropFirst(2))
+        expect(previousAnchor?.rangePreservingLineBreaks(in: "Reply\n" + richSignature.dropFirst(2))
             == NSRange(location: 0, length: "Reply".utf16.count),
             "older draft anchors leave their captured signature boundary in place")
 
@@ -114,6 +115,34 @@ struct ComposerTests {
             "a fresh selection still permits Replace after the saved boundary changes")
     }
 
+    static func insertedParagraphSurvivesReplace() {
+        for following in ["", "\nSignature"] {
+            var body = "Intro text" + following
+            let caret = NSRange(location: "Intro text".utf16.count, length: 0)
+            let anchor = ComposerDraftAnchor(body: body, range: caret)
+            let insert = QuickActionOutput.preparedForDelivery(
+                "Hello.", action: .rewrite, toOutlook: true, insertsAtCaret: true,
+                boundaries: ComposerDraftAnchor.TextBoundaries(body: body, range: caret))
+            body.insert(contentsOf: insert, at: Range(caret, in: body)!.lowerBound)
+            let pressed = NSRange(location: caret.location + insert.utf16.count, length: 0)
+            guard let range = ComposerDraftAnchor.restoredRange(
+                in: body, anchor: anchor, selectedRange: pressed, insertsAtCaret: false),
+                let selection = Range(range, in: body)
+            else {
+                expect(false, "the inserted draft is found again after delivery")
+                continue
+            }
+            expect(body[selection] == "Hello.",
+                "a reopened insertion targets only the draft, never its paragraph separator")
+            let replace = QuickActionOutput.preparedForDelivery(
+                "Hi there.", action: .rewrite, toOutlook: true,
+                boundaries: ComposerDraftAnchor.TextBoundaries(body: body, range: range))
+            body.replaceSubrange(selection, with: replace)
+            expect(body.hasPrefix("Intro text\n\nHi there.\n"),
+                "replacing an inserted paragraph keeps it apart from the line before")
+        }
+    }
+
     static func repeatedDeliveryKeepsSignatureSpacing() {
         let draft = "Please review.\n\nBest,"
         for lineBreak in ["\n", "\r\n"] {
@@ -123,7 +152,7 @@ struct ComposerTests {
                 var anchor = ComposerDraftAnchor(
                     body: body, range: NSRange(location: 0, length: "Rough notes".utf16.count))
                 for _ in 0..<4 {
-                    guard let range = anchor?.rangePreservingTrailingLineBreaks(in: body),
+                    guard let range = anchor?.rangePreservingLineBreaks(in: body),
                         let selection = Range(range, in: body),
                         let boundaries = ComposerDraftAnchor.TextBoundaries(body: body, range: range)
                     else {
@@ -458,7 +487,7 @@ struct ComposerTests {
             let state = makeState(caret: false)
             state.finish("Earlier generated draft.")
             state.draftAnchor = savedAnchor
-            let savedDraft = savedAnchor?.rangePreservingTrailingLineBreaks(in: body)
+            let savedDraft = savedAnchor?.rangePreservingLineBreaks(in: body)
             let replacement = ComposerDraftAnchor.restoredRange(
                 in: body, anchor: savedAnchor, selectedRange: selection, insertsAtCaret: false)
             let target = QuickActionPanelState.resumeTarget(

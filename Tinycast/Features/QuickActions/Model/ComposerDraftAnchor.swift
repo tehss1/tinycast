@@ -55,23 +55,28 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return range
     }
 
-    func rangePreservingTrailingLineBreaks(in body: String) -> NSRange? {
+    func rangePreservingLineBreaks(in body: String) -> NSRange? {
         guard let range = range(in: body), let selection = Range(range, in: body) else {
             return nil
         }
-        return Self.trimmingTrailingLineBreaks(selection, in: body)
+        return Self.trimmingLineBreaks(selection, in: body)
     }
 
-    private static func trimmingTrailingLineBreaks(
+    /// Insert's paragraph separator lands inside the saved boundary but is never the draft.
+    private static func trimmingLineBreaks(
         _ selection: Range<String.Index>, in body: String
     ) -> NSRange {
+        var start = selection.lowerBound
+        while start < selection.upperBound, body[start].isNewline {
+            start = body.index(after: start)
+        }
         var end = selection.upperBound
-        while end > selection.lowerBound {
+        while end > start {
             let previous = body.index(before: end)
             guard body[previous].isNewline else { break }
             end = previous
         }
-        return NSRange(selection.lowerBound..<end, in: body)
+        return NSRange(start..<end, in: body)
     }
 
     /// The saved draft is the target only when the press lands on it; anywhere else wins.
@@ -80,9 +85,9 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         insertsAtCaret: Bool
     ) -> NSRange? {
         guard let selection = Range(selectedRange, in: body) else { return nil }
-        let draft = anchor?.rangePreservingTrailingLineBreaks(in: body)
+        let draft = anchor?.rangePreservingLineBreaks(in: body)
         if !selection.isEmpty {
-            guard let draft, trimmingTrailingLineBreaks(selection, in: body) == draft else {
+            guard let draft, trimmingLineBreaks(selection, in: body) == draft else {
                 return selectedRange
             }
             return draft

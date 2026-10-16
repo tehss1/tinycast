@@ -96,12 +96,16 @@ enum OutlookComposeContextReader {
         }
 
         mutating func subject(in field: AXUIElement) -> String? {
-            if let value = string(field, attribute: kAXValueAttribute), usable(value) { return value }
-            // An empty field still names itself "Subject", which is no subject at all.
-            let labels = [kAXTitleAttribute, kAXDescriptionAttribute].compactMap {
-                string(field, attribute: $0)
+            let value = string(field, attribute: kAXValueAttribute)
+            if let value, usable(value) { return value }
+            let children = attribute(field, name: kAXChildrenAttribute) as? [AXUIElement] ?? []
+            var candidates: [String] = []
+            for child in children { candidates += textCandidates(in: child) }
+            // A readable but empty field's own title is its label, never a subject.
+            if value == nil, let title = string(field, attribute: kAXTitleAttribute), usable(title) {
+                candidates.append(title)
             }
-            return textCandidates(in: field).filter { !labels.contains($0) }.max { $0.count < $1.count }
+            return candidates.max { $0.count < $1.count }
         }
 
         mutating func textCandidates(in root: AXUIElement) -> [String] {

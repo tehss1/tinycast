@@ -463,7 +463,7 @@ final class QuickActionCoordinator {
             let capture
         {
             capture.target.restore(record, insertsAtCaret: input == .insertionPoint)
-            let savedDraft = record.draftAnchor?.rangePreservingTrailingLineBreaks(
+            let savedDraft = record.draftAnchor?.rangePreservingLineBreaks(
                 in: capture.target.body)
             let resumeTarget = QuickActionPanelState.resumeTarget(
                 savedDraft: savedDraft, replacementRange: capture.target.replacementRange)
