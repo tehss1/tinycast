@@ -1278,14 +1278,16 @@ struct ComposerTests {
             _ = answer.wait(timeout: .now() + 2)
             return historyKey
         })
-        Task { await store.loadWithoutWaitingForKeychain() }
+        store.tidy()
+        expect(readOnMain.withLock { $0 } == nil, "launch never asks Keychain, even with history saved")
+        Task { await store.loadOnFirstUse() }
         spin { readOnMain.withLock { $0 } != nil }
-        expect(readOnMain.withLock { $0 } == false, "launch asks Keychain away from the main thread")
+        expect(readOnMain.withLock { $0 } == false,
+            "Composer's first open asks Keychain away from the main thread")
         expect(store.records.isEmpty, "history reads as empty while Keychain is still asking")
         var changed = record
         changed.pendingInstruction = "Must not land"
         expect(!store.save(changed), "a save fails rather than wait while Keychain is still asking")
-        store.prepareKey()
         answer.signal()
         spin { !store.records.isEmpty }
         expect(store.records == [record], "history opens once Keychain answers")
@@ -1297,13 +1299,13 @@ struct ComposerTests {
             reads.withLock { $0.append(Thread.isMainThread) }
             return historyKey
         })
-        fresh.load()
-        fresh.prepareKey()
-        fresh.prepareKey()
+        fresh.tidy()
+        Task { await fresh.loadOnFirstUse() }
+        Task { await fresh.loadOnFirstUse() }
         spin { !reads.withLock { $0 }.isEmpty }
         spin { fresh.save(record) }
         expect(reads.withLock { $0 } == [false],
-            "opening Composer asks Keychain once, away from the main thread, for the first save")
+            "opening Composer twice asks Keychain once, away from the main thread, for the first save")
     }
 
     /// Runs the main actor's queue until `done`, for at most two seconds.
