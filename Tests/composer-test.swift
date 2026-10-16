@@ -1,6 +1,7 @@
 import CoreGraphics
 import CryptoKit
 import Foundation
+import os
 
 @main
 @MainActor
@@ -41,6 +42,7 @@ struct ComposerTests {
         try historyIsScopedAndRecoversInput()
         try historyStorageRecoversValidRecords()
         try historyKeyIsLazyAndWritesArePrivate()
+        try historyKeyWaitsOffTheMainActor()
         try updatedThreadKeepsConversation()
         try separateRepliesKeepSeparateConversations()
         historyFollowsEditorAndRecipients()
@@ -1189,9 +1191,10 @@ struct ComposerTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let legacy = directory.appendingPathComponent("rewrite-history.json")
         try Data("obsolete private draft".utf8).write(to: legacy)
-        var keyReads = 0
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        var keyReads: Int { reads.withLock { $0 } }
         let store = RewriteHistoryStore(directory: directory, key: {
-            keyReads += 1
+            reads.withLock { $0 += 1 }
             return historyKey
         })
         store.load()
@@ -1227,6 +1230,61 @@ struct ComposerTests {
             "a failed replacement leaves the existing destination unchanged")
         let remaining = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         expect(remaining == ["rewrite-history.sealed"], "failed writes remove only their staging file")
+    }
+
+    /// A Keychain prompt for a rebuilt app may stay open for minutes; the main actor must not wait.
+    static func historyKeyWaitsOffTheMainActor() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerKeychainWait-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let record = RewriteHistoryRecord(
+            id: UUID(), createdAt: Date(), updatedAt: Date(), subject: nil, recipient: nil,
+            original: "Saved draft", messages: [])
+        expect(RewriteHistoryStore(directory: directory, key: { historyKey }).save(record),
+            "history exists before the relaunch")
+        let answer = DispatchSemaphore(value: 0)
+        let readOnMain = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        let store = RewriteHistoryStore(directory: directory, key: {
+            readOnMain.withLock { $0 = Thread.isMainThread }
+            // A regression that asks on the main actor times out instead of hanging the suite.
+            _ = answer.wait(timeout: .now() + 2)
+            return historyKey
+        })
+        Task { await store.loadWithoutWaitingForKeychain() }
+        spin { readOnMain.withLock { $0 } != nil }
+        expect(readOnMain.withLock { $0 } == false, "launch asks Keychain away from the main thread")
+        expect(store.records.isEmpty, "history reads as empty while Keychain is still asking")
+        var changed = record
+        changed.pendingInstruction = "Must not land"
+        expect(!store.save(changed), "a save fails rather than wait while Keychain is still asking")
+        store.prepareKey()
+        answer.signal()
+        spin { !store.records.isEmpty }
+        expect(store.records == [record], "history opens once Keychain answers")
+        expect(store.save(changed), "saves work once Keychain answers")
+
+        try FileManager.default.removeItem(at: directory)
+        let reads = OSAllocatedUnfairLock(initialState: [Bool]())
+        let fresh = RewriteHistoryStore(directory: directory, key: {
+            reads.withLock { $0.append(Thread.isMainThread) }
+            return historyKey
+        })
+        fresh.load()
+        fresh.prepareKey()
+        fresh.prepareKey()
+        spin { !reads.withLock { $0 }.isEmpty }
+        spin { fresh.save(record) }
+        expect(reads.withLock { $0 } == [false],
+            "opening Composer asks Keychain once, away from the main thread, for the first save")
+    }
+
+    /// Runs the main actor's queue until `done`, for at most two seconds.
+    private static func spin(until done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(2)
+        while !done(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     static func panelFollowsComposeArea() {
