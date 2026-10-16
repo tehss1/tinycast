@@ -662,6 +662,7 @@ final class QuickActionCoordinator {
                 self?.core.showMessage("\(action.title) applied")
             },
             onFailed: { [weak self] in
+                textTarget?.restoreSelection(in: target.app)
                 Paster.copyPlainText(deliveredText)
                 self?.core.showMessage(
                     textTarget?.preparationFailure?.message

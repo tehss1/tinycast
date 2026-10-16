@@ -45,6 +45,7 @@ final class ComposerTextTarget {
     let characterCount: Int?
     private(set) var replacementRange: NSRange?
     private(set) var preparationFailure: PreparationFailure?
+    private var narrowedSelection: (original: NSRange, range: NSRange, text: String)?
 
     var anchor: ComposerDraftAnchor? {
         replacementRange.flatMap { ComposerDraftAnchor(body: body, range: $0) }
@@ -107,11 +108,15 @@ final class ComposerTextTarget {
     /// Activation precedes this check, so a different editor cannot receive the draft.
     /// `excludingSelectionEdges` is for Outlook, which drops a pasted trailing line break: the
     /// selection's edge whitespace is deselected instead, so it stays in the draft.
+    /// Delivery prepares the target more than once, so a later check expects the narrowed selection.
     func prepare(in app: NSRunningApplication?, excludingSelectionEdges: Bool = false) -> Bool {
         preparationFailure = nil
         if case .focusedField(let selection) = scope {
-            guard prepareField(in: app, selection: selection) else { return false }
-            if excludingSelectionEdges, let app,
+            guard prepareField(
+                in: app, selection: narrowedSelection?.range ?? selection,
+                text: narrowedSelection?.text ?? selectionText)
+            else { return false }
+            if excludingSelectionEdges, narrowedSelection == nil, let app,
                 let focused = AccessibilityText.focusedElement(in: app)
             {
                 deselectEdges(in: focused)
@@ -166,7 +171,25 @@ final class ComposerTextTarget {
         guard let selectionText, let selected = AccessibilityText.selectedRange(of: field),
             let inner = QuickActionOutput.innerRange(of: selectionText, at: selected)
         else { return }
-        if !Self.select(inner, in: field) { _ = Self.select(selected, in: field) }
+        let text = (selectionText as NSString).substring(
+            with: NSRange(location: inner.location - selected.location, length: inner.length))
+        if Self.select(inner, in: field) {
+            narrowedSelection = (original: selected, range: inner, text: text)
+        } else {
+            _ = Self.select(selected, in: field)
+        }
+    }
+
+    /// After a failed delivery, the reader gets back the selection they made, if nothing landed.
+    func restoreSelection(in app: NSRunningApplication?) {
+        guard let narrowed = narrowedSelection else { return }
+        narrowedSelection = nil
+        guard let app, let focused = AccessibilityText.focusedElement(in: app),
+            CFEqual(focused, editor),
+            AccessibilityText.selectedRange(of: focused) == narrowed.range,
+            AccessibilityText.selectedText(of: focused) == narrowed.text
+        else { return }
+        _ = Self.select(narrowed.original, in: focused)
     }
 
     private static func select(_ range: NSRange, in field: AXUIElement) -> Bool {
@@ -178,7 +201,9 @@ final class ComposerTextTarget {
         return AccessibilityText.selectedRange(of: field) == range
     }
 
-    private func prepareField(in app: NSRunningApplication?, selection: NSRange?) -> Bool {
+    private func prepareField(
+        in app: NSRunningApplication?, selection: NSRange?, text selectionText: String?
+    ) -> Bool {
         guard let app, let focused = AccessibilityText.focusedElement(in: app) else {
             preparationFailure = .fieldChanged
             return false

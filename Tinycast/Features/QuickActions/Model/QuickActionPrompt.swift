@@ -434,7 +434,19 @@ enum QuickActionOutput {
         let trailing = selection.reversed().prefix(while: \.isWhitespace).reversed()
         let result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !leading.isEmpty || !trailing.isEmpty, !result.isEmpty else { return text }
-        return leading + result + String(trailing)
+        // The selection's indentation suits a one-line reply; a longer one keeps its own, so
+        // the first line still lines up with the rest.
+        let indentSource = result.contains(where: \.isNewline)
+            ? text.prefix(while: \.isWhitespace) : leading
+        return lineBreaks(in: leading) + indentation(in: indentSource) + result + String(trailing)
+    }
+
+    private static func lineBreaks(in leading: Substring) -> Substring {
+        leading.lastIndex(where: \.isNewline).map { leading[...$0] } ?? ""
+    }
+
+    private static func indentation(in leading: Substring) -> Substring {
+        leading.lastIndex(where: \.isNewline).map { leading[leading.index(after: $0)...] } ?? leading
     }
 
     /// The UTF-16 range of `text` at `range` without its edge whitespace, or nil when it has none.

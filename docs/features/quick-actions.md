@@ -448,9 +448,12 @@ Outlook drops a pasted trailing line break and a triple-clicked paragraph would 
 Composer's Outlook capture already leaves it out of the replaced range; every other Outlook delivery
 (Fix Grammar, Translate, custom actions, Composer without Outlook context) narrows the live
 selection to exclude it just before pasting, and keeps the full selection if Outlook refuses.
+Later checks in the same delivery expect the narrowed selection, and a delivery that fails before
+anything lands selects the original range again.
 Other apps replace the selection itself, so every Quick Action hands its leading and trailing
 whitespace (line breaks, and the space a double-clicked word carries) back around the result; a
-selection without any gets the result as the provider wrote it. A note decides this by the note,
+selection without any gets the result as the provider wrote it. The selection's indentation goes
+back only on a one-line result; a multi-line result keeps its own, so its lines stay aligned. A note decides this by the note,
 not by the app behind it.
 A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
 Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,

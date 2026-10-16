@@ -241,6 +241,9 @@ struct ComposerTests {
         for (selection, result, delivered) in [
             ("teh ", "the", "the "), (" teh", "the", " the"), ("\tteh \n", "the", "\tthe \n"),
             ("teh", "the", "the"),
+            ("\n  - teh\n  - adn", "- the\n- and", "\n- the\n- and"),
+            ("  - teh\n  - adn", "  - the\n  - and", "  - the\n  - and"),
+            ("\n  teh", "\n\nthe", "\n  the"),
         ] {
             expect(QuickActionOutput.preparedForDelivery(
                 result, action: .fixGrammar, toOutlook: false, replacing: selection) == delivered,
