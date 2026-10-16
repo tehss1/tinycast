@@ -264,7 +264,8 @@ Duplicating takes a **new** identity, so the copy can't inherit the original's s
 per-catalog-entry, so both need an index for `start()` to re-register from. The store therefore loads
 **even while the feature is off** and before `hotKeys.start`: the stale-binding prune reads that
 list, and an unloaded store would look like "every quicklink was deleted" and throw the shortcuts
-away.
+away. A database that would not open looks the same, so an unavailable store passes no list and its
+shortcuts are kept until it opens again.
 
 ## Import & export
 

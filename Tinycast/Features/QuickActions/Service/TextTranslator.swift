@@ -34,10 +34,19 @@ enum TextTranslator {
         return Locale.Language(identifier: dominant.rawValue)
     }
 
+    /// The detector says `en`, a regional Mac says `en-GB`, and Apple offers no `en` → `en-GB` pair,
+    /// so one language in one script is already translated. `zh-Hans` and `zh-Hant` are not.
+    static func writesTheSame(_ source: Locale.Language, as target: Locale.Language) -> Bool {
+        if source.isEquivalent(to: target) { return true }
+        guard source.languageCode == target.languageCode else { return false }
+        let sourceScript = Locale.Language(identifier: source.maximalIdentifier).script
+        return sourceScript == Locale.Language(identifier: target.maximalIdentifier).script
+    }
+
     /// Installed pairs only: a missing language is downloaded in System Settings, never from here.
     static func translate(_ text: String, to target: Locale.Language) async throws -> String {
         guard let source = sourceLanguage(of: text) else { throw Failure.undetectableSource }
-        guard !source.isEquivalent(to: target) else { return text }
+        guard !writesTheSame(source, as: target) else { return text }
         switch await LanguageAvailability().status(from: source, to: target) {
         case .installed:
             break

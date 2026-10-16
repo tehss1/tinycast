@@ -27,10 +27,11 @@ selectable Markdown renderer with AI Chat.
   `QuickActionCoordinator.run(_:)`, which captures the target **before** hiding the palette. An
   external app remains the usual target; a selected passage in the Notes editor is captured directly
   from its text view. Hiding there rather than at each caller keeps the two paths identical.
-- **Enabling is consent, and it is the only place Accessibility is requested.** The toggle confirms
+- **Enabling is consent, and a shortcut press is an explicit gesture.** The toggle confirms
   through `DialogController` first and then calls `Permissions.ensureAccessibility()`, the pattern
-  `SnippetCoordinator.setSnippetsEnabled` established. Everything else — a shortcut press, a
-  delivery — uses `isAccessibilityTrusted()` and degrades to a HUD.
+  `SnippetCoordinator.setSnippetsEnabled` established. A shortcut press may prompt too, as snippet
+  expansion does, and then explains in a dialog that opens Accessibility settings. A delivery only
+  checks `isAccessibilityTrusted()` and degrades to a HUD.
 - **Tinycast is never an event target.** `QuickActionRunner.input(for:in:using:)` refuses our own
   bundle identifier, and `TextInjector.targetAcceptsInjection` refuses it again before every event post,
   along with anything raised while Secure Event Input is up. Notes is the narrow in-process exception:
@@ -207,7 +208,7 @@ started.
 | Action | Engine | Default result | Diff |
 | --- | --- | --- | --- |
 | Fix Grammar | provider | replaces directly | yes |
-| Composer | provider | panel | yes |
+| Composer | provider | panel | no (transcript) |
 | Translate | Apple Translation | panel | no |
 | Summarize | provider | panel, always | no |
 | a custom action | provider | panel | no |
@@ -243,7 +244,9 @@ alias no surface could set.
 **Nothing is saved until it is on disk.** `commit` persists before it moves `actions`, and a write
 that cannot land throws `.storageUnavailable` where the reader sees it. An absent file is a fresh
 install; one that exists but will not decode sets `isAvailable` false and makes every mutation refuse.
-`QuicklinkStore`'s rule: authored data is reported on, never written over.
+`QuicklinkStore`'s rule: authored data is reported on, never written over. Settings shows a notice,
+and launch skips the stale-shortcut prune for an unavailable store, which lists nothing and would
+otherwise read as every action deleted; Quicklinks gets the same exemption.
 
 **Deleting unwinds only once the record is gone.** Confirm, remove, *then* drop the binding, the
 route override, the favorite, the alias, the visibility key and the ranking. `WindowLayoutCoordinator`'s order: a failed
@@ -262,7 +265,9 @@ whatever a missing key would have meant.
 `TextTranslator` uses Apple's translator rather than the language model: it runs on device, costs
 nothing on every route, and a 3B model is markedly worse at it. `NLLanguageRecognizer` supplies the
 source language, because `TranslationSession(installedSource:target:)` needs a concrete one and
-`LanguageAvailability` reports only a status.
+`LanguageAvailability` reports only a status. Text already in the target's language and script
+comes back unchanged: the detector says `en` where a regional Mac asks for `en-GB`, and Apple has no
+pair between them. `zh-Hans` to `zh-Hant` still translates.
 
 `TranslationError` is annotated `macOS 26.4` while the deployment floor is `26.0`, so failures are
 caught as plain `Error` and reported by what was asked rather than by matching its cases.
@@ -593,7 +598,8 @@ without a usable range disables Replace with a request to select the draft and r
   `quickActionModelOverrides`.
 - Translate into a language that has not been downloaded: the panel names the language, and its
   button closes the panel and opens Language & Region.
-- Revoke Accessibility while enabled: a HUD explains instead of failing silently.
+- Revoke Accessibility while enabled: a shortcut press shows the system prompt and a dialog that
+  opens Accessibility settings, instead of failing silently.
 - Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
   seven-day Composer history, preview choices, routes and their repair),
   `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, which
