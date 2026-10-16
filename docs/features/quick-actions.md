@@ -39,6 +39,7 @@ selectable Markdown renderer with AI Chat.
 - **One run at a time.** Two overlapping runs would race for one selection, and the second would
   replace text the first had already changed. `QuickActionCoordinator` holds a single task.
   Pressing Composer's shortcut during generation reopens that conversation, even after dismissal.
+  Once settled, it reopens from the field and selection, or the note passage, it came from.
   Stop cancels generation and restores the request for editing. A generation token prevents a
   cancelled task from appending to a later request or clearing its handle.
 - **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
@@ -70,12 +71,15 @@ selectable Markdown renderer with AI Chat.
   panel entry is a writing request to follow, with its own composition style rather than selected-text
   rewrite or approximate-length restrictions. Caret-first refinements retain that composition style.
   In both modes, the model returns only the finished body text. Composer appends that body-only rule
-  after any custom style prompt. `QuickActionOutput` also removes a leading `Subject:` line before
-  the panel, history, copy or delivery can use the draft.
+  after any custom style prompt. At completion, `QuickActionOutput` removes a leading `Subject:`
+  line only when the generation's source did not begin with one. A user-authored subject, including
+  a subject-only selection, remains usable. Stored drafts and callers without source provenance
+  keep their text; they are never stripped again by guessing who wrote a subject.
   Composer also appends a natural-voice rule that forbids em dashes, stock AI phrasing, inflated
-  formality, filler and invented warmth. A narrow output guard removes any em dash or familiar AI
-  boilerplate that a provider returns despite those instructions, without paraphrasing names,
-  technical details or the substantive message. The caret-first instruction still identifies the
+  formality, filler and invented warmth. A narrow output guard repairs model-introduced prose dashes
+  and familiar AI boilerplate without paraphrasing the substantive message. Source dashes, line-leading
+  sign-offs and bullets, and numeric or word ranges stay intact. If source punctuation cannot be
+  matched safely, the guard preserves it. The caret-first instruction still identifies the
   panel entry as the request.
 - **Outlook context is narrow and separately consented.** The optional Composer toggle reads the
   current compose window only after the reader runs Composer in Outlook. It adds the To, Cc and Bcc
@@ -88,14 +92,17 @@ selectable Markdown renderer with AI Chat.
   including rich content such as a logo, and adds a line break only when none follows the caret.
   The context is enclosed in paired, collision-free begin/end markers and identified as untrusted
   reference material in the prompt; the writing request or selected text follows the closing marker.
-  Every remote Accessibility read has a 25 ms timeout and checks a shared 350 ms deadline, beginning
-  with editor capture. A failed or truncated recipient walk reports partial context.
+  Every remote Accessibility read has a timeout of at most 100 ms, capped to the shared 750 ms
+  deadline beginning with editor capture. Discovery stops when all wanted fields are found, runs for
+  at most 250 ms and reserves 350 ms for reading fields. A failed or truncated recipient walk reports
+  partial context while retaining readable addresses.
   Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
   reads or sends.
 - **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc
   address with the internal domains configured in Quick Actions settings. When every address is an exact
   match or a subdomain, the prompt asks for a relaxed, concise coworker tone. A mixed list, an
-  outside address, an unreadable recipient, an interrupted To/Cc/Bcc walk or an empty domain list
+  outside address, an unreadable recipient, any unresolved token between recipient separators,
+  an interrupted To/Cc/Bcc walk or an empty domain list
   uses the safer polished external tone. Partial recipient captures preserve known addresses and
   carry an explicit unavailable-recipient notice, so automatic tone remains External when the
   conversation is reopened. The footer names the effective choice, marks a manual choice and its menu
@@ -289,10 +296,13 @@ completed draft available for Copy, Insert or Replace. Reopening an interrupted 
 unfinished responses as failed. A selected-text conversation reopened without a draft offers Retry,
 because the selection is already its request.
 
-A Composer panel dismissed during generation stays reachable after the draft arrives. Pressing the
-shortcut again with the same app and text field focused reopens it, until another Composer panel
-opens. This applies only outside an Outlook-context draft. That draft is restored from history
-instead, so its captured body is never stale.
+A dismissed Composer conversation stays reachable, whether its draft arrived behind the closed
+panel or before it closed. Pressing the shortcut again in the same text field with the same
+selection or caret, or on the same passage of an unchanged note, reopens it as often as needed. A
+different field, selection or note starts a new conversation, which replaces it, and Insert or
+Replace ends it. A conversation whose panel asks to reopen Composer captures afresh instead. This
+applies only outside an Outlook-context draft. That draft is restored from history instead, so its
+captured body is never stale.
 
 Composer opens centered over the visible source editor, using bounds captured before its panel opens.
 `ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
@@ -381,12 +391,14 @@ now settles either way, so a delivery that returned early reports failure exactl
 put the generated text on the clipboard and raise a HUD rather than dropping it. Snippets pass no
 failure handler, so automatic expansion stays silent as before.
 
-An Outlook Composer **Insert** consumes the empty paragraph Outlook leaves before its signature and
-puts back one line break, so the sign-off sits directly above the signature. A selected-text Replace
-that ends with `Best,` retains its two-line signature separation. Other sign-offs, apps and Quick
-Actions keep the provider's output unchanged. Outlook delivery also separates a one-line,
-multi-sentence Composer draft into short paragraphs. Existing line breaks and lists remain unchanged.
-Composer strips a leading model-generated subject line before any app receives the draft.
+Outlook Composer formats only a target that starts at a line start and ends at a line end, or a
+caret on an empty line. **Insert** preserves following line breaks and adds one only when none exists.
+A selected-text Replace ending with `Best,` adds only the line breaks needed to reach two before the
+existing signature; reopening and replacing the same draft never adds another blank paragraph.
+A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
+Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,
+apps and Quick Actions keep the provider's output unchanged. Completion strips a leading
+model-generated subject only when the source did not already begin with a subject line.
 
 With Outlook context enabled, `ComposerTextTarget` verifies the captured editor and body inside the
 delivery queue, after activation. It selects the captured draft range and verifies that Outlook
@@ -395,9 +407,11 @@ result instead. The event fallback checks the target again immediately before in
 
 Every other external target gets the same check in a narrower form. When the shortcut is pressed,
 the coordinator captures the focused Accessibility element and its selected range, or the caret,
-for every Quick Action. After activation, delivery requires that same element to hold focus, and
-the same range when the app reported one. Otherwise nothing is typed and the result is copied.
-An app that exposes no focused element cannot be checked, so activation is its only guard.
+for every Quick Action, before reading the selection. Focus that moves during the ⌘C fallback
+cannot redirect delivery, and an Outlook capture read after it counts only for that same editor and
+range. After activation, delivery requires that same element to hold focus, and the same range
+when the app reported one. Otherwise nothing is typed and the result is copied. An app that exposes
+no focused element cannot be checked, so activation is its only guard.
 
 When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
 Outlook edits become a new draft in the conversation and supply the starting text for further changes.
@@ -432,6 +446,11 @@ to select the draft and reopen Composer.
   its Find bar, and confirm the Find field receives nothing.
 - In TextEdit, start Composer generation, dismiss the panel and wait for it to finish. Press the
   shortcut in the same field and confirm the finished draft reopens, ready for refinement or Insert.
+  Dismiss and press again to confirm it reopens every time, then select other text and confirm the
+  shortcut starts a new conversation.
+- In a Tinycast note, select a passage, run Composer, dismiss the panel and wait for it to finish.
+  Press the shortcut on the same selection and confirm the draft reopens and Replace lands in the
+  note. Change the selection and confirm a new conversation starts.
 
 - Select text in Safari, Chrome, Brave, Slack, Mail, Notes, VS Code and Terminal, press Fix Grammar,
   and confirm the selection is **replaced** rather than appended to.
@@ -494,6 +513,6 @@ to select the draft and reopen Composer.
 - Revoke Accessibility while enabled: a HUD explains instead of failing silently.
 - Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
   seven-day Composer history, preview choices, routes and their repair),
-  `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, scoped
-  history matching and newest quoted messages), and
+  `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, which
+  conversations reopen, scoped history matching and newest quoted messages), and
   `text-diff-test` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).

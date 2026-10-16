@@ -175,6 +175,9 @@ enum SettingsBackupCoverage {
             "Expands Composer beyond selected text to nearby email context, so each Mac must opt in.",
         AppSettingsKey.quickActionInternalDomains.rawValue:
             "Organization-specific domains change Composer's audience classification and tone.",
+        AppSettingsKey.composerHistoryExpanded.rawValue:
+            "Remembers whether Composer's sidebar was last left open: panel state, not a preference "
+            + "anyone chose in Settings, like the palette's position.",
         AppSettingsKey.snippetsFolder.rawValue:
             "Names a folder on this Mac; the one a backup lands on may not have it.",
         AppSettingsKey.notesFolder.rawValue:

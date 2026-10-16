@@ -17,10 +17,14 @@ struct ComposerTests {
 
     static func main() throws {
         try replacementBoundaries()
+        repeatedDeliveryKeepsSignatureSpacing()
+        paragraphFormattingRequiresWholeLines()
+        selectedSubjectSurvivesCompletion()
         deliveryLabelMatchesInvocation()
         blankInitialRequestUsesEmailContext()
         firstFailureCanRetry()
         stopKeepsCompletedDraft()
+        settledConversationReopens()
         manualEditsJoinConversation()
         try historyIsScopedAndRecoversInput()
         try historyStorageRecoversValidRecords()
@@ -97,6 +101,90 @@ struct ComposerTests {
             in: "A draft", anchor: untouchedBoundary, selectedRange: explicitSelection,
             insertsAtCaret: false) == explicitSelection,
             "a fresh selection still permits Replace after the saved boundary changes")
+    }
+
+    static func repeatedDeliveryKeepsSignatureSpacing() {
+        let draft = "Please review.\n\nBest,"
+        for lineBreak in ["\n", "\r\n"] {
+            for count in 0...3 {
+                let suffix = String(repeating: lineBreak, count: count) + (count > 0 ? "🙂 Signature" : "")
+                var body = "Rough notes" + suffix
+                var anchor = ComposerDraftAnchor(
+                    body: body, range: NSRange(location: 0, length: "Rough notes".utf16.count))
+                for _ in 0..<4 {
+                    guard let range = anchor?.rangePreservingTrailingLineBreaks(in: body),
+                        let selection = Range(range, in: body),
+                        let boundaries = ComposerDraftAnchor.TextBoundaries(body: body, range: range)
+                    else {
+                        expect(false, "the reopened draft retains a valid replacement boundary")
+                        break
+                    }
+                    anchor = ComposerDraftAnchor(body: body, range: range)
+                    let delivery = QuickActionOutput.preparedForDelivery(
+                        draft, action: .rewrite, toOutlook: true, boundaries: boundaries)
+                    body.replaceSubrange(selection, with: delivery)
+                    let expectedSuffix = String(repeating: "\n", count: max(0, 2 - count)) + suffix
+                    expect(body == draft + expectedSuffix,
+                        "reopening and replacing never accumulates signature paragraphs, including CRLF")
+                }
+            }
+        }
+    }
+
+    static func paragraphFormattingRequiresWholeLines() {
+        let draft = "First sentence. Second sentence."
+        let split = "First sentence.\n\nSecond sentence."
+        for (body, range, wholeLines) in [
+            ("Rough notes\nSignature", NSRange(location: 0, length: 11), true),
+            ("🙂 Rough notes", NSRange(location: 3, length: 11), false),
+            ("Rough notes continue", NSRange(location: 0, length: 11), false),
+            ("🙂 Rough notes continue", NSRange(location: 3, length: 11), false),
+            ("", NSRange(location: 0, length: 0), true),
+            ("Intro\n\nSignature", NSRange(location: 6, length: 0), true),
+            ("Intro text", NSRange(location: 5, length: 0), false),
+            ("Intro text", NSRange(location: 10, length: 0), false),
+        ] {
+            let boundaries = ComposerDraftAnchor.TextBoundaries(body: body, range: range)
+            expect(boundaries?.coversWholeLines == wholeLines,
+                "formatting uses actual UTF-16 replacement and caret boundaries")
+            let delivery = QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: range.length == 0,
+                boundaries: boundaries)
+            let trailing = range.length == 0 && wholeLines
+                && boundaries?.followingLineBreakCount == 0 ? "\n" : ""
+            expect(delivery == (wholeLines ? split : draft) + trailing,
+                "only whole-line replacements and carets on empty lines split into paragraphs")
+        }
+        expect(QuickActionOutput.preparedForDelivery(
+            draft, action: .rewrite, toOutlook: true) == draft,
+            "missing target boundaries preserve the existing paragraph")
+        expect(ComposerDraftAnchor.TextBoundaries(
+            body: "🙂", range: NSRange(location: 8, length: 0)) == nil,
+            "out-of-bounds targets cannot request paragraph formatting")
+    }
+
+    static func selectedSubjectSurvivesCompletion() {
+        let subject = "Subject: Call tomorrow"
+        let state = QuickActionPanelState(action: .rewrite, original: subject,
+            targetLanguage: Locale.Language(identifier: "en"))
+        state.finish(subject)
+        expect(state.output == subject && state.canReplace,
+            "a subject-only selection finishes successfully and can replace the original")
+        expect(state.historyRecord()?.latestDraft == subject,
+            "saving and reopening never strips the user's own subject")
+        let source = "Ready—send it."
+        let voiced = QuickActionPanelState(action: .rewrite, original: source,
+            targetLanguage: Locale.Language(identifier: "en"))
+        voiced.finish(source)
+        expect(voiced.output == source, "completion preserves punctuation from the selected source")
+        voiced.adoptSourceDraft("Subject: My manual edit\n\nReady—send it.")
+        voiced.refinementInstruction = "Keep this wording"
+        _ = voiced.beginRefinement()
+        let manual = "Subject: My manual edit\n\nReady—send it."
+        voiced.finish(manual)
+        expect(voiced.output == manual, "refinement protects the latest manual source subject and dash")
+        expect(voiced.historyRecord()?.latestDraft == manual,
+            "history preserves subjects introduced by the user's manual edit")
     }
 
     static func makeState(caret: Bool = true) -> QuickActionPanelState {
@@ -187,10 +275,10 @@ struct ComposerTests {
                     text: "Subject: Call tomorrow\n\nCould we schedule a call tomorrow?",
                     state: .complete)
             ])
-        expect(legacySubjectRecord.preview == "Could we schedule a call tomorrow?",
-            "saved sidebar previews hide legacy subject lines")
-        expect(legacySubjectRecord.latestDraft == "Could we schedule a call tomorrow?",
-            "restoring a saved draft drops a legacy subject line")
+        expect(legacySubjectRecord.preview == "Subject: Call tomorrow Could we schedule a call tomorrow?",
+            "saved previews preserve subjects when their provenance is unavailable")
+        expect(legacySubjectRecord.latestDraft == "Subject: Call tomorrow\n\nCould we schedule a call tomorrow?",
+            "restoring a stored draft never guesses whether its subject was user-authored")
 
         let selection = makeState(caret: false)
         selection.fail("No provider")
@@ -255,6 +343,21 @@ struct ComposerTests {
             expect(resumedRequest?.messages.filter { $0.role == .user }.count == 1,
                 "relaunch does not replay the interrupted request twice")
         }
+    }
+
+    static func settledConversationReopens() {
+        let state = makeState(caret: false)
+        expect(!state.reopensFromSource, "a conversation still generating is not reopened from its field")
+        state.finish("Finished draft")
+        expect(state.reopensFromSource, "a finished conversation reopens from the field it came from")
+        state.refinementInstruction = "Shorter"
+        _ = state.beginRefinement()
+        state.finish("Shorter draft")
+        expect(state.reopensFromSource, "a conversation stays reopenable after another refinement")
+        let caret = makeState()
+        expect(caret.reopensFromSource, "an unsent caret request reopens with what was typed")
+        caret.replacementIssue = "Couldn't capture this Outlook draft. Reopen Composer to try again."
+        expect(!caret.reopensFromSource, "a replacement issue makes the next press capture afresh")
     }
 
     static func manualEditsJoinConversation() {

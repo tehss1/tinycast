@@ -26,9 +26,9 @@ in `Features/Settings/` (`Model/`, `Service/`, `SettingsFileSchema.swift`), the 
   formatting stays until then.
 - **Content and machine state never enter it.** Notes, snippets, custom commands, quicklinks, MCP
   servers and AI connections stay where they are — the file can say which folder notes and snippets
-  live in, never what is in them — as do the palette's position, the extension toolchain,
-  the shortcuts and aliases of content, extensions and Apple Shortcuts, and what a room learns by
-  being entered.
+  live in, never what is in them — as do the palette's position, Composer's sidebar state, the
+  extension toolchain, the shortcuts and aliases of content, extensions and Apple Shortcuts, and what
+  a room learns by being entered.
 
 ## Layout
 

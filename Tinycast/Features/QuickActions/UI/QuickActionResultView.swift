@@ -19,7 +19,7 @@ struct QuickActionResultView: View {
     let onHeight: (CGFloat) -> Void
     let onWidth: (CGFloat) -> Void
 
-    @AppStorage(SettingsKey.composerHistoryExpanded) private var historyExpanded = false
+    @AppStorage(AppSettingsKey.composerHistoryExpanded.rawValue) private var historyExpanded = false
     @State private var contentHeight: CGFloat = 0
     @State private var headerHeight: CGFloat = 0
     @State private var footerHeight: CGFloat = 0

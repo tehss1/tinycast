@@ -66,7 +66,8 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         // Its tallest, so the first frame is never short; the view reports the real height at once.
         let width = metrics.size.quickActionPanel
             + (state.action == .rewrite
-                && UserDefaults.standard.bool(forKey: SettingsKey.composerHistoryExpanded)
+                && UserDefaults.standard.bool(
+                    forKey: AppSettingsKey.composerHistoryExpanded.rawValue)
                 ? metrics.size.quickActionHistorySidebar + Theme.Size.hairline : 0)
         hosting.setFrameSize(NSSize(width: width, height: metrics.size.quickActionPanelBody))
 

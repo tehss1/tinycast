@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// Keys shared between `@AppStorage` sites, so app and Settings bind to the same one.
-enum SettingsKey {
-    /// The launcher icon's visibility — read by its `MenuBarExtra` and the General toggle.
-    static let showInMenuBar = "showInMenuBar"
-    static let calendarMenuBarDisplay = "calendarMenuBarDisplay"
-    static let composerHistoryExpanded = "composerHistoryExpanded"
-}
-
 /// Delay before a closed palette pops to root; an unset key reads as `.immediately`.
 enum PopToRootTimeout: Int, CaseIterable, Identifiable, Sendable {
     case immediately = 0

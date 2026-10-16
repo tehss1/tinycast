@@ -146,7 +146,6 @@ final class QuickActionCoordinator {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activeComposer: QuickActionPanelState?
     @ObservationIgnored private var composerApp: Target?
-    @ObservationIgnored private var composerDismissedWhileRunning = false
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
     @ObservationIgnored private var progressOwner: Int?
     @ObservationIgnored private var reportedHistoryFailure = false
@@ -312,8 +311,8 @@ final class QuickActionCoordinator {
 
     func run(_ action: QuickAction) {
         guard settings.quickActionsEnabled else { return }
-        if action == .rewrite, let activeComposer, let composerApp,
-            reopens(activeComposer, target: composerApp)
+        if action == .rewrite, let activeComposer, let composerApp, activeComposer.isRunning,
+            running != nil
         {
             present(activeComposer, target: composerApp)
             return
@@ -322,6 +321,21 @@ final class QuickActionCoordinator {
             core.showMessage("A Quick Action is still running")
             return
         }
+        let target = invocationTarget()
+        if action == .rewrite, let activeComposer, let composerApp,
+            reopens(activeComposer, from: target, toward: composerApp)
+        {
+            present(activeComposer, target: composerApp)
+            return
+        }
+        if paletteCoordinator.isVisible {
+            paletteCoordinator.hidePalette(restoreFocus: target.note != nil)
+        }
+        start { [weak self] in await self?.begin(action, target: target) }
+    }
+
+    /// Read before any await, so focus moving during the ⌘C fallback cannot redirect delivery.
+    private func invocationTarget() -> Target {
         var target = Target(app: paletteCoordinator.targetApp)
         let source = paletteCoordinator.isVisible
             ? InjectionTarget.behindPalette(
@@ -331,22 +345,41 @@ final class QuickActionCoordinator {
             target.note = NoteSelection(
                 editor: editor, document: core.notesCoordinator.editorInput,
                 range: editor.selectedRange(), text: editor.injectableSelection)
+        } else if let app = target.app, app.bundleIdentifier != Bundle.main.bundleIdentifier {
+            target.text = ComposerTextTarget.focusedField(in: app)
         }
-        if paletteCoordinator.isVisible {
-            paletteCoordinator.hidePalette(restoreFocus: target.note != nil)
-        }
-        let capturedTarget = target
-        start { [weak self] in await self?.begin(action, target: capturedTarget) }
+        return target
     }
 
-    /// A draft that finished behind a dismissed panel stays reachable from the field it was for.
-    private func reopens(_ state: QuickActionPanelState, target: Target) -> Bool {
-        if state.isRunning { return running != nil }
-        guard running == nil, composerDismissedWhileRunning, let app = target.app,
-            app.processIdentifier == paletteCoordinator.targetApp?.processIdentifier,
-            let text = target.text, case .focusedField = text.scope
+    /// The same field and selection, or the same note passage, is the same request as before.
+    private func reopens(
+        _ state: QuickActionPanelState, from current: Target, toward original: Target
+    ) -> Bool {
+        guard state.reopensFromSource else { return false }
+        if let note = original.note {
+            guard let now = current.note else { return false }
+            return now.editor === note.editor && now.document == note.document
+                && now.range == note.range
+        }
+        guard let app = original.app, app.processIdentifier == current.app?.processIdentifier,
+            let field = original.text, case .focusedField(let selection) = field.scope,
+            let now = current.text, case .focusedField(let nowSelection) = now.scope,
+            CFEqual(now.editor, field.editor)
         else { return false }
-        return text.isFocused(in: app)
+        return selection == nil || nowSelection == selection
+    }
+
+    /// Read after the ⌘C fallback's wait, so it counts only from the field the shortcut found.
+    private static func outlookCapture(
+        in app: NSRunningApplication?, pressedIn field: ComposerTextTarget?
+    ) -> OutlookComposeContextReader.Capture? {
+        guard let capture = OutlookComposeContextReader.read(in: app) else { return nil }
+        guard let field else { return capture }
+        guard CFEqual(field.editor, capture.target.editor),
+            case .focusedField(let selection) = field.scope,
+            selection == nil || selection == capture.target.selectedRange
+        else { return nil }
+        return capture
     }
 
     func cancel() {
@@ -373,7 +406,6 @@ final class QuickActionCoordinator {
     private func forgetComposer() {
         activeComposer = nil
         composerApp = nil
-        composerDismissedWhileRunning = false
     }
 
     /// The generation stops a superseded task from clearing the newer handle as it finishes.
@@ -406,14 +438,13 @@ final class QuickActionCoordinator {
             return
         }
         guard !Task.isCancelled else { return }
+        if action == .rewrite { forgetComposer() }
         let capture =
             action == .rewrite && store.settings.usesOutlookContextForRewrite
-            ? OutlookComposeContextReader.read(in: target.app)
+            ? Self.outlookCapture(in: target.app, pressedIn: target.text)
             : nil
         let context = capture?.context
-        if target.note == nil {
-            target.text = capture?.target ?? ComposerTextTarget.focusedField(in: target.app)
-        }
+        if let capture { target.text = capture.target }
         if action == .rewrite {
             target.frame = ComposerPlacementReader.frame(
                 in: target.app, editor: capture?.target.editor)
@@ -565,7 +596,8 @@ final class QuickActionCoordinator {
         let deliveredText = QuickActionOutput.preparedForDelivery(
             text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
             insertsAtCaret: insertsAtCaret,
-            hasFollowingLineBreak: textTarget?.hasFollowingLineBreak ?? false)
+            hasFollowingLineBreak: textTarget?.hasFollowingLineBreak ?? false,
+            boundaries: textTarget?.textBoundaries)
         if let note = target.note {
             guard core.notesCoordinator.editorInput == note.document,
                 note.editor.window?.isVisible == true,
@@ -603,7 +635,7 @@ final class QuickActionCoordinator {
     }
 
     private func present(_ state: QuickActionPanelState, target: Target) {
-        if state.action == .rewrite { track(state, target: target) } else { forgetComposer() }
+        track(state, target: target)
         panels.present(
             state,
             coordinator: self,
@@ -621,17 +653,14 @@ final class QuickActionCoordinator {
             },
             onStop: { [weak self] in self?.stopComposer() },
             onInstructionChange: { [weak self] in self?.schedulePendingSave(state) },
-            onDismiss: { [weak self] in
-                guard let self else { return }
-                if state.action == .rewrite { composerDismissedWhileRunning = state.isRunning }
-                savePendingInstruction(state)
-            },
+            onDismiss: { [weak self] in self?.savePendingInstruction(state) },
             onReplace: { [weak self] text in
-                self?.deliver(
+                guard let self else { return }
+                if state === activeComposer { forgetComposer() }
+                deliver(
                     text, to: target, action: state.action, textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret)
             })
-        composerDismissedWhileRunning = false
     }
 
     func deleteComposerConversation(_ id: UUID, from state: QuickActionPanelState) {

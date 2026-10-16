@@ -60,6 +60,9 @@ final class QuickActionPanelState {
 
     var canReplace: Bool { phase == .finished && !output.isEmpty && replacementIssue == nil }
 
+    /// A replacement issue asks the reader to reopen, so pressing again must capture afresh.
+    var reopensFromSource: Bool { !isRunning && replacementIssue == nil }
+
     var deliveryActionTitle: String {
         action == .rewrite && insertsAtCaret ? "Insert" : "Replace"
     }
@@ -226,7 +229,9 @@ final class QuickActionPanelState {
 
     func finish(_ text: String) {
         let completed = action == .rewrite
-            ? QuickActionOutput.naturalVoice(in: QuickActionOutput.composerBody(in: text)) : text
+            ? QuickActionOutput.composerDraft(
+                in: text, source: previousOutput ?? (originalIsWritingInstruction ? "" : original))
+            : text
         output = completed
         phase = .finished
         cachedDiff = nil

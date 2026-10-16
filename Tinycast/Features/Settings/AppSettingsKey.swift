@@ -100,6 +100,7 @@ enum AppSettingsKey: String, CaseIterable {
     case quickActionLanguage = "quickActionLanguage"
     case quickActionOutlookContext = "quickActionOutlookContext"
     case quickActionInternalDomains = "quickActionInternalDomains"
+    case composerHistoryExpanded = "composerHistoryExpanded"
     case dictationEnabled = "dictationEnabled"
     case dictationMode = "dictationMode"
     case dictationModel = "dictationModel"
