@@ -929,6 +929,9 @@ struct SnippetsTests {
                 && pasteboard.pasteboardItems?[0].data(forType: customType) == nil
                 && pasteboard.pasteboardItems?[0].data(forType: secondType) == nil
         )
+        check(
+            "the loan is marked transient so a clipboard cleaner leaves it alone until ⌘V",
+            pasteboard.pasteboardItems?[0].types.contains(PasteboardSnapshot.transientType) == true)
         let restoreResult = lease?.restoreIfOwned()
         let restoredItems = pasteboard.pasteboardItems
         check(
@@ -942,6 +945,7 @@ struct SnippetsTests {
             "pasteboard restoration leaves no Tinycast marker on the restored clipboard",
             restoredItems?.allSatisfy {
                 !$0.types.contains(ClipboardManager.internalType)
+                    && !$0.types.contains(PasteboardSnapshot.transientType)
             } == true)
 
         pasteboard.writeFailuresRemaining = 1
