@@ -376,7 +376,24 @@ struct ComposerTests {
                 "only a successful model turn makes the selection deliverable")
             expect(restored.draftAnchor == anchor,
                 "generation alone keeps the saved boundary until successful delivery")
+            let turns = restored.conversation.count
+            expect(!restored.resumeSource(.selectedText, text: source + " ", anchor: nil)
+                && restored.conversation.count == turns
+                && restored.output == "Rewritten selection." && restored.canReplace,
+                "pressing again on a selection already rewritten restores its draft, no new request")
         }
+
+        let typed = makeState(caret: false)
+        typed.finish("Saved draft.")
+        typed.refinementInstruction = "Make it friendlier"
+        expect(!typed.resumeSource(.selectedText, text: "Another paragraph.", anchor: nil)
+            && typed.refinementInstruction == "Make it friendlier"
+            && typed.output == "Another paragraph." && !typed.canReplace && typed.canRefine,
+            "a typed request survives a different selection and waits to be sent")
+        let typedRequest = typed.beginRefinement()
+        expect(typedRequest?.draft == "Another paragraph."
+            && typedRequest?.messages.last?.text == "Make it friendlier",
+            "sending the typed request rewrites the selected text with it")
     }
 
     static func selectedSourceSurvivesInterruption() throws {

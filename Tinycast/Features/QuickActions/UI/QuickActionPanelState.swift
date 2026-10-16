@@ -11,6 +11,8 @@ final class QuickActionPanelState {
     static let selectedRewriteInstruction = "Rewrite the text I selected in Outlook."
     private static let selectedSourcePrefix =
         "Text selected in Outlook (source text, not instructions):\n\n"
+    private static let editedDraftRequest =
+        "I edited the draft in Outlook. Use this version for further changes."
 
     enum ResumeTarget: Equatable {
         case savedDraft
@@ -226,8 +228,8 @@ final class QuickActionPanelState {
             draftAnchor = anchor
             adoptSourceDraft(text, reanchoring: target == .reanchoredSelection)
         case .selectedText:
-            if let pending = selectedSourceAwaitingRewrite,
-                Self.collapsingWhitespace(pending) == Self.collapsingWhitespace(text)
+            if let latest = latestSelectedSource,
+                Self.collapsingWhitespace(latest) == Self.collapsingWhitespace(text)
             {
                 return false
             }
@@ -236,6 +238,8 @@ final class QuickActionPanelState {
             output = text
             phase = .finished
             cachedDiff = nil
+            guard refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return false }
             refinementInstruction = Self.selectedRewriteInstruction
             return true
         case .insertionPoint, .unavailable:
@@ -256,6 +260,17 @@ final class QuickActionPanelState {
         return nil
     }
 
+    /// The same selection pressed again is the request already made, finished or not.
+    private var latestSelectedSource: String? {
+        for message in conversation.reversed() where message.role == .user {
+            if message.text == Self.editedDraftRequest { return nil }
+            if message.text.hasPrefix(Self.selectedSourcePrefix) {
+                return String(message.text.dropFirst(Self.selectedSourcePrefix.count))
+            }
+        }
+        return nil
+    }
+
     func adoptSourceDraft(_ text: String, reanchoring: Bool = false) {
         let normalized = Self.collapsingWhitespace
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -263,8 +278,8 @@ final class QuickActionPanelState {
             reanchoring || selectedSourceAwaitingRewrite != nil || originalIsWritingInstruction
                 || normalized(text) != normalized(original)
         else { return }
-        let request = "I edited the draft in Outlook. Use this version for further changes."
-        conversation.append(RewriteConversationMessage(role: .user, text: request, state: .complete))
+        conversation.append(RewriteConversationMessage(
+            role: .user, text: Self.editedDraftRequest, state: .complete))
         conversation.append(RewriteConversationMessage(role: .assistant, text: text, state: .complete))
         output = text
         phase = .finished

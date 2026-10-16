@@ -129,7 +129,8 @@ selectable Markdown renderer with AI Chat.
   save rewrites it. Running Composer again on the same Outlook email restores its transcript. When
   no rewrite is pending, a press targeting its saved draft or an outside caret restores the latest
   completed draft without another model request; selecting different text starts a rewrite in that
-  conversation.
+  conversation. Selecting the text it last rewrote again restores that rewrite, and an unsent typed
+  request stays in the field to send instead of the automatic one.
   Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. The context identity uses the subject
   and quoted thread, or the native editor identity when no thread exists; recipient order and
