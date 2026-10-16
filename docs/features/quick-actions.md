@@ -348,8 +348,8 @@ restored from history instead, so its captured body is never stale.
 Composer opens centered over the visible source editor, using bounds captured before its panel opens.
 `ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
 This geometry-only read also works with Outlook context disabled. A note centers it over the note
-window and never reads Outlook context or history, even with Outlook frontmost. `ComposerPanelPlacement` chooses
-the source display and keeps the panel clear of its edges. Other Quick Actions open near the pointer.
+window and never reads Outlook context or history, even with Outlook frontmost.
+`ComposerPanelPlacement` chooses the source display and keeps the panel clear of its edges. Other Quick Actions open near the pointer.
 Resizing uses the panel's current display, so moving the pointer cannot move Composer to another screen.
 
 Click-away dismisses like every other borderless surface. The panel is anchored by its **top-left**
