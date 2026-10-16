@@ -103,29 +103,39 @@ final class RewriteHistoryStore {
         selection: String, context: QuickActionContext?
     ) -> RewriteHistoryRecord? {
         prune()
+        guard let context, let identity = context.historyIdentity else { return nil }
         let selected = Self.normalized(selection)
         let matches = records.filter {
             Self.matches($0, selection: selected, context: context)
         }
-        guard let preferred = matches.max(by: Self.prefersSecond) else { return nil }
-        guard let context, let identity = context.historyIdentity else { return preferred }
+        let editor = context.documentIdentity
+        let sameEditor = matches.filter { editor != nil && $0.editorIdentity == editor }
+        let candidates = sameEditor.isEmpty
+            ? matches.filter { Self.mayFollow($0, into: context) } : sameEditor
+        guard let preferred = candidates.max(by: Self.prefersSecond) else { return nil }
 
         let resumed = RewriteHistoryRecord(
             id: preferred.id, createdAt: preferred.createdAt, updatedAt: preferred.updatedAt,
             subject: context.subject ?? preferred.subject,
             recipient: context.recipient ?? preferred.recipient,
             contextIdentity: identity, contextFingerprints: context.historyFingerprints,
+            editorIdentity: editor ?? preferred.editorIdentity,
             original: preferred.original,
             messages: preferred.messages,
             pendingInstruction: preferred.pendingInstruction,
             originalIsWritingInstruction: preferred.originalIsWritingInstruction,
             draftAnchor: preferred.draftAnchor,
             audienceOverride: preferred.audienceOverride)
-        guard matches.count > 1 || preferred.contextIdentity != identity else { return resumed }
-
-        var updated = records.filter { record in
-            !matches.contains { $0.id == record.id }
+        // Another editor's row, or one found only through a shared quote, may be a separate reply.
+        let duplicates = candidates.filter { record in
+            record.id != preferred.id
+                && (record.editorIdentity == nil || record.editorIdentity == editor)
+                && (record.contextIdentity == nil || record.contextIdentity == identity)
         }
+        guard !duplicates.isEmpty || resumed != preferred else { return resumed }
+
+        let replaced = Set(duplicates.map(\.id)).union([preferred.id])
+        var updated = records.filter { !replaced.contains($0.id) }
         updated.append(resumed)
         updated = Self.retained(updated, now: now())
         guard persist(updated) else { return preferred }
@@ -177,12 +187,19 @@ final class RewriteHistoryStore {
 
     private static let stagedPrefix = ".rewrite-history-"
 
-    /// A crash between staging and the rename leaves a sealed copy that no later write replaces.
+    private static let stagedFileLifetime: TimeInterval = 60 * 60
+
+    /// Only an old one is abandoned: a fresh one may be another instance's save in flight.
     private func removeStagedFiles() {
         let directory = fileURL.deletingLastPathComponent()
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         for name in names where name.hasPrefix(Self.stagedPrefix) {
-            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            let staged = directory.appendingPathComponent(name)
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: staged.path),
+                let written = attributes[.modificationDate] as? Date,
+                now().timeIntervalSince(written) > Self.stagedFileLifetime
+            else { continue }
+            try? FileManager.default.removeItem(at: staged)
         }
     }
 
@@ -231,6 +248,27 @@ final class RewriteHistoryStore {
             return sharesThread(record, context: context) && sameSubject(record, context: context)
         }
         return contentMatches && sameEnvelope(record, context: context)
+    }
+
+    /// Two replies quoting the same messages are told apart only by whom each one addresses.
+    private static func mayFollow(
+        _ record: RewriteHistoryRecord, into context: QuickActionContext
+    ) -> Bool {
+        let fingerprints = Set(context.historyFingerprints)
+        let sameSnapshot = record.contextIdentity == context.historyIdentity
+            || (!fingerprints.isEmpty && Set(record.contextFingerprints ?? []) == fingerprints)
+        guard sameSnapshot, let stored = addresses(in: record.recipient),
+            let current = addresses(in: context.recipient)
+        else { return true }
+        return stored == current
+    }
+
+    /// Nil unless every recipient was read, so a partial capture never splits a conversation.
+    private static func addresses(in recipient: String?) -> Set<String>? {
+        guard let recipient, EmailAddressPattern.recipientDomains(in: recipient) != nil else {
+            return nil
+        }
+        return Set(EmailAddressPattern.matches(in: recipient).map { recipient[$0.range].lowercased() })
     }
 
     private static func sharesThread(

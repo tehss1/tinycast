@@ -34,6 +34,7 @@ final class QuickActionPanelState {
     private let historyRecipient: String?
     private let historyContextIdentity: String?
     private let historyContextFingerprints: [String]
+    private let historyEditorIdentity: String?
     private(set) var output = ""
     private(set) var phase: Phase = .running
     private(set) var conversation: [RewriteConversationMessage] = []
@@ -135,6 +136,7 @@ final class QuickActionPanelState {
         historyRecipient = context?.recipient
         historyContextIdentity = context?.historyIdentity
         historyContextFingerprints = context?.historyFingerprints ?? []
+        historyEditorIdentity = context?.documentIdentity
         if awaitsWritingInstruction { phase = .awaitingInstruction }
     }
 
@@ -154,6 +156,7 @@ final class QuickActionPanelState {
         historyRecipient = context?.recipient ?? record.recipient
         historyContextIdentity = context?.historyIdentity ?? record.contextIdentity
         historyContextFingerprints = context?.historyFingerprints ?? record.contextFingerprints ?? []
+        historyEditorIdentity = context?.documentIdentity ?? record.editorIdentity
         output = restoredOutput
         conversation = record.messages
         refinementInstruction = record.pendingInstruction ?? ""
@@ -182,15 +185,16 @@ final class QuickActionPanelState {
         return .failed(failure?.text ?? "No draft was generated. Retry to send the text again.")
     }
 
-    func adoptSourceDraft(_ text: String) {
+    func adoptSourceDraft(_ text: String, selectedElsewhere: Bool = false) {
         let normalized = Self.collapsingWhitespace
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             normalized(text) != normalized(output),
             originalIsWritingInstruction || normalized(text) != normalized(original)
         else { return }
-        conversation.append(RewriteConversationMessage(
-            role: .user, text: "I edited the draft in Outlook. Use this version for further changes.",
-            state: .complete))
+        let request = selectedElsewhere
+            ? "I selected other text in Outlook. Use this text for further changes."
+            : "I edited the draft in Outlook. Use this version for further changes."
+        conversation.append(RewriteConversationMessage(role: .user, text: request, state: .complete))
         conversation.append(RewriteConversationMessage(role: .assistant, text: text, state: .complete))
         output = text
         phase = .finished
@@ -324,7 +328,8 @@ final class QuickActionPanelState {
             id: historyID, createdAt: createdAt, updatedAt: now,
             subject: historySubject, recipient: historyRecipient,
             contextIdentity: historyContextIdentity,
-            contextFingerprints: historyContextFingerprints, original: original,
+            contextFingerprints: historyContextFingerprints,
+            editorIdentity: historyEditorIdentity, original: original,
             messages: conversation,
             pendingInstruction: submittedInstruction
                 ?? (refinementInstruction.isEmpty ? nil : refinementInstruction),

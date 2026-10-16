@@ -462,13 +462,17 @@ final class QuickActionCoordinator {
             let record = history.resumableRecord(selection: selection, context: context),
             let capture
         {
+            capture.target.restore(record, insertsAtCaret: input == .insertionPoint)
             let state = QuickActionPanelState(
                 restoring: record, context: context, targetLanguage: targetLanguage,
-                insertsAtCaret: input == .insertionPoint)
-            capture.target.restore(record, insertsAtCaret: state.insertsAtCaret)
-            state.draftAnchor = capture.target.anchor
+                insertsAtCaret: capture.target.replacementRange.map { $0.length == 0 }
+                    ?? (input == .insertionPoint))
+            let savedDraft = record.draftAnchor?.rangePreservingTrailingLineBreaks(
+                in: capture.target.body)
             if let draft = capture.target.draft {
-                state.adoptSourceDraft(draft)
+                let targetsSavedDraft = savedDraft == capture.target.replacementRange
+                if targetsSavedDraft { state.draftAnchor = capture.target.anchor }
+                state.adoptSourceDraft(draft, selectedElsewhere: !targetsSavedDraft)
             } else {
                 state.replacementIssue =
                     "Select the draft in Outlook and reopen Composer to replace it."
@@ -560,9 +564,18 @@ final class QuickActionCoordinator {
         guard !previewing else { return try await generate(state, streaming: true) }
         let owner = generation
         progressOwner = owner
-        core.showProgress(state.action.progressTitle, onCancel: { [weak self] in self?.cancel() })
+        core.showProgress(
+            state.action.progressTitle,
+            onCancel: { [weak self] in self?.cancelProgress(ownedBy: owner) })
         defer { hideProgress(ownedBy: owner) }
         return try await generate(state, streaming: false)
+    }
+
+    /// The pill stops only its own action, so a dismissed Composer conversation stays reopenable.
+    private func cancelProgress(ownedBy owner: Int) {
+        guard progressOwner == owner else { return }
+        halt()
+        hideProgress(ownedBy: owner)
     }
 
     private func hideProgress(ownedBy owner: Int?) {
@@ -595,7 +608,8 @@ final class QuickActionCoordinator {
     /// A replacement that never lands would otherwise lose the reply, so the clipboard keeps it.
     private func deliver(
         _ text: String, to target: Target, action: QuickAction,
-        textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false
+        textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
+        onDelivered delivered: @escaping @MainActor () -> Void = {}
     ) {
         let deliveredText = QuickActionOutput.preparedForDelivery(
             text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
@@ -618,7 +632,10 @@ final class QuickActionCoordinator {
         injector.replaceSelection(
             with: deliveredText, in: target.app,
             prepareTarget: { textTarget?.prepare(in: target.app) ?? true },
-            onDelivered: { [weak self] in self?.core.showMessage("\(action.title) applied") },
+            onDelivered: { [weak self] in
+                delivered()
+                self?.core.showMessage("\(action.title) applied")
+            },
             onFailed: { [weak self] in
                 Paster.copyPlainText(deliveredText)
                 self?.core.showMessage(
@@ -663,8 +680,19 @@ final class QuickActionCoordinator {
                 if state === activeComposer { forgetComposer() }
                 deliver(
                     text, to: target, action: state.action, textTarget: target.text,
-                    insertsAtCaret: state.insertsAtCaret)
+                    insertsAtCaret: state.insertsAtCaret,
+                    onDelivered: { [weak self] in self?.retarget(state, to: target.text) })
             })
+    }
+
+    /// A resumed conversation keeps its saved draft boundary until a draft lands somewhere else.
+    private func retarget(_ state: QuickActionPanelState, to textTarget: ComposerTextTarget?) {
+        guard state.action == .rewrite, let anchor = textTarget?.anchor, anchor != state.draftAnchor
+        else { return }
+        state.draftAnchor = anchor
+        let saved = history.records.first { $0.id == state.historyID }?.updatedAt
+        guard let record = state.historyRecord(now: saved ?? Date()) else { return }
+        if !history.save(record) { reportHistoryFailure() }
     }
 
     func deleteComposerConversation(_ id: UUID, from state: QuickActionPanelState) {

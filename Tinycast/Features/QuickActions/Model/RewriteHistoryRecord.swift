@@ -8,6 +8,8 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
     let recipient: String?
     let contextIdentity: String?
     var contextFingerprints: [String]?
+    /// Optional so history written before per-editor matching still decodes.
+    let editorIdentity: String?
     let original: String
     var messages: [RewriteConversationMessage]
     var pendingInstruction: String?
@@ -18,7 +20,8 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
 
     init(
         id: UUID, createdAt: Date, updatedAt: Date, subject: String?, recipient: String?,
-        contextIdentity: String? = nil, contextFingerprints: [String]? = nil, original: String,
+        contextIdentity: String? = nil, contextFingerprints: [String]? = nil,
+        editorIdentity: String? = nil, original: String,
         messages: [RewriteConversationMessage], pendingInstruction: String? = nil,
         originalIsWritingInstruction: Bool? = nil, draftAnchor: ComposerDraftAnchor? = nil,
         audienceOverride: ComposerAudience? = nil
@@ -30,6 +33,7 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
         self.recipient = recipient
         self.contextIdentity = contextIdentity
         self.contextFingerprints = contextFingerprints
+        self.editorIdentity = editorIdentity
         self.original = original
         self.messages = messages
         self.pendingInstruction = pendingInstruction

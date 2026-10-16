@@ -130,10 +130,14 @@ selectable Markdown renderer with AI Chat.
   draft without another model request. Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. The context identity uses the subject
   and quoted thread, or the native editor identity when no thread exists; recipient order and
-  completeness do not affect it. Overlapping quoted messages keep one
-  conversation together when a new reply changes the snapshot. A matched email keeps one conversation. If older records
-  contain duplicates, the first matching run keeps the transcript with the most messages and removes
-  the other rows. Reopening does not extend retention because only a revision updates the record's
+  completeness do not affect it. Overlapping quoted messages keep one conversation together when a
+  new reply changes the snapshot. Each record also remembers its Outlook editor, and that editor's
+  own conversation always wins. Another editor quoting the same messages, such as a reopened draft,
+  continues a conversation unless both fully captured recipient lists differ, so a private reply and
+  a reply-all to one message stay separate. If older records contain duplicates for the same editor,
+  the first matching run keeps the transcript with the most messages and removes the other rows. A
+  row found only through a shared quote, or owned by another editor, is never removed. Reopening does
+  not extend retention because only a revision updates the record's
   timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
   Typing does not extend retention. In-flight requests remain recoverable until generation succeeds.
   New emails without quoted history match by the native Outlook editor identity and subject.
@@ -284,7 +288,8 @@ which is a closed two-case enum measured once at present time — a growing stre
 
 Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
 Keys go through `sendEvent`: `⌘↵` delivers, `⌘C` copies, `esc` dismisses. Composer labels delivery
-**Replace** when Hyper+R captured selected text and **Insert** when it captured only the caret. In
+**Replace** when Hyper+R captured selected text and **Insert** when it captured only the caret. A
+resumed Outlook conversation names its effective target instead, described under delivery below. In
 caret-first Composer, `↵` submits the first writing request. When that first field is blank and the
 captured context includes a quoted email message, `↵` visibly adds a context-only request and drafts
 the reply without another instruction. A subject and recipient alone are not enough. After a draft
@@ -423,12 +428,14 @@ process with identical non-empty selected text. Caret insertion requires the ori
 range; a field that reports neither is held to focus alone. An app that exposes no focused element
 cannot be checked, so activation is its only guard.
 
-When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
-Outlook edits become a new draft in the conversation and supply the starting text for further changes.
-If the surrounding text changed or no saved boundary exists, an explicit selection supplies the range.
-For a caret-triggered Insert, the captured caret remains the target even if a saved draft boundary
-has gone stale. Without a matching boundary or fresh selection, Replace is disabled with a request
-to select the draft and reopen Composer.
+When Composer resumes a saved email, the boundary fingerprints locate its current draft, and the
+press decides the target. Selecting that draft, or placing the caret inside it or at its edges,
+targets the whole draft. Manual Outlook edits become a new draft in the conversation and supply the
+starting text for further changes. A different selection targets that text instead and joins the
+conversation as the text to work on. A caret anywhere else inserts there, including when the saved
+boundary has gone stale. The button says **Replace** or **Insert** by that effective target, and the
+saved boundary moves only once a draft lands somewhere else. A selected-text press without a usable
+range disables Replace with a request to select the draft and reopen Composer.
 
 ### Manual sweep
 
@@ -472,6 +479,8 @@ to select the draft and reopen Composer.
   one line: the whole result lands, not its first four characters.
 - Replace mode, with a slow route selected: the message pill says `Fixing Grammar…` with a blue
   spinner while the model works, and the result message takes its place.
+- Dismiss a finished Composer conversation in TextEdit, run Fix Grammar in Replace mode in another
+  document and cancel it from the pill. Confirm the Composer conversation still reopens from its field.
 - Run one from the launcher (⌘Space → "Fix Grammar") with text selected behind it: the palette
   closes and the selection in the displaced app is what gets acted on, not Tinycast's own field.
 - Uncheck an action's launcher checkbox: the row leaves ⌘Space, and its shortcut still works.
@@ -512,6 +521,14 @@ to select the draft and reopen Composer.
 - Dismiss Composer, navigate to another message, then return to the same Outlook email and run Composer
   again. Confirm the saved transcript and latest draft reopen without generating a new first draft.
   If the sidebar contained duplicate rows for that email, confirm they collapse into one conversation.
+- In an Outlook reply, select a paragraph, run Composer and Replace. Select a different paragraph and
+  run Composer again: confirm the same conversation opens with that paragraph as the text to work on,
+  the button says Replace, and only that paragraph changes. Place the caret outside both and confirm
+  the button says Insert and the draft lands at the caret; place it inside the first draft and
+  confirm the button says Replace and that draft is replaced.
+- Run Composer in a private reply to one person, then open Reply All to the same message and run
+  Composer. Confirm a new conversation starts, both stay in the sidebar, and each editor reopens its
+  own.
 - Type an unfinished refinement, dismiss Composer, then return to the same email. Confirm the input
   reappears, submit it, dismiss again, and confirm the field reopens empty.
 - Right-click a saved Composer conversation and choose Delete Conversation. Confirm it disappears
@@ -530,5 +547,6 @@ to select the draft and reopen Composer.
 - Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
   seven-day Composer history, preview choices, routes and their repair),
   `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, which
-  conversations reopen, scoped history matching and newest quoted messages), and
+  conversations reopen, resumed delivery targets, scoped history matching, separate replies to one
+  message and newest quoted messages), and
   `text-diff-test` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).

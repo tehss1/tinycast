@@ -21,6 +21,7 @@ struct ComposerTests {
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
         deliveryLabelMatchesInvocation()
+        resumedTargetFollowsThePress()
         blankInitialRequestUsesEmailContext()
         firstFailureCanRetry()
         stopKeepsCompletedDraft()
@@ -32,6 +33,7 @@ struct ComposerTests {
         try historyStorageRecoversValidRecords()
         try historyKeyIsLazyAndWritesArePrivate()
         try updatedThreadKeepsConversation()
+        try separateRepliesKeepSeparateConversations()
         newestQuoteIsIncluded()
         localizedQuoteIsIncluded()
         allRecipientsAreCaptured()
@@ -211,6 +213,59 @@ struct ComposerTests {
             "a resumed conversation keeps the action from the current caret invocation")
         expect(restoredFromSelection.deliveryActionTitle == "Replace",
             "a resumed conversation keeps the action from the current selection invocation")
+    }
+
+    static func resumedTargetFollowsThePress() {
+        let prefix = "Hi,\n\n"
+        let draft = "Saved draft."
+        let other = "Another paragraph."
+        let body = prefix + draft + "\n\n" + other + "\n\nSignature"
+        let draftRange = NSRange(location: prefix.utf16.count, length: draft.utf16.count)
+        let otherRange = NSRange(
+            location: (prefix + draft + "\n\n").utf16.count, length: other.utf16.count)
+        let anchor = ComposerDraftAnchor(body: body, range: draftRange)
+        func restored(_ range: NSRange, caret: Bool) -> NSRange? {
+            ComposerDraftAnchor.restoredRange(
+                in: body, anchor: anchor, selectedRange: range, insertsAtCaret: caret)
+        }
+        expect(restored(otherRange, caret: false) == otherRange,
+            "a different selection wins over a valid saved draft boundary")
+        expect(restored(NSRange(location: draftRange.location, length: draftRange.length + 1),
+            caret: false) == draftRange,
+            "reselecting the saved draft with its line break keeps the saved boundary")
+        expect(restored(NSRange(location: draftRange.location + 3, length: 0), caret: true)
+            == draftRange, "a caret inside the saved draft targets the whole draft")
+        for edge in [draftRange.location, NSMaxRange(draftRange)] {
+            expect(restored(NSRange(location: edge, length: 0), caret: true) == draftRange,
+                "a caret at either edge of the saved draft targets the whole draft")
+        }
+        let outside = NSRange(location: otherRange.location + 2, length: 0)
+        expect(restored(outside, caret: true) == outside,
+            "a caret outside the saved draft inserts where it was pressed")
+        expect(restored(outside, caret: false) == nil,
+            "a selected-text press that reports only a caret outside the draft replaces nothing")
+
+        let record = makeState().historyRecord()!
+        let presses: [(NSRange, String)] = [
+            (outside, "Insert"),
+            (NSRange(location: draftRange.location + 3, length: 0), "Replace"),
+            (otherRange, "Replace"),
+        ]
+        for (press, title) in presses {
+            let target = restored(press, caret: press.length == 0)
+            let state = QuickActionPanelState(
+                restoring: record, context: nil, targetLanguage: Locale.Language(identifier: "en"),
+                insertsAtCaret: target.map { $0.length == 0 } ?? (press.length == 0))
+            expect(state.deliveryActionTitle == title,
+                "a resumed conversation names the delivery its effective target will perform")
+        }
+
+        let selected = makeState(caret: false)
+        selected.finish("Saved draft.")
+        selected.adoptSourceDraft(other, selectedElsewhere: true)
+        expect(selected.output == other
+            && selected.conversation.dropLast().last?.text.contains("selected other text") == true,
+            "a different selection joins the conversation as the text to work on")
     }
 
     static func blankInitialRequestUsesEmailContext() {
@@ -546,6 +601,60 @@ struct ComposerTests {
             "the same envelope without a shared message does not merge conversations")
     }
 
+    static func separateRepliesKeepSeparateConversations() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerSeparateReplies-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
+        let quoted = "From: Alice\nCan we move the launch?"
+        func context(
+            _ recipient: String, editor: String, newer: String = ""
+        ) -> QuickActionContext {
+            QuickActionContext(recipient: recipient, subject: "RE: Launch",
+                recentThread: newer + quoted, documentIdentity: editor)
+        }
+        func conversation(
+            _ context: QuickActionContext, draft: String, turns: Int
+        ) -> QuickActionPanelState {
+            let state = QuickActionPanelState(
+                action: .rewrite, original: "", context: context,
+                targetLanguage: Locale.Language(identifier: "en"), awaitsWritingInstruction: true)
+            for turn in 0..<turns {
+                state.refinementInstruction = "Request \(turn)"
+                if turn == 0 { _ = state.beginInitialRewrite() } else { _ = state.beginRefinement() }
+                state.finish("\(draft) \(turn)")
+            }
+            return state
+        }
+        let privateContext = context("Alice <alice@example.com>", editor: "editor-private")
+        let privateReply = conversation(privateContext, draft: "Private", turns: 2)
+        expect(store.save(privateReply.historyRecord()!), "the private reply is saved")
+        expect(privateReply.historyRecord()?.editorIdentity == "editor-private",
+            "a saved conversation remembers its Outlook editor")
+
+        let allContext = context(
+            "Alice <alice@example.com>; Team <team@example.com>", editor: "editor-all")
+        expect(store.resumableRecord(selection: "", context: allContext) == nil,
+            "a reply-all to the same message does not inherit the private reply")
+        let replyAll = conversation(allContext, draft: "Everyone", turns: 1)
+        expect(store.save(replyAll.historyRecord()!), "the reply-all is saved separately")
+        expect(store.resumableRecord(selection: "", context: privateContext)?.id == privateReply.historyID
+            && store.resumableRecord(selection: "", context: allContext)?.id == replyAll.historyID,
+            "each open reply editor keeps its own conversation")
+        expect(store.records.count == 2, "neither reply's conversation is deleted")
+
+        let reopened = context("Alice <alice@example.com>", editor: "editor-reopened")
+        expect(store.resumableRecord(selection: "", context: reopened)?.id == privateReply.historyID,
+            "a reopened editor for the same people resumes their conversation")
+
+        let newer = context(
+            "Alice <alice@example.com>", editor: "editor-newer", newer: "From: Alice\nAny update?\n")
+        expect(store.resumableRecord(selection: "", context: newer) != nil,
+            "a newer reply in the thread still continues a conversation")
+        expect(Set(store.records.map(\.id)) == [privateReply.historyID, replyAll.historyID],
+            "a match through a shared quote never deletes another reply's conversation")
+    }
+
     static func allRecipientsAreCaptured() {
         let recipients = QuickActionContext.outlookRecipients(from: [
             "\u{fffc}\u{fffc}\u{fffc}", "To:",
@@ -652,11 +761,20 @@ struct ComposerTests {
         let sealed = try AES.GCM.seal(data, using: historyKey).combined!
         try sealed.write(to: file)
         let staged = directory.appendingPathComponent(".rewrite-history-\(UUID().uuidString)")
+        let inFlight = directory.appendingPathComponent(".rewrite-history-\(UUID().uuidString)")
         try sealed.write(to: staged)
+        try sealed.write(to: inFlight)
+        try FileManager.default.setAttributes(
+            [.modificationDate: timestamp.addingTimeInterval(-2 * 60 * 60)], ofItemAtPath: staged.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: timestamp], ofItemAtPath: inFlight.path)
         let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { timestamp })
         store.load()
         expect(!FileManager.default.fileExists(atPath: staged.path),
             "a staged write a crash left behind is removed on load")
+        expect(FileManager.default.fileExists(atPath: inFlight.path),
+            "a fresh staged write may be another instance's save and is kept")
+        try FileManager.default.removeItem(at: inFlight)
         expect(store.records == [record, record],
             "bad records before and between valid records do not discard valid history")
         let preserved = try Data(contentsOf: file)

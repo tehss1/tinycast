@@ -57,6 +57,12 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         guard let range = range(in: body), let selection = Range(range, in: body) else {
             return nil
         }
+        return Self.trimmingTrailingLineBreaks(selection, in: body)
+    }
+
+    private static func trimmingTrailingLineBreaks(
+        _ selection: Range<String.Index>, in body: String
+    ) -> NSRange {
         var end = selection.upperBound
         while end > selection.lowerBound {
             let previous = body.index(before: end)
@@ -66,13 +72,22 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return NSRange(selection.lowerBound..<end, in: body)
     }
 
-    /// A caret invocation always inserts; Replace needs a matched boundary or a fresh selection.
+    /// The saved draft is the target only when the press lands on it; anywhere else wins.
     static func restoredRange(
         in body: String, anchor: ComposerDraftAnchor?, selectedRange: NSRange,
         insertsAtCaret: Bool
     ) -> NSRange? {
-        if let range = anchor?.rangePreservingTrailingLineBreaks(in: body) { return range }
-        guard Range(selectedRange, in: body) != nil else { return nil }
-        return selectedRange.length > 0 || insertsAtCaret ? selectedRange : nil
+        guard let selection = Range(selectedRange, in: body) else { return nil }
+        let draft = anchor?.rangePreservingTrailingLineBreaks(in: body)
+        if !selection.isEmpty {
+            guard let draft, trimmingTrailingLineBreaks(selection, in: body) == draft else {
+                return selectedRange
+            }
+            return draft
+        }
+        guard let draft, let saved = anchor?.range(in: body),
+            saved.location <= selectedRange.location, selectedRange.location <= NSMaxRange(saved)
+        else { return insertsAtCaret ? selectedRange : nil }
+        return draft
     }
 }
