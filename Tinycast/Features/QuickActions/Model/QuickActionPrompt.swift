@@ -409,7 +409,7 @@ enum QuickActionOutput {
         insertsAtCaret: Bool = false, boundaries: ComposerDraftAnchor.TextBoundaries? = nil,
         replacing selection: String = ""
     ) -> String {
-        guard toOutlook else { return keepingLineBreaks(of: selection, around: text) }
+        guard toOutlook else { return keepingEdges(of: selection, around: text) }
         guard action.builtInAction == .rewrite, let boundaries else { return text }
         let formatted = boundaries.coversWholeLines ? outlookParagraphs(in: text) : text
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
@@ -426,14 +426,48 @@ enum QuickActionOutput {
         return withoutTrailingNewlines + String(repeating: "\n", count: max(0, 2 - followingBreaks))
     }
 
-    /// A triple-clicked line includes its line break, and a result without it would join the next
-    /// paragraph. Outlook's range already leaves the selection's breaks in place instead.
-    private static func keepingLineBreaks(of selection: String, around text: String) -> String {
-        let leading = selection.prefix(while: \.isNewline)
-        let trailing = selection.reversed().prefix(while: \.isNewline).reversed()
-        let result = text.trimmingCharacters(in: .newlines)
+    /// A triple-clicked line includes its line break and a double-clicked word its space, and a
+    /// result without them would join its neighbour. Outlook's range leaves them in place instead.
+    private static func keepingEdges(of selection: String, around text: String) -> String {
+        let leading = selection.prefix(while: \.isWhitespace)
+        guard leading.count < selection.count else { return text }
+        let trailing = selection.reversed().prefix(while: \.isWhitespace).reversed()
+        let result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !leading.isEmpty || !trailing.isEmpty, !result.isEmpty else { return text }
-        return leading + result + String(trailing)
+        // The selection's indentation suits a one-line reply; a longer one keeps its own, so
+        // the first line still lines up with the rest.
+        let indentSource = result.contains(where: \.isNewline)
+            ? text.prefix(while: \.isWhitespace) : leading
+        return lineBreaks(in: leading) + indentation(in: indentSource) + result + String(trailing)
+    }
+
+    private static func lineBreaks(in leading: Substring) -> Substring {
+        leading.lastIndex(where: \.isNewline).map { leading[...$0] } ?? ""
+    }
+
+    private static func indentation(in leading: Substring) -> Substring {
+        leading.lastIndex(where: \.isNewline).map { leading[leading.index(after: $0)...] } ?? leading
+    }
+
+    /// A result that already starts and ends with the selection's edge whitespace, as Translate's
+    /// unchanged text does, replaces the whole selection; deselecting the edges would double them.
+    static func carriesEdges(of selection: String, in result: String) -> Bool {
+        let leading = String(selection.prefix(while: \.isWhitespace))
+        guard leading.count < selection.count else { return false }
+        let trailing = String(selection.reversed().prefix(while: \.isWhitespace).reversed())
+        guard !leading.isEmpty || !trailing.isEmpty else { return false }
+        return result.hasPrefix(leading) && result.hasSuffix(trailing)
+            && result.count >= leading.count + trailing.count
+    }
+
+    /// The UTF-16 range of `text` at `range` without its edge whitespace, or nil when it has none.
+    static func innerRange(of text: String, at range: NSRange) -> NSRange? {
+        guard range.length == text.utf16.count else { return nil }
+        let leading = text.prefix(while: \.isWhitespace).utf16.count
+        guard leading < range.length else { return nil }
+        let trailing = String(text.reversed().prefix(while: \.isWhitespace)).utf16.count
+        guard leading + trailing > 0 else { return nil }
+        return NSRange(location: range.location + leading, length: range.length - leading - trailing)
     }
 
     private static func outlookParagraphs(in text: String) -> String {

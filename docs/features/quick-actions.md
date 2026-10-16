@@ -184,7 +184,8 @@ selectable Markdown renderer with AI Chat.
   edits only the writing style shared by selected-text rewriting and caret-first composition;
   Fix Grammar and Summarize edit the whole prompt. Saving compares against that editable default
   and changes only the action's instructions and model override; Use Default restores the editable
-  instructions without changing the model. Translate has no editor because no model handles
+  instructions without changing the model. Blank instructions count as the default, so clearing
+  the text never sends a model an empty prompt. Translate has no editor because no model handles
   translation. The same pencil on a custom action opens its editor, which owns the name and glyph
   too.
 - **A custom action never travels in a backup.** Neither the record, its shortcut nor its route, for
@@ -442,13 +443,23 @@ Outlook Composer formats only a target that starts at a line start and ends at a
 caret on an empty line. **Insert** preserves following line breaks and adds one only when none exists.
 A selected-text Replace ending with `Best,` adds only the line breaks needed to reach two before the
 existing signature; reopening and replacing the same draft never adds another blank paragraph.
-A selection's own leading and trailing line breaks are left in Outlook rather than replaced, since
+A selection's own leading and trailing whitespace is left in Outlook rather than replaced, since
 Outlook drops a pasted trailing line break and a triple-clicked paragraph would lose its blank line.
-Other apps replace the selection itself, so every Quick Action hands its leading and trailing line
-breaks back around the result; a selection without them gets the result as the provider wrote it.
+Composer's Outlook capture already leaves it out of the replaced range; every other Outlook delivery
+(Fix Grammar, Translate, custom actions, Composer without Outlook context) narrows the live
+selection to exclude it just before pasting, and keeps the full selection if Outlook refuses.
+A result that already carries those edges, such as text Translate leaves unchanged, replaces the
+whole selection instead.
+Later checks in the same delivery expect the narrowed selection, and a delivery that fails before
+anything lands selects the original range again.
+Other apps replace the selection itself, so every Quick Action hands its leading and trailing
+whitespace (line breaks, and the space a double-clicked word carries) back around the result; a
+selection without any gets the result as the provider wrote it. The selection's indentation goes
+back only on a one-line result; a multi-line result keeps its own, so its lines stay aligned. A note decides this by the note,
+not by the app behind it.
 A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
 Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,
-apps and Quick Actions keep the provider's output unchanged apart from those edge line breaks. Completion strips a leading
+apps and Quick Actions keep the provider's output unchanged apart from that edge whitespace. Completion strips a leading
 model-generated subject only when the source did not already begin with a subject line.
 
 With Outlook context enabled, `ComposerTextTarget` verifies the captured editor and body inside the

@@ -337,6 +337,14 @@ struct QuickActionTests {
         expect(
             settings.instructionOverride(for: BuiltInQuickAction.translate) == nil,
             "Translate cannot persist model instructions")
+        settings.setInstructionOverride(" \n", for: .fixGrammar)
+        expect(
+            settings.instructionOverride(for: BuiltInQuickAction.fixGrammar) == nil
+                && QuickActionPrompt.instructions(
+                    for: BuiltInQuickAction.fixGrammar,
+                    override: settings.instructionOverride(for: BuiltInQuickAction.fixGrammar))
+                    .contains("Correct spelling"),
+            "cleared instructions fall back to the default rather than sending an empty prompt")
     }
 
     static func composerCustomizationsKeepModeBoundaries() {
