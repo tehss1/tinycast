@@ -442,9 +442,11 @@ A selected-text Replace ending with `Best,` adds only the line breaks needed to 
 existing signature; reopening and replacing the same draft never adds another blank paragraph.
 A selection's own leading and trailing line breaks are left in Outlook rather than replaced, since
 Outlook drops a pasted trailing line break and a triple-clicked paragraph would lose its blank line.
+Other apps replace the selection itself, so every Quick Action hands its leading and trailing line
+breaks back around the result; a selection without them gets the result as the provider wrote it.
 A one-line, multi-sentence draft becomes short paragraphs only within those whole-line boundaries.
 Mid-line targets, existing line breaks and lists keep their paragraph structure. Other sign-offs,
-apps and Quick Actions keep the provider's output unchanged. Completion strips a leading
+apps and Quick Actions keep the provider's output unchanged apart from those edge line breaks. Completion strips a leading
 model-generated subject only when the source did not already begin with a subject line.
 
 With Outlook context enabled, `ComposerTextTarget` verifies the captured editor and body inside the

@@ -550,7 +550,8 @@ final class QuickActionCoordinator {
                 return
             }
             deliver(
-                state.output, to: target, action: state.action, textTarget: target.text,
+                state.output, replacing: state.original, to: target, action: state.action,
+                textTarget: target.text,
                 insertsAtCaret: state.insertsAtCaret)
         } catch is CancellationError {
             return
@@ -615,14 +616,14 @@ final class QuickActionCoordinator {
 
     /// A replacement that never lands would otherwise lose the reply, so the clipboard keeps it.
     private func deliver(
-        _ text: String, to target: Target, action: QuickAction,
+        _ text: String, replacing selection: String, to target: Target, action: QuickAction,
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
         onDelivered delivered: @escaping @MainActor () -> Void = {}
     ) {
         let deliveredText = QuickActionOutput.preparedForDelivery(
             text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
             insertsAtCaret: insertsAtCaret,
-            boundaries: textTarget?.textBoundaries)
+            boundaries: textTarget?.textBoundaries, replacing: insertsAtCaret ? "" : selection)
         if let note = target.note {
             guard core.notesCoordinator.editorInput == note.document,
                 note.editor.window?.isVisible == true,
@@ -689,7 +690,8 @@ final class QuickActionCoordinator {
                 guard let self else { return }
                 if state === activeComposer { forgetComposer() }
                 deliver(
-                    text, to: target, action: state.action, textTarget: target.text,
+                    text, replacing: state.original, to: target, action: state.action,
+                    textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret,
                     onDelivered: { [weak self] in self?.retarget(state, to: target.text) })
             })

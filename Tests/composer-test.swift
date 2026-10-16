@@ -21,6 +21,7 @@ struct ComposerTests {
         repeatedDeliveryKeepsSignatureSpacing()
         insertedParagraphSurvivesReplace()
         selectedParagraphKeepsSurroundingBreaks()
+        selectedLineKeepsItsBreaksOutsideOutlook()
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
         openerOnlyReplyFails()
@@ -207,6 +208,32 @@ struct ComposerTests {
                 }
             }
         }
+    }
+
+    /// Outside Outlook the selection itself is replaced, line breaks and all, so they come back.
+    static func selectedLineKeepsItsBreaksOutsideOutlook() {
+        for lineBreak in ["\n", "\r\n"] {
+            let lead = "Hi," + lineBreak + lineBreak
+            let tail = lineBreak + "Thanks" + lineBreak
+            let selection = "the rerun passd and i will check the deploy job tomorow." + lineBreak
+            var body = lead + selection + tail
+            for result in ["The rerun passed. I'll check the deploy job tomorrow.",
+                "The rerun passed. I'll check the deploy job tomorrow.\n"]
+            {
+                let delivery = QuickActionOutput.preparedForDelivery(
+                    result, action: .rewrite, toOutlook: false, replacing: selection)
+                body = lead + selection + tail
+                body.replaceSubrange(body.range(of: selection)!, with: delivery)
+                expect(body == lead + "The rerun passed. I'll check the deploy job tomorrow."
+                    + lineBreak + tail, "a triple-clicked line keeps the blank line below it")
+            }
+        }
+        expect(QuickActionOutput.preparedForDelivery(
+            "Fixed.", action: .rewrite, toOutlook: false, replacing: "\nfixd") == "\nFixed.",
+            "a selection's leading line break comes back too")
+        expect(QuickActionOutput.preparedForDelivery(
+            "Fixed\n", action: .rewrite, toOutlook: false, replacing: "fixd") == "Fixed\n",
+            "a selection without edge line breaks leaves the result as it was")
     }
 
     static func paragraphFormattingRequiresWholeLines() {
