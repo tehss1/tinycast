@@ -64,6 +64,37 @@ enum TextReplacementPolicy {
         expected.replaceSubrange(stringRange, with: insertedText)
         return observedValue == expected
     }
+
+    enum Readback: Equatable {
+        case confirmed
+        case pending
+        case untouched
+        case rejected
+    }
+
+    /// An untouched value soon means the write did nothing; a moving one gets time to settle.
+    static let untouchedReadbackAttempts = 4
+    static let settlingReadbackAttempts = 40
+
+    /// WebKit applies a multi-paragraph write before its `AXValue` reports all of it.
+    static func readback(
+        originalValue: String,
+        replacementRange: NSRange,
+        insertedText: String,
+        observedValue: String?,
+        attempt: Int
+    ) -> Readback {
+        if confirmsReplacement(
+            originalValue: originalValue, replacementRange: replacementRange,
+            insertedText: insertedText, observedValue: observedValue)
+        {
+            return .confirmed
+        }
+        let untouched = observedValue == originalValue
+        let attempts = untouched ? untouchedReadbackAttempts : settlingReadbackAttempts
+        guard attempt + 1 >= attempts else { return .pending }
+        return untouched ? .untouched : .rejected
+    }
 }
 
 @MainActor
@@ -675,17 +706,11 @@ final class TextInjector {
             return .unavailable
         }
 
-        let observed = stringValue(in: target.element)
-        guard
-            TextReplacementPolicy.confirmsReplacement(
-                originalValue: target.value,
-                replacementRange: target.replacementRange,
-                insertedText: injected.text,
-                observedValue: observed)
-        else {
+        let readback = await settledReadback(of: injected, at: target)
+        guard readback == .confirmed else {
             _ = setSelectedRange(target.originalRange, in: target.element)
             // An untouched value is a tier that did nothing; anything else moved text we cannot name.
-            return observed == target.value ? .unavailable : .rejected
+            return readback == .untouched ? .unavailable : .rejected
         }
 
         _ = setSelectedRange(
@@ -694,6 +719,27 @@ final class TextInjector {
             in: target.element)
         return .delivered
     }
+
+    /// Rule 3: the setter's success is not evidence, and neither is a value read mid-layout.
+    private func settledReadback(
+        of injected: InjectedText, at target: AccessibilityTarget
+    ) async -> TextReplacementPolicy.Readback {
+        var attempt = 0
+        while true {
+            let readback = TextReplacementPolicy.readback(
+                originalValue: target.value,
+                replacementRange: target.replacementRange,
+                insertedText: injected.text,
+                observedValue: stringValue(in: target.element),
+                attempt: attempt)
+            guard readback == .pending else { return readback }
+            // Cancelled after the write: whatever landed is no longer something we can describe.
+            guard await wait(for: Self.readbackInterval) else { return .rejected }
+            attempt += 1
+        }
+    }
+
+    private static let readbackInterval = Duration.milliseconds(25)
 
     /// Rule 2: a renderer applies the keystroke before it says so, so a short lag is not a mismatch.
     private func accessibilityTarget(
