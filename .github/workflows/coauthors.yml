@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   check:
+    # Upstream's contribution policy; the fork's own commits keep their AI attribution.
+    if: github.repository == 'abue-ammar/tinycast'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v8
