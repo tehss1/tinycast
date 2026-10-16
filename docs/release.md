@@ -91,6 +91,15 @@ workflow is dispatched. A Release run that then fails or is cancelled opens its 
 token may not push a change under `.github/workflows/`, so a release that carries one stops the same
 way unless the fork has a `SYNC_TOKEN` secret: a token with contents and workflows write access.
 
+A fork that cannot run Actions does the same from a Mac with `./Scripts/release-local.sh`: the
+merge, the tests, lint and a Debug build with no new warnings, a plain push to `main`, then the
+Release workflow's `build` job signed with `Tinycast Self-Signed` from the login keychain. It
+numbers the build one past the highest `-composer.N` release rather than an Actions run, and checks
+that the leaf certificate matches `/Applications/Tinycast.app`. It exits 2 on a conflict, leaving
+the merge on `automation/upstream-sync`; commit the resolution and rerun it from that branch.
+`--dry-run` builds, signs and packages without pushing or publishing, rebuilding `main` when there
+is nothing new.
+
 The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow
 still stamps `abue-ammar/tinycast`, while a fork stamps its own `owner/repository` value. Both paths
