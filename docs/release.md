@@ -95,13 +95,14 @@ token may not push a change under `.github/workflows/`, so a release that carrie
 way unless the fork has a `SYNC_TOKEN` secret: a token with contents and workflows write access.
 
 A fork that cannot run Actions does the same from a Mac with `./Scripts/release-local.sh`: the
-merge, the tests, lint and a Debug build with no new warnings, a plain push to `main`, then the
-Release workflow's `build` job signed with `Tinycast Self-Signed` from the login keychain. It
-numbers the build one past the highest `-composer.N` release rather than an Actions run, and checks
-that the leaf certificate matches `/Applications/Tinycast.app`. It exits 2 on a conflict, leaving
-the merge on `automation/upstream-sync`; commit the resolution and rerun it from that branch.
-`--dry-run` builds, signs and packages without pushing or publishing, rebuilding `main` when there
-is nothing new.
+merge, the Composer retention check, then `verify.yml`'s checks with a Debug build that adds no new
+warnings, a plain push to `main`, then the Release workflow's `build` job signed with
+`Tinycast Self-Signed` from the login keychain. It numbers the build one past the highest
+`-composer.N` release rather than an Actions run, and checks that the leaf certificate matches
+`/Applications/Tinycast.app`. It exits 2 on a conflict, leaving the merge on
+`automation/upstream-sync`; commit the resolution and rerun it from that branch. `--dry-run` builds,
+signs and packages without pushing or publishing, rebuilding `main` when there is nothing new.
+`--release-main` publishes `main`'s own changes when upstream has nothing new.
 
 This fork defaults local builds to `tehss1/tinycast`. The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow

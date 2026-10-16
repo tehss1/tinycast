@@ -1,8 +1,9 @@
 #!/bin/bash
 # Follow the latest official release and publish it as a Composer stable build from this Mac.
-# Usage: ./Scripts/release-local.sh [--dry-run]
+# Usage: ./Scripts/release-local.sh [--dry-run] [--release-main]
 # A local port of sync-upstream.yml and release.yml's `build` job, for a fork without Actions.
 # Exit 0: released, or nothing to do. 1: a step failed. 2: the merge conflicts; it is left in place.
+# --release-main publishes main's own changes when upstream has nothing new.
 set -euo pipefail
 
 FORK_REPO="tehss1/tinycast"
@@ -16,7 +17,11 @@ INSTALLED_APP="/Applications/Tinycast.app"
 GIT_NAME="tehss1"
 GIT_EMAIL="62029692+tehss1@users.noreply.github.com"
 
+# Xcode prints it for a target without App Intents; check-build-warnings.sh allows it too.
+# Xcode 26 ends it "skipped. No AppIntents…", Xcode 27 "skipped, no AppIntents…".
+APP_INTENTS_NOTICE='appintentsmetadataprocessor\[[0-9]+:[0-9]+\] warning: Metadata extraction skipped[.,]'
 DRY_RUN=false
+RELEASE_MAIN=false
 STEP="setup"
 CONFLICT=false
 SCRATCH=""
@@ -80,8 +85,9 @@ debug_build_warnings() {
         show_log "$log"
         return 1
     fi
-    { grep -E ': warning: |^warning: ' "$log" || true; } |
-        sed -E -e "s|${tree}/||g" -e "s|${derived}/||g" -e 's|:[0-9]+:[0-9]+: warning:|: warning:|' |
+    { grep -E 'warning:' "$log" | grep -Ev "$APP_INTENTS_NOTICE" || true; } |
+        sed -E -e "s|${tree}/||g" -e "s|${derived}/||g" -e 's|(:[0-9]+){1,2}: warning:|: warning:|' \
+            -e 's|^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ ||' -e 's|\[[0-9]+:[0-9]+\]||' |
         sort -u
 }
 
@@ -89,7 +95,8 @@ main() {
     for arg in "$@"; do
         case "$arg" in
             --dry-run) DRY_RUN=true ;;
-            *) echo "usage: $0 [--dry-run]" >&2; exit 1 ;;
+            --release-main) RELEASE_MAIN=true ;;
+            *) echo "usage: $0 [--dry-run] [--release-main]" >&2; exit 1 ;;
         esac
     done
 
@@ -104,8 +111,9 @@ main() {
         die "The working tree has uncommitted changes or an unfinished merge"
     fi
     START_BRANCH="$(git branch --show-current)"
-    git fetch --quiet origin
+    git fetch --quiet --tags origin
     select_xcode
+    command -v xcodegen >/dev/null || die "xcodegen not found: brew install xcodegen"
     security find-identity -v -p codesigning | grep -q "\"$IDENTITY\"" ||
         die "'$IDENTITY' is not in the keychain (docs/signing.md)"
     $DRY_RUN && echo "Dry run: nothing will be pushed or published."
@@ -117,18 +125,32 @@ main() {
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Unexpected official release tag '$tag'"
     git fetch --quiet --no-tags "https://github.com/${UPSTREAM_REPO}.git" \
         "refs/tags/${tag}:refs/upstream/${tag}"
-    local releases released=false merged=true
+    # Drafts still claim their number, but only a published release counts as shipped.
+    local releases published released=false merged=true
     releases="$(gh release list -R "$FORK_REPO" --limit 1000 --json tagName --jq '.[].tagName')"
-    grep -q "^${tag}-composer\." <<< "$releases" && released=true
+    published="$(gh release list -R "$FORK_REPO" --exclude-drafts --limit 1000 --json tagName \
+        --jq '.[].tagName')"
+    grep -q "^${tag}-composer\." <<< "$published" && released=true
     git merge-base --is-ancestor "refs/upstream/${tag}" origin/main && merged=true || merged=false
     echo "Official release: ${tag} (on main: ${merged}, Composer release exists: ${released})"
 
     if [ "$merged" = true ] && [ "$released" = true ]; then
-        if ! $DRY_RUN; then
+        if $RELEASE_MAIN; then
+            local latest
+            latest="$(grep -E -- '-composer\.[0-9]+$' <<< "$published" |
+                sort -t. -k4,4n | tail -n1)"
+            if [ "$(git rev-parse --quiet --verify "refs/tags/${latest}^{commit}")" = \
+                "$(git rev-parse origin/main)" ] && ! $DRY_RUN; then
+                echo "Nothing to do: main is already released as ${latest}."
+                exit 0
+            fi
+            echo "Nothing new upstream; --release-main publishes the current main (last: ${latest})."
+        elif ! $DRY_RUN; then
             echo "Nothing to do: ${tag} is already on main and released as a Composer build."
             exit 0
+        else
+            echo "Nothing new upstream; the dry run rebuilds the current main instead."
         fi
-        echo "Nothing new upstream; the dry run rebuilds the current main instead."
     fi
 
     step "Merging ${tag} into ${SYNC_BRANCH}"
@@ -154,15 +176,36 @@ main() {
     local sha
     sha="$(git rev-parse HEAD)"
 
+    step "Checking that Composer survived the merge"
+    ./Scripts/check-composer-retention.sh origin/main
+
     SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/tinycast-release.XXXXXX")"
     SCRATCH="$(cd "$SCRATCH" && pwd -P)"
     echo "Scratch directory: $SCRATCH"
+
+    step "Checking the generated Xcode project is committed"
+    xcodegen generate --quiet
+    if ! git diff --quiet -- Tinycast.xcodeproj; then
+        git diff --stat -- Tinycast.xcodeproj >&2
+        git checkout -- Tinycast.xcodeproj
+        die "Tinycast.xcodeproj differs from what project.yml generates"
+    fi
+    echo "✓ Tinycast.xcodeproj matches project.yml"
+
+    step "Checking Composer retention and release fixtures"
+    ./Tests/release-pipeline-test.sh
 
     step "Running the test suite"
     ./Scripts/run-tests.sh
 
     step "Linting"
     ./Scripts/lint.sh
+
+    step "Checking model imports"
+    if grep -rln 'import AppKit\|import SwiftUI\|import Cocoa' Tinycast/Features/*/Model/; then
+        die "A Model layer imports a UI framework"
+    fi
+    echo "✓ No Model layer imports AppKit, SwiftUI or Cocoa"
 
     step "Building Debug with no new warnings"
     local warnings baseline_warnings new_warnings
@@ -194,15 +237,19 @@ main() {
 
     # N goes one past every Composer build ever published, whatever its base version.
     step "Computing release metadata"
-    local build_number version full_version release_tag dmg_file zip_file
+    local build_number full_version release_tag dmg_file zip_file meta="$SCRATCH/metadata"
     build_number="$(grep -oE -- '-composer\.[0-9]+$' <<< "$releases" | cut -d. -f2 | sort -n |
         tail -n1)"
     build_number=$((${build_number:-0} + 1))
-    version="${tag#v}"
-    full_version="${version}-composer.${build_number}"
+    GITHUB_RUN_NUMBER="$build_number" GITHUB_REPOSITORY="$FORK_REPO" CHANNEL=stable \
+        BASE_VERSION="${tag#v}" ./Scripts/release-metadata.sh "$meta"
+    full_version="$(sed -n 's/^full_version=//p' "$meta")"
+    dmg_file="$(sed -n 's/^dmg_file=//p' "$meta")"
+    zip_file="$(sed -n 's/^zip_file=//p' "$meta")"
+    [ "$(sed -n 's/^display_name=//p' "$meta")" = "$DISPLAY_NAME" ] &&
+        [ "$(sed -n 's/^bundle_id=//p' "$meta")" = "$BUNDLE_ID" ] ||
+        die "release-metadata.sh no longer describes the ${DISPLAY_NAME} stable channel"
     release_tag="v${full_version}"
-    dmg_file="Tinycast-${full_version}.dmg"
-    zip_file="Tinycast-${full_version}.zip"
     if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null; then
         die "Tag ${release_tag} already exists on origin"
     fi
