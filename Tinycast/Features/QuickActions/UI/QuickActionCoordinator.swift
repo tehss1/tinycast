@@ -651,11 +651,12 @@ final class QuickActionCoordinator {
             return
         }
         let verb = insertsAtCaret ? "insert" : "replace"
+        let excludesEdges = toOutlook && !insertsAtCaret
+            && !QuickActionOutput.carriesEdges(of: selection, in: deliveredText)
         injector.replaceSelection(
             with: deliveredText, in: target.app,
             prepareTarget: {
-                textTarget?.prepare(
-                    in: target.app, excludingSelectionEdges: toOutlook && !insertsAtCaret) ?? true
+                textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
             },
             onDelivered: { [weak self] in
                 delivered()

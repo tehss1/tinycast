@@ -410,11 +410,7 @@ enum QuickActionOutput {
         replacing selection: String = ""
     ) -> String {
         guard toOutlook else { return keepingEdges(of: selection, around: text) }
-        // Outlook delivery deselects the selection's edges, so a result keeping its own (as
-        // Translate's unchanged text does) would double them.
-        guard action.builtInAction == .rewrite, let boundaries else {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        guard action.builtInAction == .rewrite, let boundaries else { return text }
         let formatted = boundaries.coversWholeLines ? outlookParagraphs(in: text) : text
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
         let followingBreaks = boundaries.followingLineBreakCount
@@ -451,6 +447,17 @@ enum QuickActionOutput {
 
     private static func indentation(in leading: Substring) -> Substring {
         leading.lastIndex(where: \.isNewline).map { leading[leading.index(after: $0)...] } ?? leading
+    }
+
+    /// A result that already starts and ends with the selection's edge whitespace, as Translate's
+    /// unchanged text does, replaces the whole selection; deselecting the edges would double them.
+    static func carriesEdges(of selection: String, in result: String) -> Bool {
+        let leading = String(selection.prefix(while: \.isWhitespace))
+        guard leading.count < selection.count else { return false }
+        let trailing = String(selection.reversed().prefix(while: \.isWhitespace).reversed())
+        guard !leading.isEmpty || !trailing.isEmpty else { return false }
+        return result.hasPrefix(leading) && result.hasSuffix(trailing)
+            && result.count >= leading.count + trailing.count
     }
 
     /// The UTF-16 range of `text` at `range` without its edge whitespace, or nil when it has none.

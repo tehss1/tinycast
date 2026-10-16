@@ -253,9 +253,13 @@ struct ComposerTests {
         expect(QuickActionOutput.preparedForDelivery(
             unchanged, action: .translate, toOutlook: false, replacing: unchanged) == unchanged,
             "text Translate leaves alone comes back exactly, indentation included")
-        expect(QuickActionOutput.preparedForDelivery(
-            "Hello ", action: .translate, toOutlook: true, replacing: "Hello ") == "Hello",
-            "Outlook, which keeps the deselected space, gets the result without its own")
+        expect(QuickActionOutput.carriesEdges(of: "Hello ", in: "Hello ")
+            && QuickActionOutput.carriesEdges(of: unchanged, in: unchanged),
+            "Outlook replaces the whole selection with a result that kept its edges")
+        expect(!QuickActionOutput.carriesEdges(of: "Hello ", in: "Bonjour")
+            && !QuickActionOutput.carriesEdges(of: "Hello", in: "Bonjour")
+            && !QuickActionOutput.carriesEdges(of: "  ", in: "  "),
+            "a trimmed result, or a selection without edges, is left to deselection")
         let range = NSRange(location: 10, length: 0)
         for (selection, inner) in [
             ("Brokn para.\n", NSRange(location: 10, length: 11)),

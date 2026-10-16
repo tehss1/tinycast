@@ -448,6 +448,8 @@ Outlook drops a pasted trailing line break and a triple-clicked paragraph would 
 Composer's Outlook capture already leaves it out of the replaced range; every other Outlook delivery
 (Fix Grammar, Translate, custom actions, Composer without Outlook context) narrows the live
 selection to exclude it just before pasting, and keeps the full selection if Outlook refuses.
+A result that already carries those edges, such as text Translate leaves unchanged, replaces the
+whole selection instead.
 Later checks in the same delivery expect the narrowed selection, and a delivery that fails before
 anything lands selects the original range again.
 Other apps replace the selection itself, so every Quick Action hands its leading and trailing
