@@ -110,7 +110,8 @@ anything a day old on the next run, since a run killed mid-flight leaves its tre
 `settings-backup-test` asserts that every `AppSettingsKey` appears in exactly one table, that no field
 claims a key twice, that every exclusion names a real key and carries a non-empty reason, and that each
 capability-granting key — `snippetsEnabled`, `extensionsEnabled`, `calendarEnabled`,
-`autoJoinMeetings`, `cameraPreview`, `quickActionsEnabled` — is named individually as excluded. The
+`autoJoinMeetings`, `cameraPreview`, `quickActionsEnabled`, `quickActionOutlookContext` — is named
+individually as excluded. `quickActionInternalDomains` is named too, though it grants nothing. The
 duplication between `AppSettings` and this file is the point: it forces a decision about every new
 setting rather than defaulting it into a backup.
 

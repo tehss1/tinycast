@@ -58,9 +58,9 @@ private enum CapsLockRemap {
         queue.async { apply(mapping) }
     }
 
-    /// Synchronous variant for `applicationWillTerminate`, where detached work wouldn't get to run.
+    /// Synchronous for `applicationWillTerminate`, and queued so no pending toggle lands after it.
     static func clearBlocking() {
-        apply(mappingOff)
+        queue.sync { apply(mappingOff) }
     }
 
     private static func apply(_ mapping: String) {
