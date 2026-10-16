@@ -108,9 +108,18 @@ struct QuickActionHistorySidebar: View {
                 .accessibilityLabel(current ? "Current conversation" : age)
         }
 
+        /// Retention spans seven days, so last Friday's row on a Friday gets its date, not "Fri".
         private var age: String {
-            Calendar.current.isDateInToday(record.updatedAt)
-                ? record.updatedAt.formatted(date: .omitted, time: .shortened)
+            let calendar = Calendar.current
+            if calendar.isDateInToday(record.updatedAt) {
+                return record.updatedAt.formatted(date: .omitted, time: .shortened)
+            }
+            let days = calendar.dateComponents(
+                [.day], from: calendar.startOfDay(for: record.updatedAt),
+                to: calendar.startOfDay(for: Date())
+            ).day ?? 0
+            return days >= 7
+                ? record.updatedAt.formatted(.dateTime.day().month(.abbreviated))
                 : record.updatedAt.formatted(.dateTime.weekday(.abbreviated))
         }
 

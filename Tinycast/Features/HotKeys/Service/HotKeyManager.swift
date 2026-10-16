@@ -82,9 +82,10 @@ final class HotKeyManager {
     private let boundSnippetKey = "boundSnippetIDs"
     private let boundExtensionCommandKey = "boundExtensionCommandEntryIDs"
 
+    /// A nil set is a store that couldn't read its file: its shortcuts are kept, not pruned.
     func start(
-        customCommandIDs: Set<UUID>, quicklinkIDs: Set<UUID>, windowLayoutIDs: Set<UUID>,
-        windowRoomIDs: Set<UUID>, customWindowSizeIDs: Set<UUID>, quickActionIDs: Set<UUID>
+        customCommandIDs: Set<UUID>, quicklinkIDs: Set<UUID>?, windowLayoutIDs: Set<UUID>,
+        windowRoomIDs: Set<UUID>, customWindowSizeIDs: Set<UUID>, quickActionIDs: Set<UUID>?
     ) {
         prune(key: boundCustomCommandKey, live: customCommandIDs) { .customCommand(id: $0) }
         prune(key: boundQuicklinkKey, live: quicklinkIDs) { .quicklink(id: $0) }
@@ -386,7 +387,8 @@ final class HotKeyManager {
     }
 
     /// Drops bindings whose item is gone, deleted while Tinycast wasn't running.
-    private func prune(key: String, live: Set<UUID>, action: (UUID) -> HotKeyAction) {
+    private func prune(key: String, live: Set<UUID>?, action: (UUID) -> HotKeyAction) {
+        guard let live else { return }
         let stored = Set(boundIDs(key: key))
         for id in stored.subtracting(live) {
             UserDefaults.standard.removeObject(forKey: action(id).defaultsKey)

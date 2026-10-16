@@ -126,6 +126,14 @@ struct QuickActionsSettingsView: View {
 
     private var actionsSection: some View {
         Section {
+            if !customActions.isAvailable {
+                Label(
+                    "Custom actions can't be loaded or saved: quick-actions.json couldn't be read. "
+                        + "Its file and their shortcuts are untouched.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
             ForEach(BuiltInQuickAction.allCases, content: builtInRow)
             ForEach(customActions.actions) { action in
                 SettingsRow(title: action.name, subtitle: subtitle(for: .custom(action))) {

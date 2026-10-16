@@ -12,6 +12,8 @@ final class QuicklinkStore {
     private(set) var quicklinks: [Quicklink] = []
     /// False when the database wouldn't open; every mutation then refuses rather than pretends.
     private(set) var isAvailable = false
+    /// False after a read that skipped rows, so nothing treats a missing quicklink as deleted.
+    private(set) var listsEveryQuicklink = true
     var onChange: (([Quicklink]) -> Void)?
 
     private static let schema = """
@@ -60,10 +62,16 @@ final class QuicklinkStore {
     func load() {
         guard let stmt = loadStmt else { return }
         var loaded: [Quicklink] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let row = Self.row(stmt) { loaded.append(row) }
+        var readsEveryRow = true
+        var status = sqlite3_step(stmt)
+        while status == SQLITE_ROW {
+            if let row = Self.row(stmt) { loaded.append(row) } else { readsEveryRow = false }
+            status = sqlite3_step(stmt)
         }
         sqlite3_reset(stmt)
+        listsEveryQuicklink = status == SQLITE_DONE && readsEveryRow
+        // A read that stopped early is not a list with rows deleted, so the last one stands.
+        guard status == SQLITE_DONE else { return }
         quicklinks = loaded.sorted(by: Quicklink.precedes)
     }
 
