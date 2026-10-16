@@ -25,6 +25,7 @@ struct QuickActionTests {
         outlookCaptureReservesFieldReads()
         composerSeparatesRequestsFromContext()
         outlookContextUsesOnlyRecentThread()
+        outlookHistoryIdentityIgnoresRecipientCapture()
         rewriteDeliverySeparatesOutlookSignature()
         composerDeliveryUsesActualBoundaries()
         composerKeepsSourceSubjectsAndDashes()
@@ -40,6 +41,7 @@ struct QuickActionTests {
         customActionsNeverWriteOverWhatTheyCouldNotRead()
         rewriteHistoryKeepsOnlyOneWeek()
         rewriteHistoryFindsTheSameEmail()
+        rewriteHistoryMatchesEarlierContextIdentity()
 
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
@@ -1169,6 +1171,78 @@ struct QuickActionTests {
         expect(
             !FileManager.default.fileExists(atPath: saved.path),
             "history last written over a week ago is deleted even when its key is unavailable")
+    }
+
+    static func outlookHistoryIdentityIgnoresRecipientCapture() {
+        let threads: [String?] = ["From: Client\nCould Tuesday work?", nil]
+        let recipients: [String?] = [
+            "Client <client@example.com>; Alex <alex@example.com>",
+            "Alex <alex@example.com>; Client <client@example.com>",
+            QuickActionContext.outlookRecipients(
+                from: ["Client, client@example.com"], captureComplete: false),
+            nil
+        ]
+        for thread in threads {
+            let context = QuickActionContext(
+                recipient: recipients[0], subject: "Scheduling", recentThread: thread,
+                documentIdentity: "editor-A")
+            expect(context.historyIdentity != nil, "stable email context has a history identity")
+            for recipient in recipients {
+                let recaptured = QuickActionContext(
+                    recipient: recipient, subject: context.subject, recentThread: thread,
+                    documentIdentity: context.documentIdentity)
+                expect(recaptured.historyIdentity == context.historyIdentity,
+                    "recipient order, partial capture and missing recipients preserve the email identity")
+            }
+            let changedSubject = QuickActionContext(
+                recipient: context.recipient, subject: "Another subject", recentThread: thread,
+                documentIdentity: context.documentIdentity)
+            expect(changedSubject.historyIdentity != context.historyIdentity,
+                "the subject remains part of the email identity")
+            let changedEditor = QuickActionContext(
+                recipient: context.recipient, subject: context.subject, recentThread: thread,
+                documentIdentity: "editor-B")
+            expect((changedEditor.historyIdentity == context.historyIdentity) == (thread != nil),
+                "the editor distinguishes new emails while quoted threads survive editor recreation")
+            let changedThread = QuickActionContext(
+                recipient: context.recipient, subject: context.subject,
+                recentThread: "From: Client\nAn unrelated question", documentIdentity: context.documentIdentity)
+            expect(changedThread.historyIdentity != context.historyIdentity,
+                "different quoted threads keep different identities even in the same editor")
+        }
+        let recipientsOnly = QuickActionContext(
+            recipient: "client@example.com", subject: nil, recentThread: nil)
+        expect(recipientsOnly.historyIdentity == nil,
+            "recipients alone cannot identify an email")
+        expect(QuickActionContext(recipient: nil, subject: nil, recentThread: nil).historyIdentity == nil,
+            "an empty context has no history identity")
+    }
+
+    static func rewriteHistoryMatchesEarlierContextIdentity() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RewriteEarlierIdentityTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let context = QuickActionContext(
+            recipient: "Client <client@example.com>", subject: "Scheduling",
+            recentThread: "From: Client\nCould Tuesday work?")
+        let earlierIdentity = TextFingerprint.of([
+            context.recipient ?? "", context.subject ?? "", context.recentThread ?? ""
+        ].joined(separator: "\u{1f}"))
+        let record = RewriteHistoryRecord(
+            id: UUID(), createdAt: Date(), updatedAt: Date(),
+            subject: context.subject, recipient: context.recipient,
+            contextIdentity: earlierIdentity, contextFingerprints: context.historyFingerprints,
+            original: "Offer Tuesday", messages: [
+                RewriteConversationMessage(role: .assistant, text: "Tuesday works.", state: .complete)
+            ])
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
+        expect(earlierIdentity != context.historyIdentity, "earlier recipient-based identities differ")
+        expect(store.save(record), "an earlier identity is saved without rewriting its transcript")
+        let resumed = store.resumableRecord(selection: record.original, context: context)
+        expect(resumed?.id == record.id, "thread overlap restores a record with an earlier identity")
+        expect(resumed?.contextIdentity == context.historyIdentity,
+            "a resumed record adopts the stable identity")
+        expect(resumed?.messages == record.messages, "identity repair preserves the conversation")
     }
 
     static func rewriteHistoryFindsTheSameEmail() {

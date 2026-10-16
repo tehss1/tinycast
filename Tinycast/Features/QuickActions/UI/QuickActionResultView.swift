@@ -503,6 +503,15 @@ struct QuickActionResultView: View {
                 content
                 if message.role == .assistant { Spacer(minLength: metrics.spacing.xxl) }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+        }
+
+        private var accessibilityLabel: String {
+            let role = message.role == .user ? "Your request" : "Draft"
+            let status = message.state == .failed ? "Failed, " : ""
+            let text = message.state == .streaming && message.text.isEmpty ? "Revising…" : message.text
+            return "\(status)\(role): \(text)"
         }
 
         @ViewBuilder private var content: some View {

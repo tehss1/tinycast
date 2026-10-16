@@ -40,15 +40,15 @@ enum OutlookComposeContextReader {
         } else {
             fields = []
         }
-        let recipientFields = fields.filter { $0.identifier != subjectFieldIdentifier }
-        var candidates: [String] = []
-        for field in recipientFields { candidates.append(contentsOf: access.textCandidates(in: field.element)) }
         let subject: String?
         if let field = fields.first(where: { $0.identifier == subjectFieldIdentifier }) {
             subject = access.subject(in: field.element)
         } else {
             subject = nil
         }
+        let recipientFields = fields.filter { $0.identifier != subjectFieldIdentifier }
+        var candidates: [String] = []
+        for field in recipientFields { candidates.append(contentsOf: access.textCandidates(in: field.element)) }
         let recipient = QuickActionContext.outlookRecipients(
             from: candidates, captureComplete: !recipientFields.isEmpty && access.complete)
 

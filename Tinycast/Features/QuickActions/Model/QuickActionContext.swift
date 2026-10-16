@@ -121,8 +121,8 @@ struct QuickActionContext: Equatable, Sendable {
 
     /// Identifies the email without persisting another copy of the quoted Outlook thread.
     var historyIdentity: String? {
-        guard !isEmpty || documentIdentity != nil else { return nil }
-        let material = [recipient ?? "", subject ?? "", recentThread ?? documentIdentity ?? ""]
+        guard subject != nil || recentThread != nil || documentIdentity != nil else { return nil }
+        let material = [subject ?? "", recentThread ?? documentIdentity ?? ""]
             .joined(separator: "\u{1f}")
         return TextFingerprint.of(material)
     }

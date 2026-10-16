@@ -95,7 +95,8 @@ selectable Markdown renderer with AI Chat.
   Every remote Accessibility read has a timeout of at most 100 ms, capped to the shared 750 ms
   deadline beginning with editor capture. Discovery stops when all wanted fields are found, runs for
   at most 250 ms and reserves 350 ms for reading fields. A failed or truncated recipient walk reports
-  partial context while retaining readable addresses.
+  partial context while retaining readable addresses. The subject is read before walking recipients,
+  so a slow or large recipient list cannot exhaust the budget before the subject read.
   Its opt-in key is excluded from settings backups, so importing settings cannot widen what Tinycast
   reads or sends.
 - **Audience tone follows the whole recipient list.** Composer compares every captured To, Cc and Bcc
@@ -127,13 +128,15 @@ selectable Markdown renderer with AI Chat.
   A file last written more than seven days ago is deleted at launch without its key, since every
   save rewrites it. Running Composer again on the same Outlook email restores its transcript and latest completed
   draft without another model request. Tinycast stores context and individual-message fingerprints
-  for matching, not a second copy of the quoted email thread. Overlapping quoted messages keep one
+  for matching, not a second copy of the quoted email thread. The context identity uses the subject
+  and quoted thread, or the native editor identity when no thread exists; recipient order and
+  completeness do not affect it. Overlapping quoted messages keep one
   conversation together when a new reply changes the snapshot. A matched email keeps one conversation. If older records
   contain duplicates, the first matching run keeps the transcript with the most messages and removes
   the other rows. Reopening does not extend retention because only a revision updates the record's
   timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
   Typing does not extend retention. In-flight requests remain recoverable until generation succeeds.
-  New emails without quoted history match by the native Outlook editor identity and envelope.
+  New emails without quoted history match by the native Outlook editor identity and subject.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
   The sidebar can display and copy an older draft, but only the active Composer conversation

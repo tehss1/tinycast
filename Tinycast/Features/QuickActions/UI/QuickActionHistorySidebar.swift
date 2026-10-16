@@ -95,6 +95,7 @@ struct QuickActionHistorySidebar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
             .onRightClick(perform: onActions)
             .accessibilityAction(named: "Delete Conversation", onDelete)
             .onHover { hovered = $0 }
@@ -104,6 +105,7 @@ struct QuickActionHistorySidebar: View {
             Text(current ? "Now" : age)
                 .font(metrics.typography.keyCap)
                 .foregroundStyle(Theme.Colors.textTertiary)
+                .accessibilityLabel(current ? "Current conversation" : age)
         }
 
         private var age: String {
