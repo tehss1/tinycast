@@ -249,6 +249,13 @@ struct ComposerTests {
                 result, action: .fixGrammar, toOutlook: false, replacing: selection) == delivered,
                 "\(selection.debugDescription) keeps its edge whitespace around the result")
         }
+        let unchanged = "    let a = 1\n    let b = 2\n"
+        expect(QuickActionOutput.preparedForDelivery(
+            unchanged, action: .translate, toOutlook: false, replacing: unchanged) == unchanged,
+            "text Translate leaves alone comes back exactly, indentation included")
+        expect(QuickActionOutput.preparedForDelivery(
+            "Hello ", action: .translate, toOutlook: true, replacing: "Hello ") == "Hello",
+            "Outlook, which keeps the deselected space, gets the result without its own")
         let range = NSRange(location: 10, length: 0)
         for (selection, inner) in [
             ("Brokn para.\n", NSRange(location: 10, length: 11)),

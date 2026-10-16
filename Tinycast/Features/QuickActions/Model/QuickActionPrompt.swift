@@ -410,7 +410,11 @@ enum QuickActionOutput {
         replacing selection: String = ""
     ) -> String {
         guard toOutlook else { return keepingEdges(of: selection, around: text) }
-        guard action.builtInAction == .rewrite, let boundaries else { return text }
+        // Outlook delivery deselects the selection's edges, so a result keeping its own (as
+        // Translate's unchanged text does) would double them.
+        guard action.builtInAction == .rewrite, let boundaries else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let formatted = boundaries.coversWholeLines ? outlookParagraphs(in: text) : text
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
         let followingBreaks = boundaries.followingLineBreakCount

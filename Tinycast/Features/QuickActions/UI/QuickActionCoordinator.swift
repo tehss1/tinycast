@@ -608,9 +608,7 @@ final class QuickActionCoordinator {
         _ state: QuickActionPanelState, streaming: Bool
     ) async throws -> String {
         if state.action.usesTranslationFramework {
-            // Trimmed like a model's reply: delivery puts the selection's own edges back.
             return try await TextTranslator.translate(state.original, to: state.targetLanguage)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         let provider = try core.quickActionProvider(for: state.action)
         let requestGeneration = generation
