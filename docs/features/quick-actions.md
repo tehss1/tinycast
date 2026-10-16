@@ -42,7 +42,7 @@ selectable Markdown renderer with AI Chat.
   Once settled, it reopens from the field and selection, or the note passage, it came from.
   Stop cancels generation and restores the request for editing. A generation token prevents a
   cancelled task from appending to a later request or clearing its handle. Send or a new language
-  in an open panel waits for another action's run instead of cancelling it.
+  in an open panel says another action is running instead of cancelling it.
 - **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
   what keeps `FoundationModels`, `Translation` and `NaturalLanguage` in `Service/` and `UI/`.
 - **Quick Actions route themselves.** `quickActionModel` is a second routing decision, defaulting to
