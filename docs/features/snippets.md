@@ -339,10 +339,9 @@ nothing. `confirmsReplacement` rebuilds the exact string the write should have p
 it to what the element reports. An unchanged value is `.unavailable`, so the event tiers still get
 their turn instead of an "applied" message over untouched text; a value that changed into something
 we did not write is `.rejected`, because events would then edit a document we can no longer describe.
-The value is read every 25 ms rather than once. Outlook's WebKit editor applies a multi-paragraph
-write before its `AXValue` reports all of it, and a single read called that a rejection, so the reply
-was copied over the clipboard while the draft had in fact changed. A moving value gets up to a second
-to settle; an untouched one falls back to events after four reads.
+The value is read every 25 ms rather than once, so a value that reaches its final text in steps is not
+judged halfway. A moving value gets up to a second to settle; an untouched one falls back to events
+after four reads. Web editors such as Outlook's never reach this rule: Rule 1 sends them to events.
 
 **Rule 4** keeps the same permission, consent, Secure Event Input, target-app and cancellation gates.
 The fallback deletes the keyword first, waits for deletion to settle, then inserts the expansion.
@@ -356,8 +355,12 @@ text and a scalar never exceeds four units on its own. The chunks post through t
 re-gated loop the deletions use, so a target that goes away mid-word stops the rest.
 
 Longer or multiline fallback text uses a temporary paste. Tinycast snapshots every item, type and data
-payload, then **lends a board holding nothing but the expansion** — one item carrying the plain text
-and Tinycast's own marker type — and restores by rewriting the snapshot whole.
+payload, then **lends a board holding nothing but the expansion** — one item carrying the plain text,
+Tinycast's own marker type and `org.nspasteboard.TransientType` — and restores by rewriting the snapshot
+whole. The transient marker is what keeps a clipboard cleaner off the loan: Pure Paste strips any
+clipboard it does not recognise as transient about 75 ms after the write, inside the 80 ms before ⌘V,
+and the moved change count read as a lost lease. The reply then never pasted, or pasted and was still
+reported as failed with the reply copied over the clipboard.
 
 **The loan carries no other flavour of the old clipboard.** Keeping the original item's shape and
 swapping only its `.string` would leave `public.html`, `public.rtf` and the rest describing the

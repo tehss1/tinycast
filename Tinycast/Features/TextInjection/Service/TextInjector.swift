@@ -1221,11 +1221,16 @@ struct PasteboardSnapshot {
         self.changeCount = changeCount
     }
 
+    /// nspasteboard.org's "about to be restored" marker. A clipboard cleaner such as Pure Paste
+    /// otherwise rewrites the loan before ⌘V, and the moved change count reads as a lost lease.
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
     /// A kept `public.html` is the flavour a Chromium editor prefers, so we lend the text alone.
     static func temporaryItem(carrying text: String) -> NSPasteboardItem? {
         let item = NSPasteboardItem()
         guard item.setString(text, forType: .string),
-            item.setData(Data(), forType: ClipboardManager.internalType)
+            item.setData(Data(), forType: ClipboardManager.internalType),
+            item.setData(Data(), forType: transientType)
         else { return nil }
         return item
     }
