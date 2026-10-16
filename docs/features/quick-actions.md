@@ -125,13 +125,17 @@ selectable Markdown renderer with AI Chat.
   thread, so the app stays responsive while it waits, and Composer opens once the prompt is
   answered; after a second of waiting a message says so, since the prompt can open on another
   Space. A prompt that is missed, times out or is denied is asked again on the next Composer open:
-  without the key nothing was read or written, so a key that arrives later is still safe. The old plaintext `rewrite-history.json` is deleted at launch without being read; it is
-  not migrated. Opening Composer, saving a transcript or the calendar day changing removes records
+  without the key nothing was read or written, so a key that arrives later is still safe. While
+  Composer waits on that prompt, pressing Composer again repeats the message, and any other Quick
+  Action goes ahead and drops the waiting open instead of saying an action is still running. The old plaintext `rewrite-history.json` is deleted at launch without being read; it is
+  not migrated. Opening or reopening Composer, saving a transcript or the calendar day changing removes records
   whose latest revision is older than seven days. The file is readable only by its owner and
   excluded from backups. Saves stage the encrypted file with owner-only permissions and backup exclusion before
   atomically replacing the destination, so a failed save leaves the previous file intact. An
   unexpired file that cannot be read or authenticated is preserved and blocks writes, so an
-  unexpected key cannot replace unread history with an empty list. Inside an authenticated file,
+  unexpected key cannot replace unread history with an empty list. Two cases end that block early:
+  the file is removed by hand, or Keychain had no key and `RewriteHistoryKey.lookup()` just created
+  one, which cannot have sealed it; that orphaned file is deleted. Inside an authenticated file,
   individual malformed records are skipped rather than discarding the rest.
   A file last written more than seven days ago is deleted at launch without its key, since every
   save rewrites it. Running Composer again on the same Outlook email restores its transcript. When
@@ -159,7 +163,9 @@ selectable Markdown renderer with AI Chat.
   row found only through a shared quote, or owned by another editor, is never removed. Reopening does
   not extend retention because only a revision updates the record's
   timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
-  Typing does not extend retention. In-flight requests remain recoverable until generation succeeds.
+  Typing does not extend retention, and typing in a conversation that expired while its panel was
+  open or dismissed never saves it again; only a conversation that was never saved, such as a
+  caret-first request before its first send, is created by autosave. In-flight requests remain recoverable until generation succeeds.
   New emails without quoted history match only by the native Outlook editor identity.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
@@ -346,7 +352,8 @@ panel or before it closed. Pressing the shortcut again in the same text field wi
 selected text in the same range, or the same caret in a field whose length has not changed, or on
 the same passage of an unchanged note, reopens it as often as needed. A different field, selection,
 caret, field length or note starts a new conversation, which replaces it, and so does a field that
-reports no selection range. Insert or Replace ends it. A conversation whose panel asks to reopen
+reports no selection range. An Insert or Replace that lands ends it; one that fails copies the
+draft and leaves the conversation reopenable from the same field, so the next press can retry. A conversation whose panel asks to reopen
 Composer captures afresh instead. This applies only outside an Outlook-context draft. That draft is
 restored from history instead, so its captured body is never stale.
 

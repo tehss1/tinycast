@@ -1209,6 +1209,23 @@ struct ComposerTests {
             "a file that fails AES-GCM authentication blocks saves")
         expect((try? Data(contentsOf: file)) == before,
             "a file that fails AES-GCM authentication is preserved")
+        try FileManager.default.removeItem(at: file)
+        expect(unauthenticated.save(record),
+            "removing the unreadable file by hand unblocks saving without a relaunch")
+
+        try before.write(to: file)
+        let recreatedKey = SymmetricKey(size: .bits256)
+        let recreated = RewriteHistoryStore(
+            directory: directory, keyLookup: { (recreatedKey, true) }, now: { timestamp })
+        recreated.load()
+        expect(!FileManager.default.fileExists(atPath: file.path) && recreated.save(record),
+            "a key Keychain just created cannot open older history, so that file stops blocking saves")
+        let kept = try Data(contentsOf: file)
+        let existing = RewriteHistoryStore(
+            directory: directory, keyLookup: { (wrongKey, false) }, now: { timestamp })
+        existing.load()
+        expect((try? Data(contentsOf: file)) == kept,
+            "an existing key that cannot open the file leaves it intact")
     }
 
     static func historyKeyIsLazyAndWritesArePrivate() throws {
