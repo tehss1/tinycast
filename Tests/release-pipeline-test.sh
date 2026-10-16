@@ -46,6 +46,6 @@ rm "$scratch/repo/Tinycast/Features/QuickActions/UI/ComposerToolbar.swift"
 git -C "$scratch/repo" add -u
 git -C "$scratch/repo" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm upstream-deletion
 if "$scratch/repo/Scripts/check-composer-retention.sh" "$base" > "$scratch/deletion.log" 2>&1; then exit 1; fi
-sed '/rewriteHistory.load()/d' "$root/Tinycast/App/AppCore.swift" > "$scratch/repo/Tinycast/App/AppCore.swift"
+sed '/rewriteHistory.loadWithoutWaitingForKeychain()/d' "$root/Tinycast/App/AppCore.swift" > "$scratch/repo/Tinycast/App/AppCore.swift"
 if "$scratch/repo/Scripts/check-composer-retention.sh" > "$scratch/ownership.log" 2>&1; then exit 1; fi
 echo "Release metadata and Composer deletion/ownership regression fixtures passed."
