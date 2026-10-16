@@ -52,6 +52,8 @@ final class QuickActionPanelState {
     let insertsAtCaret: Bool
     let historyID: UUID
     let createdAt: Date
+    /// Once saved, a record missing from history has expired, and typing must not bring it back.
+    @ObservationIgnored var hasSavedHistory = false
     private let historySubject: String?
     private let historyRecipient: String?
     private let historyContextIdentity: String?
@@ -177,6 +179,7 @@ final class QuickActionPanelState {
         self.insertsAtCaret = insertsAtCaret
         historyID = record.id
         createdAt = record.createdAt
+        hasSavedHistory = true
         historySubject = context?.subject ?? record.subject
         historyRecipient = context?.recipient ?? record.recipient
         historyContextIdentity = context?.historyIdentity ?? record.contextIdentity

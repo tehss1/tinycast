@@ -144,6 +144,9 @@ final class QuickActionCoordinator {
 
     /// One at a time: two runs race for one selection, and the second overwrites the first's work.
     @ObservationIgnored private var running: Task<Void, Never>?
+    /// The run that is only waiting on Keychain; any newer run or a halt makes this stale.
+    @ObservationIgnored private var keychainWaitGeneration: Int?
+    private var awaitingKeychain: Bool { keychainWaitGeneration == generation }
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activeComposer: QuickActionPanelState?
     @ObservationIgnored private var composerApp: Target?
@@ -318,7 +321,12 @@ final class QuickActionCoordinator {
             present(activeComposer, target: composerApp)
             return
         }
-        if running != nil {
+        // Waiting on Keychain is not a run: another action may go ahead and drop that open.
+        if running != nil, awaitingKeychain, action == .rewrite {
+            core.showMessage(Self.keychainNotice, tone: .neutral)
+            return
+        }
+        if running != nil, !awaitingKeychain {
             core.showMessage("A Quick Action is still running")
             return
         }
@@ -426,6 +434,9 @@ final class QuickActionCoordinator {
         }
     }
 
+    private static let keychainNotice =
+        "Composer is waiting for Keychain. Allow access to your history."
+
     private func begin(_ action: QuickAction, target invoked: Target) async {
         var target = invoked
         let input: QuickActionRunner.Input
@@ -446,13 +457,17 @@ final class QuickActionCoordinator {
         guard !Task.isCancelled else { return }
         if action == .rewrite {
             // After an update this is where Keychain prompts; Composer opens once it is answered.
-            let notice = Task { [core] in
+            let notice = Task { [weak self] in
                 // The prompt can open on another Space, and a silent wait looks like a dead hotkey.
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                core.showMessage("Composer is waiting for Keychain. Allow access to your history.",
-                    tone: .neutral)
+                // An action started meanwhile owns the status line.
+                guard let self, awaitingKeychain else { return }
+                core.showMessage(Self.keychainNotice, tone: .neutral)
             }
+            let waiting = generation
+            keychainWaitGeneration = waiting
             await history.loadOnFirstUse()
+            if keychainWaitGeneration == waiting { keychainWaitGeneration = nil }
             notice.cancel()
             guard !Task.isCancelled else { return }
             forgetComposer()
@@ -647,6 +662,7 @@ final class QuickActionCoordinator {
                 core.showMessage("The note changed. Draft copied instead.", tone: .danger)
                 return
             }
+            delivered()
             core.showMessage("\(action.title) applied")
             return
         }
@@ -682,6 +698,8 @@ final class QuickActionCoordinator {
     }
 
     private func present(_ state: QuickActionPanelState, target: Target) {
+        // A reopened conversation skips the resume lookup, which is where expired rows go.
+        history.prune()
         track(state, target: target)
         state.viewedHistoryID = nil
         panels.present(
@@ -706,12 +724,16 @@ final class QuickActionCoordinator {
             onDismiss: { [weak self] in self?.savePendingInstruction(state) },
             onReplace: { [weak self] text in
                 guard let self else { return }
-                if state === activeComposer { forgetComposer() }
+                // Forgotten only once it lands: after a failure the same press reopens it to retry.
                 deliver(
                     text, replacing: state.original, to: target, action: state.action,
                     textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret,
-                    onDelivered: { [weak self] in self?.retarget(state, to: target.text) })
+                    onDelivered: { [weak self] in
+                        guard let self else { return }
+                        if state === activeComposer { forgetComposer() }
+                        retarget(state, to: target.text)
+                    })
             })
     }
 
@@ -814,7 +836,8 @@ final class QuickActionCoordinator {
         guard state.action == .rewrite,
             let record = state.historyRecord()
         else { return }
-        if !history.save(record) { reportHistoryFailure() }
+        guard history.save(record) else { return reportHistoryFailure() }
+        state.hasSavedHistory = true
     }
 
     /// Autosave runs every 350 ms, so a history that cannot be kept says so only once.
@@ -833,8 +856,9 @@ final class QuickActionCoordinator {
         let saved: Bool
         if history.records.contains(where: { $0.id == state.historyID }) {
             saved = history.savePendingInstruction(instruction, id: state.historyID)
-        } else if instruction != nil, let record = state.historyRecord() {
+        } else if instruction != nil, !state.hasSavedHistory, let record = state.historyRecord() {
             saved = history.save(record)
+            state.hasSavedHistory = saved
         } else {
             saved = true
         }

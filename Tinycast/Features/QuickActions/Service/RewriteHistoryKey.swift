@@ -9,17 +9,24 @@ enum RewriteHistoryKey {
             0x8C, 0x05, 0xE7, 0x3A, 0x9D, 0x62, 0xB4, 0x18
         ))
 
-    /// A Keychain error yields no key rather than a new one, which would orphan the saved history.
     static func keychain(store: KeychainSecretStore = .historyKey) -> SymmetricKey? {
+        lookup(store: store)?.key
+    }
+
+    /// A Keychain error yields no key rather than a new one, which would orphan the saved history.
+    /// `isNew` only when this call added the item, so it cannot have sealed an existing file.
+    static func lookup(
+        store: KeychainSecretStore = .historyKey
+    ) -> (key: SymmetricKey, isNew: Bool)? {
         do {
             if let stored = try store.secret(for: account) {
-                return decoded(stored)
+                return decoded(stored).map { ($0, false) }
             }
             let key = SymmetricKey(size: .bits256)
             let encoded = key.withUnsafeBytes { Data($0).base64EncodedString() }
-            if try store.addSecretIfAbsent(encoded, for: account) { return key }
+            if try store.addSecretIfAbsent(encoded, for: account) { return (key, true) }
             guard let stored = try store.secret(for: account) else { return nil }
-            return decoded(stored)
+            return decoded(stored).map { ($0, false) }
         } catch {
             return nil
         }

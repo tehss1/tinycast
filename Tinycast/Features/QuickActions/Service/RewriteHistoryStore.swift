@@ -13,9 +13,13 @@ final class RewriteHistoryStore {
 
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private let unsealedURL: URL
-    @ObservationIgnored private let keySource: @Sendable () -> SymmetricKey?
+    /// `isNew` when Keychain had no key and one was just made, so nothing on disk can be its.
+    typealias KeyLookup = @Sendable () -> (key: SymmetricKey, isNew: Bool)?
+
+    @ObservationIgnored private let keySource: KeyLookup
     /// Asked once: a key arriving after a failed load would let a save replace unread history.
     @ObservationIgnored private var keyState = KeyState.unrequested
+    @ObservationIgnored private var keyIsNew = false
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var dayObserver: NotificationToken?
     @ObservationIgnored private var unreadableFile = false
@@ -24,18 +28,22 @@ final class RewriteHistoryStore {
     private enum KeyState {
         case unrequested
         /// Keychain is still answering, perhaps behind a prompt; nothing is read or written meanwhile.
-        case pending(Task<SymmetricKey?, Never>)
+        case pending(Task<(key: SymmetricKey, isNew: Bool)?, Never>)
         case answered(SymmetricKey?)
     }
 
-    init(
+    init(directory: URL, keyLookup: @escaping KeyLookup, now: @escaping () -> Date = Date.init) {
+        fileURL = directory.appendingPathComponent("rewrite-history.sealed")
+        unsealedURL = directory.appendingPathComponent("rewrite-history.json")
+        keySource = keyLookup
+        self.now = now
+    }
+
+    convenience init(
         directory: URL, key: @escaping @Sendable () -> SymmetricKey?,
         now: @escaping () -> Date = Date.init
     ) {
-        fileURL = directory.appendingPathComponent("rewrite-history.sealed")
-        unsealedURL = directory.appendingPathComponent("rewrite-history.json")
-        keySource = key
-        self.now = now
+        self.init(directory: directory, keyLookup: { key().map { ($0, false) } }, now: now)
     }
 
     func load() {
@@ -85,27 +93,35 @@ final class RewriteHistoryStore {
         case .answered(let key): return key
         case .pending: return nil
         case .unrequested:
-            let key = keySource()
-            keyState = .answered(key)
-            return key
+            return answer(keySource())
         }
+    }
+
+    private func answer(_ lookup: (key: SymmetricKey, isNew: Bool)?) -> SymmetricKey? {
+        keyState = .answered(lookup?.key)
+        keyIsNew = lookup?.isNew == true
+        return lookup?.key
     }
 
     private func requestedKey() async -> SymmetricKey? {
         switch keyState {
         case .answered(let key): return key
-        case .pending(let request): return await request.value
+        case .pending(let request): return await request.value?.key
         case .unrequested:
             let source = keySource
             let request = Task.detached(priority: .userInitiated) { source() }
             keyState = .pending(request)
-            let key = await request.value
-            keyState = .answered(key)
-            return key
+            return answer(await request.value)
         }
     }
 
     private func open(with key: SymmetricKey?) {
+        if key != nil, keyIsNew {
+            // Sealed under a key Keychain no longer holds, so nothing will ever open it again.
+            try? FileManager.default.removeItem(at: fileURL)
+            unreadableFile = false
+            return
+        }
         guard let sealed = try? Data(contentsOf: fileURL), let key,
             let data = Self.opened(sealed, with: key),
             let decoded = try? JSONDecoder().decode(DecodedRecords.self, from: data).records
@@ -245,8 +261,10 @@ final class RewriteHistoryStore {
         guard let key else { return false }
         do {
             if unreadableFile {
-                guard isExpiredOnDisk else { return false }
-                try FileManager.default.removeItem(at: fileURL)
+                // A file removed by hand no longer holds anything a save could overwrite.
+                let exists = FileManager.default.fileExists(atPath: fileURL.path)
+                guard !exists || isExpiredOnDisk else { return false }
+                if exists { try FileManager.default.removeItem(at: fileURL) }
                 unreadableFile = false
             }
             try FileManager.default.createDirectory(
