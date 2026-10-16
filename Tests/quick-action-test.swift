@@ -832,6 +832,14 @@ struct QuickActionTests {
             in: "Ready—we can send it. Ready — we can send it.", source: "Ready—we can send it.")
             == "Ready—we can send it. Ready. We can send it.",
             "one source dash protects only one occurrence of its neighboring words")
+        expect(QuickActionOutput.naturalVoice(
+            in: "It is ready — we can send it.", source: "It is redy — we can send it.")
+            == "It is ready — we can send it.",
+            "correcting a typo beside the user's dash keeps the dash")
+        expect(QuickActionOutput.naturalVoice(
+            in: "It is ready — we can send it.", source: "It is redy — they can send it.")
+            == "It is ready. We can send it.",
+            "a typo fix cannot protect a dash whose other neighbour also changed")
         let source = String(repeating: "Ready—send it. ", count: 5_000)
         let output = String(repeating: "Ready — send it. ", count: 5_000) + "Done—we assigned it."
         let expected = String(repeating: "Ready — send it. ", count: 5_000) + "Done. We assigned it."

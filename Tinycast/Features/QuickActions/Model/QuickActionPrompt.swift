@@ -292,6 +292,29 @@ enum QuickActionOutput {
             rightWord: String(characters[rightStart..<rightEnd]).lowercased())
     }
 
+    private static let maximumDashCandidates = 32
+
+    /// A fixed typo beside the user's dash keeps it theirs; a different word makes it the model's.
+    private static func isCorrection(of source: String, to output: String) -> Bool {
+        let from = Array(source), to = Array(output)
+        let longer = max(from.count, to.count)
+        guard !from.isEmpty, !to.isEmpty, longer <= 40, abs(from.count - to.count) <= 2 else {
+            return false
+        }
+        var previous = Array(0...to.count)
+        for (row, character) in from.enumerated() {
+            var current = [row + 1] + Array(repeating: 0, count: to.count)
+            for column in to.indices {
+                current[column + 1] = min(
+                    previous[column + 1] + 1, current[column] + 1,
+                    previous[column] + (character == to[column] ? 0 : 1))
+            }
+            previous = current
+        }
+        let distance = previous[to.count]
+        return distance <= 2 && distance * 2 < longer
+    }
+
     private static func repairingIntroducedDashes(in text: String, source: String) -> String {
         guard text.contains("—") else { return text }
         let sourceCharacters = Array(source)
@@ -299,14 +322,25 @@ enum QuickActionOutput {
         for index in sourceCharacters.indices where sourceCharacters[index] == "—" {
             sourceContexts[dashContext(in: sourceCharacters, at: index), default: 0] += 1
         }
+        var byLeftWord: [String: [DashContext]] = [:]
+        var byRightWord: [String: [DashContext]] = [:]
+        for context in sourceContexts.keys {
+            byLeftWord[context.leftWord, default: []].append(context)
+            byRightWord[context.rightWord, default: []].append(context)
+        }
         let characters = Array(text)
         var result = ""
         result.reserveCapacity(text.utf8.count)
         var copiedThrough = 0
         for index in characters.indices where characters[index] == "—" {
             let context = dashContext(in: characters, at: index)
-            if let remaining = sourceContexts[context], remaining > 0 {
-                sourceContexts[context] = remaining - 1
+            let sameLeft = (byLeftWord[context.leftWord] ?? []).prefix(maximumDashCandidates)
+                .filter { isCorrection(of: $0.rightWord, to: context.rightWord) }
+            let sameRight = (byRightWord[context.rightWord] ?? []).prefix(maximumDashCandidates)
+                .filter { isCorrection(of: $0.leftWord, to: context.leftWord) }
+            let candidates: [DashContext] = [context] + sameLeft + sameRight
+            if let matched = candidates.first(where: { (sourceContexts[$0] ?? 0) > 0 }) {
+                sourceContexts[matched, default: 0] -= 1
                 continue
             }
             var start = index
