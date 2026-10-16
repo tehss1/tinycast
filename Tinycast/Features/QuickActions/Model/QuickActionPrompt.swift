@@ -406,9 +406,11 @@ enum QuickActionOutput {
 
     static func preparedForDelivery(
         _ text: String, action: QuickAction, toOutlook: Bool,
-        insertsAtCaret: Bool = false, boundaries: ComposerDraftAnchor.TextBoundaries? = nil
+        insertsAtCaret: Bool = false, boundaries: ComposerDraftAnchor.TextBoundaries? = nil,
+        replacing selection: String = ""
     ) -> String {
-        guard toOutlook, action.builtInAction == .rewrite, let boundaries else { return text }
+        guard toOutlook else { return keepingLineBreaks(of: selection, around: text) }
+        guard action.builtInAction == .rewrite, let boundaries else { return text }
         let formatted = boundaries.coversWholeLines ? outlookParagraphs(in: text) : text
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
         let followingBreaks = boundaries.followingLineBreakCount
@@ -422,6 +424,16 @@ enum QuickActionOutput {
                 .last?.trimmingCharacters(in: .whitespaces).lowercased() == "best,"
         else { return formatted }
         return withoutTrailingNewlines + String(repeating: "\n", count: max(0, 2 - followingBreaks))
+    }
+
+    /// A triple-clicked line includes its line break, and a result without it would join the next
+    /// paragraph. Outlook's range already leaves the selection's breaks in place instead.
+    private static func keepingLineBreaks(of selection: String, around text: String) -> String {
+        let leading = selection.prefix(while: \.isNewline)
+        let trailing = selection.reversed().prefix(while: \.isNewline).reversed()
+        let result = text.trimmingCharacters(in: .newlines)
+        guard !leading.isEmpty || !trailing.isEmpty, !result.isEmpty else { return text }
+        return leading + result + String(trailing)
     }
 
     private static func outlookParagraphs(in text: String) -> String {
