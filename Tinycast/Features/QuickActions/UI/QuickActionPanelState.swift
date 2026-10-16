@@ -233,13 +233,21 @@ final class QuickActionPanelState {
             {
                 return false
             }
+            if selectedSourceAwaitingRewrite != nil,
+                let abandoned = conversation.lastIndex(where: {
+                    $0.role == .user && $0.text.hasPrefix(Self.selectedSourcePrefix)
+                })
+            {
+                // A superseded selection must not reach the model, or Replace writes it twice.
+                conversation[abandoned].state = .failed
+            }
             conversation.append(RewriteConversationMessage(
                 role: .user, text: Self.selectedSourcePrefix + text, state: .complete))
             output = text
             phase = .finished
             cachedDiff = nil
-            guard refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            else { return false }
+            let typed = refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard typed.isEmpty || typed == Self.selectedRewriteInstruction else { return false }
             refinementInstruction = Self.selectedRewriteInstruction
             return true
         case .insertionPoint, .unavailable:

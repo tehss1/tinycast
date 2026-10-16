@@ -670,11 +670,13 @@ final class QuickActionCoordinator {
             languages: offeredLanguages,
             sourceFrame: target.frame,
             onRetranslate: { [weak self] language in
+                guard let self, mayRun(state) else { return }
                 state.targetLanguage = language
-                self?.rerun(state, target: target)
+                rerun(state, target: target)
             },
             onRefine: { [weak self] in
-                self?.refine(state, target: target)
+                guard let self, mayRun(state) else { return }
+                refine(state, target: target)
             },
             onStop: { [weak self] in self?.stopComposer() },
             onInstructionChange: { [weak self] in self?.schedulePendingSave(state) },
@@ -709,6 +711,13 @@ final class QuickActionCoordinator {
         forgetComposer()
         halt()
         panels.dismiss(preservingDraft: false)
+    }
+
+    /// A panel may restart its own run, never silently cancel another Quick Action's.
+    private func mayRun(_ state: QuickActionPanelState) -> Bool {
+        guard running != nil, !state.isRunning else { return true }
+        core.showMessage("A Quick Action is still running")
+        return false
     }
 
     private func rerun(_ state: QuickActionPanelState, target: Target) {

@@ -41,7 +41,8 @@ selectable Markdown renderer with AI Chat.
   Pressing Composer's shortcut during generation reopens that conversation, even after dismissal.
   Once settled, it reopens from the field and selection, or the note passage, it came from.
   Stop cancels generation and restores the request for editing. A generation token prevents a
-  cancelled task from appending to a later request or clearing its handle.
+  cancelled task from appending to a later request or clearing its handle. Send or a new language
+  in an open panel waits for another action's run instead of cancelling it.
 - **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
   what keeps `FoundationModels`, `Translation` and `NaturalLanguage` in `Service/` and `UI/`.
 - **Quick Actions route themselves.** `quickActionModel` is a second routing decision, defaulting to
@@ -130,7 +131,8 @@ selectable Markdown renderer with AI Chat.
   no rewrite is pending, a press targeting its saved draft or an outside caret restores the latest
   completed draft without another model request; selecting different text starts a rewrite in that
   conversation. Selecting the text it last rewrote again restores that rewrite, and an unsent typed
-  request stays in the field to send instead of the automatic one.
+  request stays in the field to send instead of the automatic one. A newer selection supersedes one
+  still awaiting its rewrite, so only the newest reaches the model.
   Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. The context identity uses the subject
   and quoted thread, or the native editor identity when no thread exists; recipient order and

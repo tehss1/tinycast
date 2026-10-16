@@ -433,6 +433,17 @@ struct ComposerTests {
             targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: false)
         expect(finished.output == "Short source." && finished.canReplace,
             "a completed selected-source rewrite restores as an ordinary deliverable draft")
+
+        let abandoned = QuickActionPanelState(
+            restoring: record, context: nil,
+            targetLanguage: Locale.Language(identifier: "en"), insertsAtCaret: false)
+        expect(abandoned.resumeSource(.selectedText, text: "Other source.", anchor: nil),
+            "a leftover automatic request still rewrites a new selection automatically")
+        let next = abandoned.beginRefinement()
+        expect(next?.draft == "Other source."
+            && next?.messages.filter { $0.text.hasPrefix("Text selected in Outlook") }.count == 1
+            && next?.messages.contains { $0.text.hasSuffix("Other source.") } == true,
+            "only the newest selection reaches the model")
     }
 
     static func explicitSelectionReanchorsDraft() {
