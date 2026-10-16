@@ -21,26 +21,56 @@ enum EmailAddressPattern {
     }
 
     static func recipientDomains(in value: String) -> [String]? {
-        let entries = value.components(separatedBy: CharacterSet(charactersIn: ";\n"))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !entries.isEmpty else { return nil }
+        guard let entries = recipientEntries(in: value), !entries.isEmpty else { return nil }
         var domains: [String] = []
         for entry in entries {
             let addresses = matches(in: entry)
-            guard let last = addresses.last,
-                entry.filter({ $0 == "@" }).count == addresses.count
+            guard addresses.count == 1, let address = addresses.first,
+                entry.filter({ $0 == "@" }).count == 1
             else { return nil }
-            let trailing = entry[last.range.upperBound...]
-                .trimmingCharacters(in: CharacterSet(charactersIn: " >,\"\t\r"))
-            guard trailing.isEmpty else { return nil }
-            for (previous, next) in zip(addresses, addresses.dropFirst()) {
-                let between = entry[previous.range.upperBound..<next.range.lowerBound]
-                    .trimmingCharacters(in: CharacterSet(charactersIn: " >,\"\t\r"))
-                guard between.isEmpty || between.hasSuffix("<") else { return nil }
-            }
-            domains.append(contentsOf: addresses.map(\.domain))
+            let leading = entry[..<address.range.lowerBound].trimmingCharacters(in: .whitespaces)
+            let trailing = entry[address.range.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard (leading.isEmpty && trailing.isEmpty)
+                || (leading.hasSuffix("<") && trailing == ">")
+            else { return nil }
+            domains.append(address.domain)
         }
         return domains
+    }
+
+    private static func recipientEntries(in value: String) -> [String]? {
+        var entries: [String] = []
+        var current = ""
+        var quoted = false
+        var escaped = false
+        var inAddress = false
+        for character in value {
+            if escaped {
+                escaped = false
+            } else if character == "\\", quoted {
+                escaped = true
+            } else if character == "\"" {
+                quoted.toggle()
+            } else if !quoted {
+                if character == "<" {
+                    guard !inAddress else { return nil }
+                    inAddress = true
+                } else if character == ">" {
+                    guard inAddress else { return nil }
+                    inAddress = false
+                } else if character == "," || character == ";" || character.isNewline {
+                    guard !inAddress else { return nil }
+                    let entry = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !entry.isEmpty { entries.append(entry) }
+                    current = ""
+                    continue
+                }
+            }
+            current.append(character)
+        }
+        guard !quoted, !inAddress else { return nil }
+        let entry = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !entry.isEmpty { entries.append(entry) }
+        return entries
     }
 }

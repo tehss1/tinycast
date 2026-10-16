@@ -22,9 +22,11 @@ struct QuickActionTests {
         promptsForbidCommentaryAndInjection()
         composerAudienceChoosesTone()
         composerRejectsIncompleteRecipients()
+        outlookCaptureReservesFieldReads()
         composerSeparatesRequestsFromContext()
         outlookContextUsesOnlyRecentThread()
         rewriteDeliverySeparatesOutlookSignature()
+        composerKeepsSourceSubjectsAndDashes()
         rewriteCanBeRefinedRepeatedly()
         previewChoicesRememberOnlyWhatWasChosen()
         settingsPersistAndRepairTheirRoute()
@@ -385,7 +387,9 @@ struct QuickActionTests {
         let known = "Alex <alex@example.org>"
         for candidates in [
             [known, "Unresolved Person"], [known + "; Unresolved Person"],
-            ["alex@example.org, Unresolved Person, ops@example.org"]
+            ["alex@example.org, Unresolved Person, ops@example.org"],
+            ["alex@example.org, Unresolved Person, Ops <ops@example.org>"],
+            ["alex@example.org, Unresolved Person"]
         ] {
             let recipient = QuickActionContext.outlookRecipients(from: candidates)
             expect(recipient?.contains("alex@example.org") == true,
@@ -411,6 +415,40 @@ struct QuickActionTests {
         expect(complete == known, "duplicate address attributes and field labels do not add recipients")
         expect(ComposerAudience.detected(recipient: complete, internalDomains: domain)
             == .internalRecipients, "a complete internal capture keeps internal tone")
+    }
+
+    static func outlookCaptureReservesFieldReads() {
+        typealias Budget = QuickActionContext.OutlookCaptureBudget
+        expect(Budget.discoveryAllowance(elapsed: .milliseconds(50)) == .milliseconds(250),
+            "normal capture limits discovery to one third of the total budget")
+        expect(Budget.discoveryAllowance(elapsed: .milliseconds(300)) == .milliseconds(100),
+            "slow editor capture still reserves 350 ms for field reads")
+        expect(Budget.discoveryAllowance(elapsed: .milliseconds(500)) == .zero,
+            "late discovery cannot consume time reserved for known fields")
+        expect(Budget.callTimeout(remaining: .seconds(1)) == 0.1,
+            "a responsive Outlook may spend up to 100 ms on one AX read")
+        expect(Budget.callTimeout(remaining: .milliseconds(20)) == 0.02,
+            "the final AX read is capped to the remaining deadline")
+        expect(Budget.callTimeout(remaining: .zero) == nil,
+            "an expired deadline never starts another AX read")
+        let wanted: Set<String> = ["toTextField", "ccTextField", "bccTextField", "subjectTextField"]
+        expect(!Budget.shouldDiscover(found: wanted, wanted: wanted),
+            "finding every wanted field stops discovery before unrelated descendants")
+        expect(Budget.shouldDiscover(found: ["toTextField"], wanted: wanted),
+            "discovery continues for fields still missing while its allowance remains")
+        expect(Budget.total <= .milliseconds(800), "the total main-actor budget stays below 800 ms")
+        expect(EmailAddressPattern.recipientDomains(
+            in: "\"Morgan, Alex\" <alex@example.org>, Ops <ops@example.org>")
+            == ["example.org", "example.org"],
+            "commas in a quoted display name do not create unresolved recipients")
+        for value in [
+            "Unresolved Person, Ops <ops@example.org>",
+            "alex@example.org; Unresolved Person; Ops <ops@example.org>",
+            "alex@example.org, Unresolved Person, Ops <ops@example.org>",
+        ] {
+            expect(EmailAddressPattern.recipientDomains(in: value) == nil,
+                "every nonempty token between recipient separators must resolve to an address")
+        }
     }
 
     static func composerSeparatesRequestsFromContext() {
@@ -578,28 +616,30 @@ struct QuickActionTests {
     }
 
     static func rewriteDeliverySeparatesOutlookSignature() {
+        let boundaries = ComposerDraftAnchor.TextBoundaries(
+            body: "", range: NSRange(location: 0, length: 0))!
         let draft = "We can have someone reach out.\n\nBest,"
         expect(
             QuickActionOutput.preparedForDelivery(
-                draft, action: .rewrite, toOutlook: true) == draft + "\n\n",
+                draft, action: .rewrite, toOutlook: true, boundaries: boundaries) == draft + "\n\n",
             "an Outlook rewrite leaves a blank line before the existing signature")
         expect(
             QuickActionOutput.preparedForDelivery(
-                draft + "\n", action: .rewrite, toOutlook: true) == draft + "\n\n",
+                draft + "\n", action: .rewrite, toOutlook: true, boundaries: boundaries) == draft + "\n\n",
             "delivery normalizes a trailing line break instead of adding uneven spacing")
         expect(
             QuickActionOutput.preparedForDelivery(
                 "Please take a look.\n\nThanks,\n\n", action: .rewrite, toOutlook: true,
-                insertsAtCaret: true) == "Please take a look.\n\nThanks,\n",
+                insertsAtCaret: true, boundaries: boundaries) == "Please take a look.\n\nThanks,\n",
             "an Outlook insertion leaves no blank line before the existing signature")
         expect(
             QuickActionOutput.preparedForDelivery(
-                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true) == draft + "\n",
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true, boundaries: boundaries) == draft + "\n",
             "an Outlook insertion separates text when no boundary follows the caret")
         expect(
             QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, insertsAtCaret: true,
-                hasFollowingLineBreak: true) == draft,
+                hasFollowingLineBreak: true, boundaries: boundaries) == draft,
             "an Outlook insertion leaves existing signature line breaks untouched")
         expect(
             QuickActionOutput.preparedForDelivery(
@@ -607,20 +647,20 @@ struct QuickActionTests {
             "another app keeps the model output unchanged")
         expect(
             QuickActionOutput.preparedForDelivery(
-                draft, action: .fixGrammar, toOutlook: true) == draft,
+                draft, action: .fixGrammar, toOutlook: true, boundaries: boundaries) == draft,
             "another Quick Action does not acquire email sign-off formatting")
         expect(
             QuickActionOutput.preparedForDelivery(
                 "Subject: Urgent: Call the client\n\nPlease call the client today.",
-                action: .rewrite, toOutlook: false) == "Please call the client today.",
+                action: .rewrite, toOutlook: false, source: "Call the client.") == "Please call the client today.",
             "Composer removes a generated subject before copy or delivery")
         expect(
             QuickActionOutput.composerBody(
-                in: "**Subject:** Urgent: Call the client\r\n\r\nPlease call the client today.")
+                in: "**Subject:** Urgent: Call the client\r\n\r\nPlease call the client today.", source: "")
                 == "Please call the client today.",
             "Composer also removes a markdown subject line")
         expect(
-            QuickActionOutput.composerBody(in: "Subject: Urgent: Call the client").isEmpty,
+            QuickActionOutput.composerBody(in: "Subject: Urgent: Call the client", source: "").isEmpty,
             "a streamed subject cannot be copied before the body arrives")
         expect(
             QuickActionOutput.composerBody(in: "Regarding the subject: please call today.")
@@ -628,7 +668,7 @@ struct QuickActionTests {
             "Composer preserves body text that merely mentions a subject")
         expect(
             QuickActionOutput.naturalVoice(
-                in: "This is all set—we assigned the Copilot license to Janna.")
+                in: "This is all set—we assigned the Copilot license to Janna.", source: "")
                 == "This is all set. We assigned the Copilot license to Janna.",
             "Composer removes an em dash even when the provider ignores its instructions")
         expect(
@@ -652,16 +692,55 @@ struct QuickActionTests {
             """
         expect(
             QuickActionOutput.preparedForDelivery(
-                oneLine, action: .rewrite, toOutlook: true)
+                oneLine, action: .rewrite, toOutlook: true, boundaries: boundaries)
                 == "You can pass this to MJ directly.\n\n"
                     + "There is little else we can try.\n\nLet me know if needed.",
             "an older one-line Outlook draft is delivered as short paragraphs")
         expect(
             QuickActionOutput.preparedForDelivery(
                 "First paragraph. Two sentences.\n\nSecond paragraph.",
-                action: .rewrite, toOutlook: true)
+                action: .rewrite, toOutlook: true, boundaries: boundaries)
                 == "First paragraph. Two sentences.\n\nSecond paragraph.",
             "existing Outlook line breaks remain unchanged")
+    }
+
+    static func composerKeepsSourceSubjectsAndDashes() {
+        let subject = "Subject: Call tomorrow"
+        expect(QuickActionOutput.composerDraft(in: subject, source: subject) == subject,
+            "a selection consisting only of a subject remains a deliverable draft")
+        expect(QuickActionOutput.composerBody(in: subject) == subject,
+            "an unknown source cannot justify deleting a subject")
+        expect(QuickActionOutput.composerDraft(
+            in: "Subject: Call on Friday\n\nPlease call.",
+            source: "Subject: Call tomorrow\n\nCall.")
+            == "Subject: Call on Friday\n\nPlease call.",
+            "rewriting a user's leading subject preserves the subject even when reworded")
+        expect(QuickActionOutput.composerDraft(
+            in: "Subject: Added by model\n\nPlease call.", source: "Call.") == "Please call.",
+            "a leading subject introduced by the model is removed")
+        let own = "Ready—send it."
+        expect(QuickActionOutput.composerDraft(in: own, source: own) == own,
+            "the user's prose dash survives completion")
+        let mixed = own + " This is done—we assigned it."
+        expect(QuickActionOutput.composerDraft(in: mixed, source: own)
+            == own + " This is done. We assigned it.",
+            "source dashes survive while model-introduced prose dashes are repaired")
+        let prefix = "This is done—we assigned it. " + own
+        expect(QuickActionOutput.composerDraft(in: prefix, source: own)
+            == "This is done. We assigned it. " + own,
+            "a new prose dash before the source dash does not consume its protection")
+        for text in [
+            "— Graham", "    — First bullet\n— Second bullet", "Hours 10—12.", "Hours 10 — 12.",
+            "Open Mon—Fri.", "Open mon—fri.", "Open Mon — Fri.", "Letters A—Z.", "January—March", "🙂 Ready—send it.",
+        ] {
+            let source = text.contains("🙂") ? text : ""
+            expect(QuickActionOutput.composerDraft(in: text, source: source) == text,
+                "sign-offs, bullets, ranges and source punctuation remain unchanged")
+        }
+        expect(QuickActionOutput.composerDraft(
+            in: "The result — a useful improvement — is ready.", source: "")
+            == "The result, a useful improvement, is ready.",
+            "model-introduced prose dashes still use the natural-voice guard")
     }
 
     static func previewChoicesRememberOnlyWhatWasChosen() {

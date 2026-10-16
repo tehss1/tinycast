@@ -4,9 +4,7 @@ import AppKit
 @MainActor
 enum OutlookComposeContextReader {
     private static let outlookBundleIdentifier = "com.microsoft.Outlook"
-    private static let timeout: Float = 0.025
     private static let maximumElements = 800
-    private static let budget: Duration = .milliseconds(350)
     private static let subjectFieldIdentifier = "subjectTextField"
     private static let recipientFieldIdentifiers = Set([
         "toTextField", "ccTextField", "bccTextField"
@@ -23,7 +21,8 @@ enum OutlookComposeContextReader {
 
     static func read(in app: NSRunningApplication?) -> Capture? {
         guard let app, isOutlook(app) else { return nil }
-        var access = Access(deadline: ContinuousClock.now + budget)
+        let started = ContinuousClock.now
+        var access = Access(deadline: started + QuickActionContext.OutlookCaptureBudget.total)
         let application = AXUIElementCreateApplication(app.processIdentifier)
         guard let editor = access.element(application, attribute: kAXFocusedUIElementAttribute),
             let body = access.string(editor, attribute: kAXValueAttribute),
@@ -35,21 +34,23 @@ enum OutlookComposeContextReader {
         let fields: [(identifier: String, element: AXUIElement)]
         if let window {
             fields = access.descendants(
-                identifiers: recipientFieldIdentifiers.union([subjectFieldIdentifier]), in: window)
+                identifiers: recipientFieldIdentifiers.union([subjectFieldIdentifier]), in: window,
+                allowance: QuickActionContext.OutlookCaptureBudget.discoveryAllowance(
+                    elapsed: ContinuousClock.now - started))
         } else {
             fields = []
         }
         let recipientFields = fields.filter { $0.identifier != subjectFieldIdentifier }
         var candidates: [String] = []
         for field in recipientFields { candidates.append(contentsOf: access.textCandidates(in: field.element)) }
-        let recipient = QuickActionContext.outlookRecipients(
-            from: candidates, captureComplete: !recipientFields.isEmpty && access.complete)
         let subject: String?
         if let field = fields.first(where: { $0.identifier == subjectFieldIdentifier }) {
             subject = access.subject(in: field.element)
         } else {
             subject = nil
         }
+        let recipient = QuickActionContext.outlookRecipients(
+            from: candidates, captureComplete: !recipientFields.isEmpty && access.complete)
 
         let documentIdentity = "\(app.processIdentifier):\(app.launchDate?.timeIntervalSince1970 ?? 0):"
             + "\(CFHash(editor))"
@@ -63,22 +64,30 @@ enum OutlookComposeContextReader {
 
     @MainActor
     private struct Access {
-        let deadline: ContinuousClock.Instant
+        var deadline: ContinuousClock.Instant
         var complete = true
 
         mutating func descendants(
-            identifiers: Set<String>, in root: AXUIElement
+            identifiers: Set<String>, in root: AXUIElement, allowance: Duration
         ) -> [(identifier: String, element: AXUIElement)] {
+            let readingDeadline = deadline
+            deadline = min(deadline, ContinuousClock.now + allowance)
+            defer { deadline = readingDeadline }
             var queue = [root]
             var index = 0
             var matches: [(identifier: String, element: AXUIElement)] = []
-            while index < queue.count, withinDeadline() {
+            var found: Set<String> = []
+            while index < queue.count,
+                QuickActionContext.OutlookCaptureBudget.shouldDiscover(found: found, wanted: identifiers),
+                withinDeadline()
+            {
                 let candidate = queue[index]
                 index += 1
                 if let identifier = string(candidate, attribute: kAXIdentifierAttribute),
                     identifiers.contains(identifier)
                 {
                     matches.append((identifier, candidate))
+                    found.insert(identifier)
                     continue
                 }
                 _ = appendChildren(of: candidate, to: &queue)
@@ -164,7 +173,13 @@ enum OutlookComposeContextReader {
 
         private mutating func attribute(_ element: AXUIElement, name: String) -> CFTypeRef? {
             guard withinDeadline() else { return nil }
-            guard AXUIElementSetMessagingTimeout(element, OutlookComposeContextReader.timeout) == .success else {
+            guard let timeout = QuickActionContext.OutlookCaptureBudget.callTimeout(
+                remaining: deadline - ContinuousClock.now)
+            else {
+                complete = false
+                return nil
+            }
+            guard AXUIElementSetMessagingTimeout(element, timeout) == .success else {
                 complete = false
                 return nil
             }

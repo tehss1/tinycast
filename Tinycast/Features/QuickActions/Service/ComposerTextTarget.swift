@@ -53,12 +53,12 @@ final class ComposerTextTarget {
     }
 
     var hasFollowingLineBreak: Bool {
-        guard let replacementRange, let range = Range(replacementRange, in: body),
-            range.upperBound < body.endIndex
-        else {
-            return false
-        }
-        return body[range.upperBound].isNewline
+        (textBoundaries?.followingLineBreakCount ?? 0) > 0
+    }
+
+    var textBoundaries: ComposerDraftAnchor.TextBoundaries? {
+        guard case .outlookDraft = scope, let replacementRange else { return nil }
+        return ComposerDraftAnchor.TextBoundaries(body: body, range: replacementRange)
     }
 
     init(editor: AXUIElement, body: String, selectedRange: NSRange) {

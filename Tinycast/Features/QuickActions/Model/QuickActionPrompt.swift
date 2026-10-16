@@ -206,8 +206,16 @@ enum QuickActionPrompt {
 }
 
 enum QuickActionOutput {
-    /// Composer inserts into an existing body, so a model-generated subject has nowhere valid to go.
-    static func composerBody(in text: String) -> String {
+    static func composerBody(in text: String, source: String? = nil) -> String {
+        guard let source, !startsWithSubject(source) else { return text }
+        return removingLeadingSubject(in: text)
+    }
+
+    private static func startsWithSubject(_ text: String) -> Bool {
+        removingLeadingSubject(in: text) != text
+    }
+
+    private static func removingLeadingSubject(in text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let colon = trimmed.firstIndex(of: ":") else { return text }
         let lineBreak = trimmed.firstIndex(where: \.isNewline)
@@ -222,15 +230,12 @@ enum QuickActionOutput {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Only ever for what a model wrote: run on the reader's own draft, it would rewrite their words.
-    static func naturalVoice(in text: String) -> String {
-        var result = text
-        for repair in dashRepairs {
-            result = repair.pattern.stringByReplacingMatches(
-                in: result, range: NSRange(result.startIndex..., in: result),
-                withTemplate: repair.replacement)
-        }
+    static func composerDraft(in text: String, source: String) -> String {
+        naturalVoice(in: composerBody(in: text, source: source), source: source)
+    }
 
+    static func naturalVoice(in text: String, source: String? = nil) -> String {
+        var result = source.map { repairingIntroducedDashes(in: text, source: $0) } ?? text
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = trimmed.lowercased()
         if let opener = stockOpeners.first(where: { lowered.hasPrefix($0) }) {
@@ -243,17 +248,75 @@ enum QuickActionOutput {
             with: "Let me know if you have any questions.", options: .caseInsensitive)
     }
 
-    private static let dashRepairs: [(pattern: NSRegularExpression, replacement: String)] = {
-        let clauseStarters = [
-            "I", "We", "You", "He", "She", "They", "It", "This", "That", "These", "Those", "There",
-        ]
-        let repairs = clauseStarters.map { ("[ \\t]*—[ \\t]*\\b\($0)\\b", ". \($0)") }
-            + [("[ \\t]*—[ \\t]*", ", ")]
-        return repairs.compactMap { pattern, replacement in
-            (try? NSRegularExpression(pattern: pattern, options: .caseInsensitive))
-                .map { ($0, replacement) }
+    private static let clauseStarters: Set<String> = [
+        "i", "we", "you", "he", "she", "they", "it", "this", "that", "these", "those", "there",
+    ]
+
+    private static let weekdays: Set<String> = [
+        "mon", "tue", "wed", "thu", "fri", "sat", "sun",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    ]
+
+    private static func repairingIntroducedDashes(in text: String, source: String) -> String {
+        let sourceDashCount = source.filter { $0 == "—" }.count
+        let dashCount = text.filter { $0 == "—" }.count
+        guard dashCount > sourceDashCount else { return text }
+        var protected: Set<Int> = []
+        if sourceDashCount > 0 {
+            var offset = 0
+            for chunk in TextDiffEngine.diff(original: source, modified: text) {
+                switch chunk {
+                case .equal(let value):
+                    for (index, character) in value.enumerated() where character == "—" {
+                        protected.insert(offset + index)
+                    }
+                    offset += value.count
+                case .inserted(let value): offset += value.count
+                case .deleted: break
+                }
+            }
         }
-    }()
+
+        guard protected.count >= sourceDashCount else { return text }
+        var result = text
+        var remainingRepairs = dashCount - sourceDashCount
+        for (offset, index) in text.indices.enumerated().reversed() where text[index] == "—" {
+            guard remainingRepairs > 0, !protected.contains(offset) else { continue }
+            let lineStart = text[..<index].lastIndex(where: \.isNewline)
+                .map { text.index(after: $0) } ?? text.startIndex
+            let before = text[lineStart..<index]
+            guard before.contains(where: { !$0.isWhitespace }) else { continue }
+            var start = index
+            while start > lineStart, text[text.index(before: start)].isWhitespace {
+                start = text.index(before: start)
+            }
+            var end = text.index(after: index)
+            while end < text.endIndex, text[end].isWhitespace, !text[end].isNewline {
+                end = text.index(after: end)
+            }
+            let left = text[lineStart..<start]
+            let right = text[end...].prefix(while: { !$0.isNewline })
+            guard let leftCharacter = left.last, let rightCharacter = right.first,
+                !leftCharacter.isNumber, !rightCharacter.isNumber
+            else { continue }
+            let leftWord = String(left.reversed().prefix(while: \.isLetter).reversed())
+            let rightWord = String(right.prefix(while: \.isLetter))
+            let clause = clauseStarters.contains(rightWord.lowercased())
+            let dayRange = weekdays.contains(leftWord.lowercased()) && weekdays.contains(rightWord.lowercased())
+            let tightRange = start == index && end == text.index(after: index) && !clause
+                && !leftWord.isEmpty && !rightWord.isEmpty
+            guard !tightRange, !dayRange else { continue }
+            let replacement = clause ? ". " + rightWord.prefix(1).uppercased() : ", "
+            if clause { end = text.index(after: end) }
+            let startOffset = text.distance(from: text.startIndex, to: start)
+            let endOffset = text.distance(from: text.startIndex, to: end)
+            let resultStart = result.index(result.startIndex, offsetBy: startOffset)
+            let resultEnd = result.index(result.startIndex, offsetBy: endOffset)
+            result.replaceSubrange(resultStart..<resultEnd, with: replacement)
+            remainingRepairs -= 1
+        }
+        return result
+    }
 
     private static let stockOpeners = [
         "i hope this email finds you well.",
@@ -264,20 +327,24 @@ enum QuickActionOutput {
 
     static func preparedForDelivery(
         _ text: String, action: QuickAction, toOutlook: Bool,
-        insertsAtCaret: Bool = false, hasFollowingLineBreak: Bool = false
+        insertsAtCaret: Bool = false, hasFollowingLineBreak: Bool = false,
+        boundaries: ComposerDraftAnchor.TextBoundaries? = nil, source: String? = nil
     ) -> String {
-        let body = action.builtInAction == .rewrite ? composerBody(in: text) : text
-        guard toOutlook, action.builtInAction == .rewrite else { return body }
+        let body = action.builtInAction == .rewrite ? composerBody(in: text, source: source) : text
+        guard toOutlook, action.builtInAction == .rewrite,
+            let boundaries, boundaries.coversWholeLines
+        else { return body }
         let formatted = outlookParagraphs(in: body)
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
+        let followingBreaks = max(boundaries.followingLineBreakCount, hasFollowingLineBreak ? 1 : 0)
         if insertsAtCaret {
-            return withoutTrailingNewlines + (hasFollowingLineBreak ? "" : "\n")
+            return withoutTrailingNewlines + (followingBreaks > 0 ? "" : "\n")
         }
         guard
             withoutTrailingNewlines.split(separator: "\n", omittingEmptySubsequences: false)
                 .last?.trimmingCharacters(in: .whitespaces).lowercased() == "best,"
         else { return formatted }
-        return withoutTrailingNewlines + "\n\n"
+        return withoutTrailingNewlines + String(repeating: "\n", count: max(0, 2 - followingBreaks))
     }
 
     private static func outlookParagraphs(in text: String) -> String {

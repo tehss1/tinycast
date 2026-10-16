@@ -2,6 +2,23 @@ import Foundation
 
 /// Only boundary fingerprints are saved; signatures and quoted messages stay in Outlook.
 struct ComposerDraftAnchor: Codable, Equatable, Sendable {
+    struct TextBoundaries: Equatable, Sendable {
+        let startsAtLineStart: Bool
+        let endsAtLineEnd: Bool
+        let followingLineBreakCount: Int
+
+        var coversWholeLines: Bool { startsAtLineStart && endsAtLineEnd }
+
+        init?(body: String, range: NSRange) {
+            guard let selection = Range(range, in: body) else { return nil }
+            startsAtLineStart = selection.lowerBound == body.startIndex
+                || body[body.index(before: selection.lowerBound)].isNewline
+            endsAtLineEnd = selection.upperBound == body.endIndex
+                || body[selection.upperBound].isNewline
+            followingLineBreakCount = body[selection.upperBound...].prefix(while: \.isNewline).count
+        }
+    }
+
     let prefixLength: Int
     let suffixLength: Int
     let prefixFingerprint: String

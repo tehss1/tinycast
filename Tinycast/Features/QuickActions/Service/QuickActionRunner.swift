@@ -69,7 +69,8 @@ final class QuickActionRunner {
                 for: action, selection: selection,
                 outgrowsSelection: selectionIsWritingInstruction))
         let text = try await stream(request, using: provider, onDelta: onDelta)
-        return try action == .rewrite ? composerDraft(text) : text
+        return try action == .rewrite
+            ? composerDraft(text, source: selectionIsWritingInstruction ? "" : selection) : text
     }
 
     static func refineRewrite(
@@ -93,11 +94,12 @@ final class QuickActionRunner {
             messages: [originalMessage] + messages,
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
                 for: .rewrite, selection: latestDraft, outgrowsSelection: true))
-        return try composerDraft(try await stream(request, using: provider, onDelta: onDelta))
+        return try composerDraft(
+            try await stream(request, using: provider, onDelta: onDelta), source: latestDraft)
     }
 
-    private static func composerDraft(_ text: String) throws -> String {
-        guard !QuickActionOutput.composerBody(in: text).isEmpty else {
+    private static func composerDraft(_ text: String, source: String) throws -> String {
+        guard !QuickActionOutput.composerBody(in: text, source: source).isEmpty else {
             throw AIProviderError.responseFailed("The model returned a subject with no message.")
         }
         return text

@@ -1,6 +1,27 @@
 import Foundation
 
 struct QuickActionContext: Equatable, Sendable {
+    enum OutlookCaptureBudget {
+        static let total: Duration = .milliseconds(750)
+        static let maximumCall: Duration = .milliseconds(100)
+        static let readingReserve: Duration = .milliseconds(350)
+        static let maximumDiscovery: Duration = .milliseconds(250)
+
+        static func discoveryAllowance(elapsed: Duration) -> Duration {
+            max(.zero, min(maximumDiscovery, total - elapsed - readingReserve))
+        }
+
+        static func shouldDiscover(found: Set<String>, wanted: Set<String>) -> Bool {
+            !wanted.isSubset(of: found)
+        }
+
+        static func callTimeout(remaining: Duration) -> Float? {
+            guard remaining > .zero else { return nil }
+            let duration = min(maximumCall, remaining).components
+            return Float(Double(duration.seconds) + Double(duration.attoseconds) / 1e18)
+        }
+    }
+
     let recipient: String?
     let subject: String?
     let recentThread: String?
