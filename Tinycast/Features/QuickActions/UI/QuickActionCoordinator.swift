@@ -427,7 +427,6 @@ final class QuickActionCoordinator {
     }
 
     private func begin(_ action: QuickAction, target invoked: Target) async {
-        if action == .rewrite { history.prepareKey() }
         var target = invoked
         let input: QuickActionRunner.Input
         do {
@@ -445,7 +444,12 @@ final class QuickActionCoordinator {
             return
         }
         guard !Task.isCancelled else { return }
-        if action == .rewrite { forgetComposer() }
+        if action == .rewrite {
+            // After an update this is where Keychain prompts; Composer opens once it is answered.
+            await history.loadOnFirstUse()
+            guard !Task.isCancelled else { return }
+            forgetComposer()
+        }
         // A note opens over whatever app is frontmost, which must lend it no email context.
         let readsOutlook = action == .rewrite && target.note == nil
             && store.settings.usesOutlookContextForRewrite

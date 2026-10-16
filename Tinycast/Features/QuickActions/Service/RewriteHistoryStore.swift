@@ -19,6 +19,7 @@ final class RewriteHistoryStore {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var dayObserver: NotificationToken?
     @ObservationIgnored private var unreadableFile = false
+    @ObservationIgnored private var firstUse: Task<Void, Never>?
 
     private enum KeyState {
         case unrequested
@@ -38,29 +39,37 @@ final class RewriteHistoryStore {
     }
 
     func load() {
-        guard prepareLoad() else { return }
+        guard tidyAndFindFile() else { return }
         open(with: key)
     }
 
-    /// The launch path: Keychain is asked away from the main actor, so a prompt for a rebuilt app
-    /// leaves the app responsive. Until it answers, history reads as empty and saves fail.
-    func loadWithoutWaitingForKeychain() async {
-        guard prepareLoad() else { return }
-        open(with: await requestedKey())
-    }
-
-    /// Composer calls this when it opens, so the first save doesn't ask Keychain on the main actor.
-    func prepareKey() {
-        guard case .unrequested = keyState else { return }
-        Task { _ = await requestedKey() }
-    }
-
-    /// Whether there is a history file left to open.
-    private func prepareLoad() -> Bool {
+    /// Launch tidies the files without the key, so an update never brings up a Keychain prompt.
+    func tidy() {
         observeDayChange()
         try? FileManager.default.removeItem(at: unsealedURL)
         removeStagedFiles()
         if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
+    }
+
+    /// Composer's first open, where a rebuilt app's Keychain prompt appears. Keychain is asked
+    /// away from the main actor, so the app stays responsive; later calls return at once.
+    func loadOnFirstUse() async {
+        if let firstUse { return await firstUse.value }
+        let firstUse = Task { await loadAskingKeychain() }
+        self.firstUse = firstUse
+        await firstUse.value
+    }
+
+    private func loadAskingKeychain() async {
+        let hasFile = tidyAndFindFile()
+        // The key is asked for even without a file, so the first save never waits on Keychain.
+        let key = await requestedKey()
+        if hasFile { open(with: key) }
+    }
+
+    /// An existing file blocks saves until it is read, so a new key can't replace unread history.
+    private func tidyAndFindFile() -> Bool {
+        tidy()
         unreadableFile = FileManager.default.fileExists(atPath: fileURL.path)
         return unreadableFile
     }

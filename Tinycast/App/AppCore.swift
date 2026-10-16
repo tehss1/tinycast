@@ -303,8 +303,8 @@ final class AppCore {
             }
             // Before `hotKeys.start` even when off: the prune reads it.
             customQuickActions.load()
-            // A rebuilt app re-asks Keychain for the history key; the prompt mustn't stall launch.
-            Task { [rewriteHistory] in await rewriteHistory.loadWithoutWaitingForKeychain() }
+            // No key at launch: a rebuilt app's Keychain prompt waits for the first Composer.
+            rewriteHistory.tidy()
             quickActionCoordinator.applyEnabled()
             customCommands.onChange = { [weak self] _ in
                 self?.customCommandCoordinator.applyCustomCommandsPresence()

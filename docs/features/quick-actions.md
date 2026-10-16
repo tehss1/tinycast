@@ -118,15 +118,15 @@ selectable Markdown renderer with AI Chat.
   AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. When Keychain cannot supply the key the
   history is neither read nor written, and a new key is made only when none exists. Key creation
   never replaces an existing key, including one created by another instance at the same time, and a
-  malformed existing Keychain value is preserved rather than replaced. Launching with no history file
-  never accesses Keychain; opening Composer acquires the key for the first save. Keychain is always
-  asked away from the main thread: a self-signed build's Keychain access is tied to that exact build,
-  so after every update macOS prompts again, and the app must stay responsive until the prompt is
-  answered. Until then history reads as empty and saves fail. The old plaintext `rewrite-history.json`
-  is deleted on load without being read; it is not migrated. Opening Composer,
-  saving a transcript, launching the app or the calendar day changing removes records whose latest
-  revision is older than seven days. The file is readable only by its owner and excluded from
-  backups. Saves stage the encrypted file with owner-only permissions and backup exclusion before
+  malformed existing Keychain value is preserved rather than replaced. Launching never accesses
+  Keychain; the first Composer open reads the key and the history. A self-signed build's Keychain
+  access is tied to that exact build, so after every update macOS prompts again, and that prompt
+  belongs to the first Composer rather than to the update. Keychain is asked away from the main
+  thread, so the app stays responsive while it waits, and Composer opens once the prompt is
+  answered. The old plaintext `rewrite-history.json` is deleted at launch without being read; it is
+  not migrated. Opening Composer, saving a transcript or the calendar day changing removes records
+  whose latest revision is older than seven days. The file is readable only by its owner and
+  excluded from backups. Saves stage the encrypted file with owner-only permissions and backup exclusion before
   atomically replacing the destination, so a failed save leaves the previous file intact. An
   unexpired file that cannot be read or authenticated is preserved and blocks writes, so an
   unexpected key cannot replace unread history with an empty list. Inside an authenticated file,
