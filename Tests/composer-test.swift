@@ -27,6 +27,7 @@ struct ComposerTests {
         resumedSourceDecision()
         differentSelectionRequiresRewrite()
         try selectedSourceSurvivesInterruption()
+        failedFirstRewriteKeepsSourceDashes()
         explicitSelectionReanchorsDraft()
         savedDraftAndCaretKeepTheirBehavior()
         blankInitialRequestUsesEmailContext()
@@ -241,6 +242,18 @@ struct ComposerTests {
         expect(!refined.finish("I hope this message finds you well.") && refined.output == "Ready."
             && refined.refinementInstruction == "Shorter" && refined.phase == .finished,
             "an emptied refinement keeps the previous draft and the request")
+    }
+
+    static func failedFirstRewriteKeepsSourceDashes() {
+        let source = "The plan — as agreed — ships Friday."
+        let state = QuickActionPanelState(action: .rewrite, original: source,
+            targetLanguage: Locale.Language(identifier: "en"))
+        state.fail("Stopped")
+        state.refinementInstruction = "Make it shorter"
+        expect(state.beginRefinement()?.draft == "",
+            "a refinement after a failed first rewrite still has no earlier draft")
+        expect(state.finish(source) && state.output == source,
+            "the user's own dashes survive a typed request after a failed first rewrite")
     }
 
     static func makeState(caret: Bool = true) -> QuickActionPanelState {

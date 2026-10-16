@@ -334,7 +334,8 @@ final class QuickActionPanelState {
         guard canRefine else { return nil }
         let instruction = refinementInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
         submittedInstruction = instruction
-        previousOutput = output
+        // With no draft yet, completion must clean the reply against the selected text.
+        previousOutput = output.isEmpty ? nil : output
         conversation.append(
             RewriteConversationMessage(role: .user, text: instruction, state: .complete))
         conversation.append(
