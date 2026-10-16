@@ -514,8 +514,11 @@ struct ComposerTests {
         let wrongKey = SymmetricKey(size: .bits256)
         let unauthenticated = RewriteHistoryStore(directory: directory, key: { wrongKey }, now: { timestamp })
         unauthenticated.load()
-        expect(!FileManager.default.fileExists(atPath: file.path),
-            "a file that fails AES-GCM authentication is deleted")
+        let before = try Data(contentsOf: file)
+        expect(!unauthenticated.save(record),
+            "a file that fails AES-GCM authentication blocks saves")
+        expect((try? Data(contentsOf: file)) == before,
+            "a file that fails AES-GCM authentication is preserved")
     }
 
     static func historyKeyIsLazyAndWritesArePrivate() throws {
