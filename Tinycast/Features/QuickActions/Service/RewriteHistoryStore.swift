@@ -19,7 +19,7 @@ final class RewriteHistoryStore {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var dayObserver: NotificationToken?
     @ObservationIgnored private var unreadableFile = false
-    @ObservationIgnored private var firstUse: Task<Void, Never>?
+    @ObservationIgnored private var loading: Task<Void, Never>?
 
     private enum KeyState {
         case unrequested
@@ -52,15 +52,20 @@ final class RewriteHistoryStore {
     }
 
     /// Composer's first open, where a rebuilt app's Keychain prompt appears. Keychain is asked
-    /// away from the main actor, so the app stays responsive; later calls return at once.
+    /// away from the main actor, so the app stays responsive; once it has supplied the key, later
+    /// calls return at once. A prompt that was missed, timed out or denied is asked again on the
+    /// next open: without a key nothing was read or written, so a later key is still safe.
     func loadOnFirstUse() async {
-        if let firstUse { return await firstUse.value }
-        let firstUse = Task { await loadAskingKeychain() }
-        self.firstUse = firstUse
-        await firstUse.value
+        if let loading { return await loading.value }
+        if case .answered(.some) = keyState { return }
+        let loading = Task { await loadAskingKeychain() }
+        self.loading = loading
+        await loading.value
+        self.loading = nil
     }
 
     private func loadAskingKeychain() async {
+        if case .answered(nil) = keyState { keyState = .unrequested }
         let hasFile = tidyAndFindFile()
         // The key is asked for even without a file, so the first save never waits on Keychain.
         let key = await requestedKey()

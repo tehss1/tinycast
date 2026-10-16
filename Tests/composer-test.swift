@@ -1306,6 +1306,27 @@ struct ComposerTests {
         spin { fresh.save(record) }
         expect(reads.withLock { $0 } == [false],
             "opening Composer twice asks Keychain once, away from the main thread, for the first save")
+
+        // A prompt nobody saw times out with no key; the next Composer open asks again.
+        let answers = OSAllocatedUnfairLock(initialState: [SymmetricKey?]([nil, historyKey]))
+        let asked = OSAllocatedUnfairLock(initialState: 0)
+        let missed = RewriteHistoryStore(directory: directory, key: {
+            asked.withLock { $0 += 1 }
+            return answers.withLock { $0.isEmpty ? historyKey : $0.removeFirst() }
+        })
+        var done = false
+        Task { await missed.loadOnFirstUse(); done = true }
+        spin { done }
+        expect(missed.records.isEmpty && !missed.save(changed),
+            "without an answer from Keychain history stays unread and unwritten")
+        done = false
+        Task { await missed.loadOnFirstUse(); done = true }
+        spin { done }
+        expect(missed.records == [record], "the next Composer open asks Keychain again and reads history")
+        done = false
+        Task { await missed.loadOnFirstUse(); done = true }
+        spin { done }
+        expect(asked.withLock { $0 } == 2, "once Keychain has supplied the key it is not asked again")
     }
 
     /// Runs the main actor's queue until `done`, for at most two seconds.
