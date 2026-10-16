@@ -457,9 +457,11 @@ final class QuickActionCoordinator {
         guard !Task.isCancelled else { return }
         if action == .rewrite {
             // After an update this is where Keychain prompts; Composer opens once it is answered.
-            let notice = Task { [core] in
+            let notice = Task { [weak self] in
                 // The prompt can open on another Space, and a silent wait looks like a dead hotkey.
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                // An action started meanwhile owns the status line.
+                guard let self, awaitingKeychain else { return }
                 core.showMessage(Self.keychainNotice, tone: .neutral)
             }
             let waiting = generation
