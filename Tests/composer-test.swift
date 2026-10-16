@@ -398,6 +398,11 @@ struct ComposerTests {
         expect(!restored.conversation.contains { $0.state == .streaming },
             "a recovered selected-source request has no abandoned streaming row")
         restored.refinementInstruction = "Make it shorter"
+        let turns = restored.conversation.count
+        expect(!restored.resumeSource(.selectedText, text: "Selected  source.", anchor: nil)
+            && restored.refinementInstruction == "Make it shorter"
+            && restored.conversation.count == turns,
+            "reopening the pending selection keeps its edited request and waits for a retry")
         let retry = restored.beginRefinement()
         expect(retry?.draft == "Selected source."
             && retry?.messages.contains { $0.text.hasSuffix("Selected source.") } == true,

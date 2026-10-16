@@ -226,6 +226,11 @@ final class QuickActionPanelState {
             draftAnchor = anchor
             adoptSourceDraft(text, reanchoring: target == .reanchoredSelection)
         case .selectedText:
+            if let pending = selectedSourceAwaitingRewrite,
+                Self.collapsingWhitespace(pending) == Self.collapsingWhitespace(text)
+            {
+                return false
+            }
             conversation.append(RewriteConversationMessage(
                 role: .user, text: Self.selectedSourcePrefix + text, state: .complete))
             output = text
