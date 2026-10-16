@@ -14,9 +14,10 @@ on:
 permissions:
   contents: read
 
+# Only a pull request supersedes itself; a push or a release's call must never cancel another run.
 concurrency:
-  group: verify-${{ inputs.ref || github.ref }}
-  cancel-in-progress: true
+  group: verify-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
