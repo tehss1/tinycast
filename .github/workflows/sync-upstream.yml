@@ -51,7 +51,7 @@ jobs:
             exit 1
           fi
           git fetch --no-tags "https://github.com/${UPSTREAM_REPO}.git" "refs/tags/${TAG}:refs/upstream/${TAG}"
-          RELEASED="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName \
+          RELEASED="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 200 --json tagName \
             --jq "any(.[]; .tagName | startswith(\"${TAG}-composer.\"))")"
           {
             echo "tag=${TAG}"
