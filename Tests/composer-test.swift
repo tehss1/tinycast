@@ -19,6 +19,7 @@ struct ComposerTests {
         try replacementBoundaries()
         repeatedDeliveryKeepsSignatureSpacing()
         insertedParagraphSurvivesReplace()
+        selectedParagraphKeepsSurroundingBreaks()
         paragraphFormattingRequiresWholeLines()
         selectedSubjectSurvivesCompletion()
         openerOnlyReplyFails()
@@ -142,6 +143,40 @@ struct ComposerTests {
             expect(body.hasPrefix("Intro text\n\nHi there.\n"),
                 "replacing an inserted paragraph keeps it apart from the line before")
         }
+    }
+
+    /// Outlook drops a trailing line break from pasted text, so delivery must never depend on one.
+    static func selectedParagraphKeepsSurroundingBreaks() {
+        for lineBreak in ["\n", "\r\n"] {
+            let paragraph = "The rerun passed. I'll look into the failure this afternoon."
+            let lead = "Hi," + lineBreak + lineBreak
+            let tail = lineBreak + lineBreak + "Thanks!"
+            var body = lead + paragraph + tail
+            let tripleClick = NSRange(
+                location: lead.utf16.count, length: (paragraph + lineBreak).utf16.count)
+            for pressed in [tripleClick, NSRange(location: lead.utf16.count, length: paragraph.utf16.count)] {
+                let range = ComposerDraftAnchor.replacementRange(in: body, selectedRange: pressed)
+                expect(range == NSRange(location: lead.utf16.count, length: paragraph.utf16.count),
+                    "a selected paragraph is replaced without its own trailing line break")
+                let resumed = ComposerDraftAnchor.restoredRange(
+                    in: body, anchor: nil, selectedRange: pressed, insertsAtCaret: false)
+                expect(resumed == range, "a resumed conversation replaces the same paragraph text")
+            }
+            let range = ComposerDraftAnchor.replacementRange(in: body, selectedRange: tripleClick)
+            let delivery = QuickActionOutput.preparedForDelivery(
+                "Rerun passed. Looking into it today.", action: .rewrite, toOutlook: true,
+                boundaries: ComposerDraftAnchor.TextBoundaries(body: body, range: range))
+            expect(delivery.last?.isNewline == false,
+                "a selected paragraph's delivery ends without a line break for Outlook to drop")
+            body.replaceSubrange(Range(range, in: body)!, with: delivery)
+            expect(body == lead + "Rerun passed.\n\nLooking into it today." + tail,
+                "the blank lines around a replaced paragraph stay where they were")
+        }
+        let blankLines = "A\n\n\nB"
+        let blank = ComposerDraftAnchor.replacementRange(
+            in: blankLines, selectedRange: NSRange(location: 2, length: 1))
+        expect(blank.length == 0 && NSMaxRange(blank) <= blankLines.utf16.count,
+            "a selection of only line breaks keeps them and targets a position inside the body")
     }
 
     static func repeatedDeliveryKeepsSignatureSpacing() {

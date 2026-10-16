@@ -6,7 +6,6 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         let startsAtLineStart: Bool
         let endsAtLineEnd: Bool
         let followingLineBreakCount: Int
-        let selectedLineBreakCount: Int
 
         var coversWholeLines: Bool { startsAtLineStart && endsAtLineEnd }
 
@@ -18,7 +17,6 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
                 || body[selection.upperBound].isNewline
                 || (!selection.isEmpty && body[body.index(before: selection.upperBound)].isNewline)
             followingLineBreakCount = body[selection.upperBound...].prefix(while: \.isNewline).count
-            selectedLineBreakCount = body[selection].reversed().prefix(while: \.isNewline).count
         }
     }
 
@@ -62,6 +60,14 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         return Self.trimmingLineBreaks(selection, in: body)
     }
 
+    /// Outlook drops a pasted trailing line break, so a selection's own line breaks stay in Outlook.
+    static func replacementRange(in body: String, selectedRange: NSRange) -> NSRange {
+        guard let selection = Range(selectedRange, in: body), !selection.isEmpty else {
+            return selectedRange
+        }
+        return trimmingLineBreaks(selection, in: body)
+    }
+
     /// Insert's paragraph separator lands inside the saved boundary but is never the draft.
     private static func trimmingLineBreaks(
         _ selection: Range<String.Index>, in body: String
@@ -85,14 +91,8 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
         insertsAtCaret: Bool
     ) -> NSRange? {
         guard let selection = Range(selectedRange, in: body) else { return nil }
-        let draft = anchor?.rangePreservingLineBreaks(in: body)
-        if !selection.isEmpty {
-            guard let draft, trimmingLineBreaks(selection, in: body) == draft else {
-                return selectedRange
-            }
-            return draft
-        }
-        guard let draft, let saved = anchor?.range(in: body),
+        if !selection.isEmpty { return trimmingLineBreaks(selection, in: body) }
+        guard let draft = anchor?.rangePreservingLineBreaks(in: body), let saved = anchor?.range(in: body),
             saved.location <= selectedRange.location, selectedRange.location <= NSMaxRange(saved)
         else { return insertsAtCaret ? selectedRange : nil }
         return draft

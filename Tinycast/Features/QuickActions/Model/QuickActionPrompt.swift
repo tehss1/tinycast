@@ -417,17 +417,11 @@ enum QuickActionOutput {
             return (opensParagraph ? "\n\n" : "") + withoutTrailingNewlines
                 + (followingBreaks > 0 ? "" : "\n")
         }
-        let selectedBreaks = boundaries.selectedLineBreakCount
         guard boundaries.coversWholeLines,
             withoutTrailingNewlines.split(separator: "\n", omittingEmptySubsequences: false)
                 .last?.trimmingCharacters(in: .whitespaces).lowercased() == "best,"
-        else {
-            // A triple-clicked paragraph includes its newline, which the draft must hand back.
-            guard selectedBreaks > 0 else { return formatted }
-            return withoutTrailingNewlines + String(repeating: "\n", count: selectedBreaks)
-        }
-        return withoutTrailingNewlines
-            + String(repeating: "\n", count: max(selectedBreaks, 2 - followingBreaks))
+        else { return formatted }
+        return withoutTrailingNewlines + String(repeating: "\n", count: max(0, 2 - followingBreaks))
     }
 
     private static func outlookParagraphs(in text: String) -> String {

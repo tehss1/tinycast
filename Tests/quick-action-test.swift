@@ -817,18 +817,21 @@ struct QuickActionTests {
 
             let selected = "Rough notes" + lineBreak
             let selectedBody = selected + "Signature"
-            let selection = ComposerDraftAnchor.TextBoundaries(
-                body: selectedBody, range: NSRange(location: 0, length: selected.utf16.count))
-            expect(selection?.endsAtLineEnd == true && selection?.coversWholeLines == true,
-                "a paragraph selected with its own trailing newline ends at a line boundary")
+            let range = ComposerDraftAnchor.replacementRange(
+                in: selectedBody, selectedRange: NSRange(location: 0, length: selected.utf16.count))
+            expect(range == NSRange(location: 0, length: "Rough notes".utf16.count),
+                "a triple-clicked paragraph leaves its own trailing newline in Outlook")
+            let selection = ComposerDraftAnchor.TextBoundaries(body: selectedBody, range: range)
+            expect(selection?.coversWholeLines == true && selection?.followingLineBreakCount == 1,
+                "the paragraph's own newline still ends the selection at a line boundary")
             expect(QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, boundaries: selection)
-                == "First sentence.\n\nSecond sentence.\n",
-                "a triple-clicked paragraph is formatted and keeps the newline it selected")
+                == "First sentence.\n\nSecond sentence.",
+                "a triple-clicked paragraph is formatted without a trailing newline Outlook would drop")
             expect(QuickActionOutput.preparedForDelivery(
                 "Please review.\n\nBest,", action: .rewrite, toOutlook: true, boundaries: selection)
-                == "Please review.\n\nBest,\n\n",
-                "a selected paragraph's consumed newline does not count as a following signature break")
+                == "Please review.\n\nBest,\n",
+                "a selected paragraph's own newline counts toward the signature's two breaks")
         }
         for (body, offset, prefix, suffix) in [
             ("Intro text", 5, "", "\n"),
