@@ -162,7 +162,8 @@ selectable Markdown renderer with AI Chat.
   can refine, change its audience or replace the current target. Right-clicking a sidebar row,
   or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
   Delete Conversation action, which VoiceOver also offers on each row. Deleting the active
-  conversation also closes its panel.
+  conversation also closes its panel, even when history could not be saved. Reopening a
+  conversation that ran without Outlook context starts afresh once that context is enabled.
 - **Composer's fixed rules stay outside its editable style.** Selected-text Composer prepends
   `boundary` and its meaning, register and approximate-length rewrite restrictions; caret-first
   composition and its refinements never add them. A selected-text refinement may change the length
@@ -346,7 +347,8 @@ restored from history instead, so its captured body is never stale.
 
 Composer opens centered over the visible source editor, using bounds captured before its panel opens.
 `ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
-This geometry-only read also works with Outlook context disabled. `ComposerPanelPlacement` chooses
+This geometry-only read also works with Outlook context disabled. A note centers it over the note
+window and never reads Outlook context or history, even with Outlook frontmost. `ComposerPanelPlacement` chooses
 the source display and keeps the panel clear of its edges. Other Quick Actions open near the pointer.
 Resizing uses the panel's current display, so moving the pointer cannot move Composer to another screen.
 

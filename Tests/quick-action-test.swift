@@ -1214,6 +1214,8 @@ struct QuickActionTests {
             locked.records.isEmpty && !locked.save(current)
                 && (try? Data(contentsOf: saved)) == sealedBytes,
             "without its key the history is neither read, replaced nor deleted")
+        expect(locked.remove(id: UUID()) && (try? Data(contentsOf: saved)) == sealedBytes,
+            "deleting a conversation that never saved succeeds without touching locked history")
 
         let unsealed = directory.appendingPathComponent("rewrite-history.json")
         try? Data("[]".utf8).write(to: unsealed)

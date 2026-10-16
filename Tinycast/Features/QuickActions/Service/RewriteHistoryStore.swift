@@ -160,6 +160,8 @@ final class RewriteHistoryStore {
 
     @discardableResult
     func remove(id: UUID) -> Bool {
+        // A conversation that never saved has nothing to delete, even while saving is blocked.
+        guard records.contains(where: { $0.id == id }) else { return true }
         let updated = records.filter { $0.id != id }
         guard persist(updated) else { return false }
         records = updated

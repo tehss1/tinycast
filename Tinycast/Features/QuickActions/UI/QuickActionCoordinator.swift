@@ -363,6 +363,8 @@ final class QuickActionCoordinator {
                 && now.range == note.range
         }
         guard let app = original.app, app.processIdentifier == current.app?.processIdentifier,
+            state.context != nil || !store.settings.usesOutlookContextForRewrite
+                || !OutlookComposeContextReader.isOutlook(app),
             let field = original.text, case .focusedField(let selection) = field.scope,
             let now = current.text, case .focusedField(let nowSelection) = now.scope,
             CFEqual(now.editor, field.editor)
@@ -443,13 +445,16 @@ final class QuickActionCoordinator {
         }
         guard !Task.isCancelled else { return }
         if action == .rewrite { forgetComposer() }
-        let capture =
-            action == .rewrite && store.settings.usesOutlookContextForRewrite
-            ? Self.outlookCapture(in: target.app, pressedIn: target.text)
-            : nil
+        // A note opens over whatever app is frontmost, which must lend it no email context.
+        let readsOutlook = action == .rewrite && target.note == nil
+            && store.settings.usesOutlookContextForRewrite
+        let capture = readsOutlook
+            ? Self.outlookCapture(in: target.app, pressedIn: target.text) : nil
         let context = capture?.context
         if let capture { target.text = capture.target }
-        if action == .rewrite {
+        if let note = target.note {
+            target.frame = note.editor.window?.frame
+        } else if action == .rewrite {
             target.frame = ComposerPlacementReader.frame(
                 in: target.app, editor: capture?.target.editor)
         }
@@ -491,9 +496,7 @@ final class QuickActionCoordinator {
             targetLanguage: targetLanguage,
             awaitsWritingInstruction: input == .insertionPoint)
         state.draftAnchor = capture?.target.anchor
-        if action == .rewrite, store.settings.usesOutlookContextForRewrite,
-            OutlookComposeContextReader.isOutlook(target.app), capture == nil
-        {
+        if readsOutlook, OutlookComposeContextReader.isOutlook(target.app), capture == nil {
             state.replacementIssue =
                 "Couldn't capture this Outlook draft. Reopen Composer to try again."
         }
