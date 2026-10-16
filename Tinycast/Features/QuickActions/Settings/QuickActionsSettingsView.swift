@@ -346,8 +346,10 @@ struct QuickActionsSettingsView: View {
             onSave: @escaping (String?, AIModelSelection?) -> Void
         ) {
             self.action = action
-            let builtIn = QuickActionPrompt.instructions(for: action)
-            _instructions = State(initialValue: instructionOverride ?? builtIn)
+            let builtIn = QuickActionPrompt.editableInstructions(for: action)
+            _instructions = State(
+                initialValue: QuickActionPrompt.editableInstructions(
+                    for: action, override: instructionOverride))
             _model = State(initialValue: modelOverride)
             self.builtIn = builtIn
             self.onSave = onSave
@@ -357,7 +359,9 @@ struct QuickActionsSettingsView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                 SettingsEditorHeader(
                     title: "Customize \(action.title)",
-                    subtitle: "Tell Tinycast how you want \(action.title) to handle your selected text."
+                    subtitle: action == .rewrite
+                        ? "Set the writing style for drafts and selected text."
+                        : "Tell Tinycast how you want \(action.title) to handle your selected text."
                 )
 
                 TextEditor(text: $instructions)

@@ -158,14 +158,23 @@ selectable Markdown renderer with AI Chat.
   or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
   Delete Conversation action, which VoiceOver also offers on each row. Deleting the active
   conversation also closes its panel.
-- **A custom prompt cannot drop those boundaries.** An override on a shipped action may replace
-  `boundary`, because the sheet shows the whole prompt. Composer keeps its body-only output rule after
-  an override, along with its natural-voice and no-em-dash rules. A custom action *is* the prompt, so
-  `boundary` is prepended and no control removes it.
+- **Composer's fixed rules stay outside its editable style.** Selected-text Composer prepends
+  `boundary` and its meaning, register and approximate-length rewrite restrictions; caret-first
+  composition and its refinements never add them. Both modes append the body-only, natural-voice,
+  no-em-dash and untrusted-email-context rules exactly once. When displaying or building a Composer
+  override, a pure function removes exact copies of those fixed blocks, including the selected-text
+  rewrite restrictions, and preserves the remaining style text. This also handles stored full
+  prompts under the `rewrite` key without migrating settings or guessing at user-authored wording.
+  Fix Grammar and Summarize overrides replace their entire prompt, including any source boundary.
+  A custom action *is* the prompt, so `boundary` is prepended and no control removes it.
 - **Each model action owns its instructions and its route.** The pencil on Fix Grammar, Composer and
-  Summarize opens a sheet prefilled with the exact built-in prompt and the action's model. Saving
-  replaces both for only that action; Use Default restores the prompt. Translate has no editor because no model handles translation. The same
-  pencil on a custom action opens its editor, which owns the name and glyph too.
+  Summarize opens a sheet with the action's model and its override or default instructions. Composer
+  edits only the writing style shared by selected-text rewriting and caret-first composition;
+  Fix Grammar and Summarize edit the whole prompt. Saving compares against that editable default
+  and changes only the action's instructions and model override; Use Default restores the editable
+  instructions without changing the model. Translate has no editor because no model handles
+  translation. The same pencil on a custom action opens its editor, which owns the name and glyph
+  too.
 - **A custom action never travels in a backup.** Neither the record, its shortcut nor its route, for
   the reason `quickActionInstructions` already doesn't: an import must never change what a shortcut
   does to somebody's documents. Its JSON sits outside `UserDefaults`, so no settings key can sweep it
