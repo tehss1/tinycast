@@ -123,7 +123,9 @@ selectable Markdown renderer with AI Chat.
   access is tied to that exact build, so after every update macOS prompts again, and that prompt
   belongs to the first Composer rather than to the update. Keychain is asked away from the main
   thread, so the app stays responsive while it waits, and Composer opens once the prompt is
-  answered. The old plaintext `rewrite-history.json` is deleted at launch without being read; it is
+  answered; after a second of waiting a message says so, since the prompt can open on another
+  Space. A prompt that is missed, times out or is denied is asked again on the next Composer open:
+  without the key nothing was read or written, so a key that arrives later is still safe. The old plaintext `rewrite-history.json` is deleted at launch without being read; it is
   not migrated. Opening Composer, saving a transcript or the calendar day changing removes records
   whose latest revision is older than seven days. The file is readable only by its owner and
   excluded from backups. Saves stage the encrypted file with owner-only permissions and backup exclusion before
