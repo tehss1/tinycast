@@ -8,7 +8,7 @@ require() {
         exit 1
     fi
 }
-require Tinycast/App/AppCore.swift 'rewriteHistory.load()'
+require Tinycast/App/AppCore.swift 'rewriteHistory.loadWithoutWaitingForKeychain()'
 require Tinycast/App/AppCore.swift 'quickActionCoordinator'
 require Tinycast/Features/QuickActions/UI/QuickActionCoordinator.swift 'composerModel'
 require Tinycast/Features/QuickActions/Service/RewriteHistoryStore.swift 'AES.GCM.open'
