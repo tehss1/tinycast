@@ -13,17 +13,22 @@ enum RewriteHistoryKey {
     static func keychain(store: KeychainSecretStore = .historyKey) -> SymmetricKey? {
         do {
             if let stored = try store.secret(for: account) {
-                guard let data = Data(base64Encoded: stored),
-                    data.count == SymmetricKeySize.bits256.bitCount / 8
-                else { return nil }
-                return SymmetricKey(data: data)
+                return decoded(stored)
             }
             let key = SymmetricKey(size: .bits256)
             let encoded = key.withUnsafeBytes { Data($0).base64EncodedString() }
-            try store.setSecret(encoded, for: account)
-            return key
+            if try store.addSecretIfAbsent(encoded, for: account) { return key }
+            guard let stored = try store.secret(for: account) else { return nil }
+            return decoded(stored)
         } catch {
             return nil
         }
+    }
+
+    private static func decoded(_ stored: String) -> SymmetricKey? {
+        guard let data = Data(base64Encoded: stored),
+            data.count == SymmetricKeySize.bits256.bitCount / 8
+        else { return nil }
+        return SymmetricKey(data: data)
     }
 }

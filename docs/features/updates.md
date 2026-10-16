@@ -72,7 +72,8 @@ no appcast: the release feed the website already reads is the feed the app reads
   appears only in a build stamped with its own repository, and stores a read-only GitHub token under
   the `update-token` Keychain scope. It is never written to preferences, `settings.json`, a backup or
   the update cache. It is sent to `api.github.com` alone: the asset download redirects to signed
-  storage on another host, and the downloader strips `Authorization` before following.
+  storage on another host. Both the feed check and downloader strip `Authorization` before following
+  a redirect to another host or to non-HTTPS storage, using the same redirect policy.
 
 ## Channel and version
 
@@ -116,8 +117,10 @@ redirect to signed storage.
 GitHub answers 401 for a bad token and 404 for a private repository the request may not read. Both
 are a refusal rather than an outage: Check for Updates reports that access was refused and points at
 the token. A 404 without a stored token means the repository publishes no releases, and says so
-instead of blaming a token the build never had. A 403 or 429 is GitHub's rate limit and asks the
-reader to try again later. A manual check made while another is still in flight reports that a
+instead of blaming a token the build never had. A 403 is a rate limit only when
+`X-RateLimit-Remaining` is zero or `Retry-After` is present; otherwise it reports access refused.
+A 429 always reports a rate limit and asks the reader to try again later.
+A manual check made while another is still in flight reports that a
 check is already running. Any other failure says GitHub could not be reached.
 
 Disabling automatic checks takes effect immediately and survives relaunch. Turning them back on

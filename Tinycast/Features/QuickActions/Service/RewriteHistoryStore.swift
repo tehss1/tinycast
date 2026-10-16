@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 import Observation
 
@@ -31,10 +32,10 @@ final class RewriteHistoryStore {
         try? FileManager.default.removeItem(at: unsealedURL)
         if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
         unreadableFile = FileManager.default.fileExists(atPath: fileURL.path)
-        guard let key, let sealed = try? Data(contentsOf: fileURL) else { return }
-        guard let decoded = Self.opened(sealed, with: key) else {
-            return
-        }
+        guard let sealed = try? Data(contentsOf: fileURL), let key,
+            let data = Self.opened(sealed, with: key),
+            let decoded = try? JSONDecoder().decode(DecodedRecords.self, from: data).records
+        else { return }
         unreadableFile = false
         let retained = Self.retained(decoded, now: now())
         records = retained
@@ -49,11 +50,27 @@ final class RewriteHistoryStore {
         return now().timeIntervalSince(written) > Self.retention
     }
 
-    private static func opened(_ sealed: Data, with key: SymmetricKey) -> [RewriteHistoryRecord]? {
+    private static func opened(_ sealed: Data, with key: SymmetricKey) -> Data? {
         guard let box = try? AES.GCM.SealedBox(combined: sealed),
             let data = try? AES.GCM.open(box, using: key)
         else { return nil }
-        return try? JSONDecoder().decode([RewriteHistoryRecord].self, from: data)
+        return data
+    }
+
+    private struct DecodedRecords: Decodable {
+        let records: [RewriteHistoryRecord]
+
+        init(from decoder: any Decoder) throws {
+            var container = try decoder.unkeyedContainer()
+            var records: [RewriteHistoryRecord] = []
+            while !container.isAtEnd {
+                let recordDecoder = try container.superDecoder()
+                if let record = try? RewriteHistoryRecord(from: recordDecoder) {
+                    records.append(record)
+                }
+            }
+            self.records = records
+        }
     }
 
     private func observeDayChange() {
@@ -151,21 +168,25 @@ final class RewriteHistoryStore {
             guard let sealed = try AES.GCM.seal(encoder.encode(values), using: key).combined else {
                 return false
             }
-            try sealed.write(to: fileURL, options: .atomic)
-            try seal()
-            return true
+            return try write(sealed)
         } catch {
             return false
         }
     }
 
-    /// An atomic write replaces the file, so both attributes are set again after every save.
-    private func seal() throws {
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    private func write(_ sealed: Data) throws -> Bool {
+        var staged = fileURL.deletingLastPathComponent()
+            .appendingPathComponent(".rewrite-history-\(UUID().uuidString)")
+        let descriptor = Darwin.open(staged.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(0o600))
+        guard descriptor >= 0 else { return false }
+        defer { try? FileManager.default.removeItem(at: staged) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        try handle.write(contentsOf: sealed)
+        try handle.close()
         var excluded = URLResourceValues()
         excluded.isExcludedFromBackup = true
-        var url = fileURL
-        try url.setResourceValues(excluded)
+        try staged.setResourceValues(excluded)
+        return Darwin.rename(staged.path, fileURL.path) == 0
     }
 
     private static func retained(

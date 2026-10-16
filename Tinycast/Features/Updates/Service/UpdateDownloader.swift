@@ -90,12 +90,7 @@ private final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked S
         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        var request = request
-        // The asset redirects to signed storage on another host, which must never see the token.
-        if request.url?.host != task.originalRequest?.url?.host || request.url?.scheme != "https" {
-            request.setValue(nil, forHTTPHeaderField: "Authorization")
-        }
-        completionHandler(request)
+        completionHandler(ReleaseFeed.redirectedRequest(request, from: task.originalRequest?.url))
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {

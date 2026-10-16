@@ -65,6 +65,9 @@ struct UpdatesTests {
         expect(AppVersion("0.2.0-alpha.1") == nil, "rejects a channel that never ships")
         expect(AppVersion("0.2.0-beta") == nil, "rejects a beta with no counter")
         expect(AppVersion("0.2.0-beta.x") == nil, "rejects a non-numeric beta counter")
+        expect(AppVersion("0.2.1-composer") == nil, "rejects Composer without a counter")
+        expect(AppVersion("0.2.1-composer.-1") == nil, "rejects a signed Composer counter")
+        expect(AppVersion("0.2.1-composer.1.extra") == nil, "rejects extra Composer fields")
         expect(AppVersion("") == nil, "rejects an empty string")
         expect(AppVersion("nightly") == nil, "rejects a name")
     }
@@ -261,6 +264,19 @@ struct UpdatesTests {
 
         let beta = ReleaseFeed.newest(from: body, channel: .beta, architecture: .appleSilicon)
         expect(beta?.version == AppVersion("0.4.0-beta.2"), "beta takes the newest prerelease")
+        let fork = feed(
+            entry(tag: "v0.3.0", prerelease: false),
+            entry(tag: "v0.3.0-composer.2", prerelease: false),
+            entry(tag: "v0.3.0-composer.12", prerelease: false))
+        expect(
+            ReleaseFeed.newest(from: fork, channel: .stable, architecture: .appleSilicon)?.version
+                == AppVersion("0.3.0-composer.12"),
+            "the stable fork feed selects the newest Composer counter above its upstream base")
+        expect(
+            ReleaseFeed.newest(
+                from: feed(entry(tag: "v0.3.0-composer.13", prerelease: true)),
+                channel: .beta, architecture: .appleSilicon) == nil,
+            "a stable Composer version incorrectly marked prerelease is rejected")
 
         expect(
             ReleaseFeed.newest(from: body, channel: .development, architecture: .appleSilicon) == nil,
@@ -278,7 +294,20 @@ struct UpdatesTests {
             response(404, authorized: true) == .refused,
             "a repository hidden from the stored token is a refusal")
         expect(response(404) == .missing, "without a token a 404 never blames one")
-        expect(response(403) == .limited, "a rate limit is neither an outage nor a missing token")
+        expect(response(403, authorized: true) == .refused, "a forbidden token is an access refusal")
+        expect(response(403) == .refused, "403 alone does not prove a rate limit")
+        expect(
+            ReleaseFeed.Response(status: 403, data: body, authorized: true, rateLimitRemaining: "0")
+                == .limited,
+            "an exhausted primary quota is a rate limit")
+        expect(
+            ReleaseFeed.Response(status: 403, data: body, authorized: true,
+                rateLimitRemaining: "10", retryAfter: "60") == .limited,
+            "Retry-After identifies a secondary rate limit with quota remaining")
+        expect(
+            ReleaseFeed.Response(status: 403, data: body, authorized: true, rateLimitRemaining: "10")
+                == .refused,
+            "a permission failure with quota remaining is an access refusal")
         expect(response(429, authorized: true) == .limited, "a secondary rate limit reads the same")
         expect(response(503) == .unreachable, "a server error is an outage")
         expect(
@@ -383,6 +412,23 @@ struct UpdatesTests {
         expect(
             !ReleaseFeed.acceptsToken(URL(string: "https://example.invalid/a.zip")!),
             "another host never carries the token")
+        func redirected(_ url: String) -> URLRequest {
+            var request = URLRequest(url: URL(string: url)!)
+            request.setValue("Bearer fixture", forHTTPHeaderField: "Authorization")
+            return ReleaseFeed.redirectedRequest(request, from: asset)
+        }
+        expect(
+            redirected("https://api.github.com/repos/new/repo/releases")
+                .value(forHTTPHeaderField: "Authorization") == "Bearer fixture",
+            "a same-host HTTPS feed redirect retains authentication")
+        expect(
+            redirected("https://objects.githubusercontent.com/signed.zip")
+                .value(forHTTPHeaderField: "Authorization") == nil,
+            "feed and download redirects to signed storage remove authentication")
+        expect(
+            redirected("http://api.github.com/repos/o/r/releases")
+                .value(forHTTPHeaderField: "Authorization") == nil,
+            "an HTTPS downgrade removes authentication even on the original host")
     }
 
     static func offersOnlyWhatIsWorthInstalling() {

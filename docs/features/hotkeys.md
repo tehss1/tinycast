@@ -259,7 +259,8 @@ Like every keyboard tap it needs the **Accessibility** grant and never prompts f
 watchdog runs while a key is configured: it retries installation until the grant lands, notices
 revocation, revives a tap the system disabled on timeout or user input, and clears a stuck hold. On
 fast user switching another session owns the keyboard, so half-held state is dropped and rewriting
-stops until this session is active again. The HID remap outlives the process, so
+stops until this session is active again. The watchdog, tap recovery and configuration changes all
+respect that inactive-session gate. The HID remap outlives the process, so
 `applicationWillTerminate` hands the key back to the system before exiting.
 
 ## Recorder

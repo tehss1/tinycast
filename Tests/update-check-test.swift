@@ -9,6 +9,7 @@ struct UpdateCheckTests {
     static func main() async throws {
         try await stopsBeforeFirstCheck()
         try await cancelsAndRestarts()
+        await manualChecksReportAccessFailures()
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
     }
@@ -83,6 +84,24 @@ struct UpdateCheckTests {
 
         let reopened = makeStore(file: file, fixture: fixture)
         expect(reopened.latest == store.latest, "manual checking persists the release")
+    }
+
+    static func manualChecksReportAccessFailures() async {
+        let cases: [(ReleaseFeed.Response, UpdateCheckStore.Outcome)] = [
+            (.refused, .refused), (.limited, .limited), (.missing, .missing),
+            (.unreachable, .unreachable)
+        ]
+        for (response, expected) in cases {
+            let file = makeFile()
+            defer { try? FileManager.default.removeItem(at: file) }
+            let store = UpdateCheckStore(
+                channel: .stable, runningVersion: AppVersion("1.0.0"), fileURL: file,
+                fetch: { response })
+            expect(await store.check() == expected,
+                "manual checks preserve the feed's access and rate-limit classification")
+            expect(store.lastCheckedAt == nil && !FileManager.default.fileExists(atPath: file.path),
+                "a failed feed check cannot make the cache appear fresh")
+        }
     }
 
     static func seedCache(at file: URL) throws {

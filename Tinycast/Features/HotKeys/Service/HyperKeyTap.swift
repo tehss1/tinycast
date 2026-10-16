@@ -119,6 +119,7 @@ final class HyperKeyTap: HealthCheckable {
     @ObservationIgnored private var tapPort: CFMachPort?
     @ObservationIgnored private var runLoopSource: CFRunLoopSource?
     @ObservationIgnored private var sessionTokens: [NotificationToken] = []
+    @ObservationIgnored private var sessionActive = true
     @ObservationIgnored private var hidConnect: io_connect_t = IO_OBJECT_NULL
 
     @ObservationIgnored weak var healthTicker: HealthTicker?
@@ -219,7 +220,7 @@ final class HyperKeyTap: HealthCheckable {
     func decide(
         type: CGEventType, keyCode: Int, flagsRaw: UInt64, isAutorepeat: Bool, isSynthetic: Bool
     ) -> Decision {
-        guard !isSynthetic, let tapCode = key.tapKeyCode else { return .pass }
+        guard sessionActive, !isSynthetic, let tapCode = key.tapKeyCode else { return .pass }
 
         if keyCode == tapCode {
             return decideHyperKeyEvent(type: type, flagsRaw: flagsRaw, isAutorepeat: isAutorepeat)
@@ -291,6 +292,7 @@ final class HyperKeyTap: HealthCheckable {
     }
 
     private func fireQuickPress(_ action: HyperKeyQuickPress, for key: HyperKeyPhysicalKey) {
+        guard sessionActive else { return }
         switch action {
         case .none:
             break
@@ -320,7 +322,7 @@ final class HyperKeyTap: HealthCheckable {
 
     private func syncCapsLockRemap() {
         let secureInput = IsSecureEventInputEnabled()
-        let shouldEnable = key == .capsLock && status == .active && !secureInput
+        let shouldEnable = sessionActive && key == .capsLock && status == .active && !secureInput
         if secureInput { cancelHold() }
         guard capsLockRemapEnabled != shouldEnable else { return }
         if shouldEnable { setCapsLockState(false) }
@@ -347,7 +349,7 @@ final class HyperKeyTap: HealthCheckable {
     }
 
     private func installTapIfNeeded() {
-        guard tapPort == nil, key != .none else { return }
+        guard sessionActive, tapPort == nil, key != .none else { return }
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
@@ -388,12 +390,13 @@ final class HyperKeyTap: HealthCheckable {
     /// Called when the system disables the tap; any half-tracked hold is stale by then.
     fileprivate func reenable() {
         cancelHold()
+        guard sessionActive else { return }
         if let tapPort { CGEvent.tapEnable(tap: tapPort, enable: true) }
     }
 
     /// One-second watchdog while a key is configured. See docs/features/hotkeys.md#lifecycle.
     func healthCheck() {
-        guard key != .none else { return }
+        guard sessionActive, key != .none else { return }
         if tapPort == nil {
             installTapIfNeeded()
         } else if !Permissions.isAccessibilityTrusted() {
@@ -406,6 +409,7 @@ final class HyperKeyTap: HealthCheckable {
     }
 
     private func sessionDidResign() {
+        sessionActive = false
         cancelHold()
         if let tapPort { CGEvent.tapEnable(tap: tapPort, enable: false) }
         if key == .capsLock {
@@ -415,12 +419,8 @@ final class HyperKeyTap: HealthCheckable {
     }
 
     private func sessionDidBecomeActive() {
-        if let tapPort {
-            CGEvent.tapEnable(tap: tapPort, enable: true)
-        } else {
-            installTapIfNeeded()
-        }
-        if key == .capsLock { syncCapsLockRemap() }
+        sessionActive = true
+        healthCheck()
     }
 
     // MARK: - Synthetics & caps state

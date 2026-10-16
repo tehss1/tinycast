@@ -175,7 +175,7 @@ final class UpdateCheckStore {
     private nonisolated static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: RedirectDelegate(), delegateQueue: nil)
     }()
 
     private nonisolated static func response(
@@ -190,6 +190,19 @@ final class UpdateCheckStore {
         guard let (data, response) = try? await session.data(for: request),
             let http = response as? HTTPURLResponse
         else { return .unreachable }
-        return ReleaseFeed.Response(status: http.statusCode, data: data, authorized: token != nil)
+        return ReleaseFeed.Response(
+            status: http.statusCode, data: data, authorized: token != nil,
+            rateLimitRemaining: http.value(forHTTPHeaderField: "X-RateLimit-Remaining"),
+            retryAfter: http.value(forHTTPHeaderField: "Retry-After"))
+    }
+
+    private final class RedirectDelegate: NSObject, URLSessionTaskDelegate {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            completionHandler(ReleaseFeed.redirectedRequest(request, from: task.originalRequest?.url))
+        }
     }
 }

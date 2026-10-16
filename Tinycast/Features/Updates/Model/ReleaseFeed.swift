@@ -69,6 +69,14 @@ enum ReleaseFeed {
         url.scheme == "https" && url.host() == "api.github.com"
     }
 
+    static func redirectedRequest(_ request: URLRequest, from originalURL: URL?) -> URLRequest {
+        var request = request
+        if request.url?.host != originalURL?.host || request.url?.scheme != "https" {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
     /// What asking for the feed came to; each failure is kept apart because each has its own fix.
     enum Response: Sendable, Equatable {
         case body(Data)
@@ -78,12 +86,18 @@ enum ReleaseFeed {
         case unreachable
 
         /// GitHub answers 404 for a private repository too, so only a sent token makes it a refusal.
-        init(status: Int, data: Data, authorized: Bool) {
+        init(
+            status: Int, data: Data, authorized: Bool,
+            rateLimitRemaining: String? = nil, retryAfter: String? = nil
+        ) {
             switch status {
             case 200: self = .body(data)
             case 401: self = .refused
             case 404: self = authorized ? .refused : .missing
-            case 403, 429: self = .limited
+            case 403:
+                let exhausted = rateLimitRemaining?.trimmingCharacters(in: .whitespacesAndNewlines) == "0"
+                self = exhausted || retryAfter != nil ? .limited : .refused
+            case 429: self = .limited
             default: self = .unreachable
             }
         }
