@@ -324,7 +324,10 @@ enum QuickActionOutput {
         }
         var byLeftWord: [String: [DashContext]] = [:]
         var byRightWord: [String: [DashContext]] = [:]
-        for context in sourceContexts.keys {
+        let orderedContexts = sourceContexts.keys.sorted {
+            ($0.leftWord, $0.rightWord) < ($1.leftWord, $1.rightWord)
+        }
+        for context in orderedContexts {
             byLeftWord[context.leftWord, default: []].append(context)
             byRightWord[context.rightWord, default: []].append(context)
         }
@@ -334,12 +337,15 @@ enum QuickActionOutput {
         var copiedThrough = 0
         for index in characters.indices where characters[index] == "—" {
             let context = dashContext(in: characters, at: index)
+            if (sourceContexts[context] ?? 0) > 0 {
+                sourceContexts[context, default: 0] -= 1
+                continue
+            }
             let sameLeft = (byLeftWord[context.leftWord] ?? []).prefix(maximumDashCandidates)
                 .filter { isCorrection(of: $0.rightWord, to: context.rightWord) }
             let sameRight = (byRightWord[context.rightWord] ?? []).prefix(maximumDashCandidates)
                 .filter { isCorrection(of: $0.leftWord, to: context.leftWord) }
-            let candidates: [DashContext] = [context] + sameLeft + sameRight
-            if let matched = candidates.first(where: { (sourceContexts[$0] ?? 0) > 0 }) {
+            if let matched = (sameLeft + sameRight).first(where: { (sourceContexts[$0] ?? 0) > 0 }) {
                 sourceContexts[matched, default: 0] -= 1
                 continue
             }

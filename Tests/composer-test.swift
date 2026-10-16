@@ -35,6 +35,7 @@ struct ComposerTests {
         try historyKeyIsLazyAndWritesArePrivate()
         try updatedThreadKeepsConversation()
         try separateRepliesKeepSeparateConversations()
+        historyFollowsEditorAndRecipients()
         newestQuoteIsIncluded()
         localizedQuoteIsIncluded()
         allRecipientsAreCaptured()
@@ -664,12 +665,77 @@ struct ComposerTests {
         expect(store.resumableRecord(selection: "", context: reopened)?.id == privateReply.historyID,
             "a reopened editor for the same people resumes their conversation")
 
-        let newer = context(
-            "Alice <alice@example.com>", editor: "editor-newer", newer: "From: Alice\nAny update?\n")
-        expect(store.resumableRecord(selection: "", context: newer) != nil,
-            "a newer reply in the thread still continues a conversation")
+        let newerQuote = "From: Alice\nAny update?\n"
+        let newerAll = context("Alice <alice@example.com>; Team <team@example.com>",
+            editor: "editor-newer-all", newer: newerQuote)
+        expect(store.resumableRecord(selection: "", context: newerAll)?.id == replyAll.historyID,
+            "a newer reply-all continues the reply-all, not the longer private conversation")
+        let newer = context("Alice <alice@example.com>", editor: "editor-newer", newer: newerQuote)
+        expect(store.resumableRecord(selection: "", context: newer)?.id == privateReply.historyID,
+            "a newer private reply continues the private conversation")
+        func recipient(of id: UUID) -> String? { store.records.first(where: { $0.id == id })?.recipient }
+        expect(recipient(of: privateReply.historyID) == "Alice <alice@example.com>"
+            && recipient(of: replyAll.historyID) == "Alice <alice@example.com>; Team <team@example.com>",
+            "resuming never hands one reply's recipients to the other")
         expect(Set(store.records.map(\.id)) == [privateReply.historyID, replyAll.historyID],
             "a match through a shared quote never deletes another reply's conversation")
+
+        let outsider = context(
+            "Bob <bob@example.com>", editor: "editor-outsider", newer: newerQuote)
+        expect(store.resumableRecord(selection: "", context: outsider) == nil,
+            "a reply to entirely different people never continues either conversation")
+    }
+
+    static func historyFollowsEditorAndRecipients() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerEditorHistory-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
+        func conversation(_ context: QuickActionContext, draft: String) -> QuickActionPanelState {
+            let state = QuickActionPanelState(
+                action: .rewrite, original: "", context: context,
+                targetLanguage: Locale.Language(identifier: "en"), awaitsWritingInstruction: true)
+            state.refinementInstruction = "Write it"
+            _ = state.beginInitialRewrite()
+            state.finish(draft)
+            return state
+        }
+
+        let alice = QuickActionContext(recipient: "Alice <alice@example.com>", subject: "Plans",
+            recentThread: nil, documentIdentity: "outlook-new-email")
+        let aliceEmail = conversation(alice, draft: "Here are the plans.")
+        expect(store.save(aliceEmail.historyRecord()!), "the new email to Alice is saved")
+        let renamed = QuickActionContext(recipient: "Alice <alice@example.com>", subject: "Updated plans",
+            recentThread: nil, documentIdentity: "outlook-new-email")
+        expect(store.resumableRecord(selection: "", context: renamed)?.id == aliceEmail.historyID,
+            "a new email keeps its conversation after its subject changes")
+        let withCc = QuickActionContext(
+            recipient: "Alice <alice@example.com>; Carol <carol@example.com>", subject: "Updated plans",
+            recentThread: nil, documentIdentity: "outlook-new-email")
+        expect(store.resumableRecord(selection: "", context: withCc)?.id == aliceEmail.historyID,
+            "adding a Cc to a new email keeps its conversation")
+        let reusedEditor = QuickActionContext(recipient: "Bob <bob@example.com>", subject: "Updated plans",
+            recentThread: nil, documentIdentity: "outlook-new-email")
+        expect(store.resumableRecord(selection: "", context: reusedEditor) == nil,
+            "a reused editor addressed to someone else never inherits the conversation")
+        let unaddressed = QuickActionContext(recipient: nil, subject: nil,
+            recentThread: nil, documentIdentity: "outlook-new-email")
+        expect(store.resumableRecord(selection: "", context: unaddressed)?.id == aliceEmail.historyID,
+            "an unread recipient list never splits a new email's conversation")
+
+        let quoted = "From: Dana\nCan you send the numbers?"
+        let reply = QuickActionContext(recipient: "Dana <dana@example.com>", subject: "RE: Numbers",
+            recentThread: quoted, documentIdentity: "editor-reply")
+        let replyState = conversation(reply, draft: "Here are the numbers.")
+        expect(store.save(replyState.historyRecord()!), "the reply is saved")
+        let reopenedWithCc = QuickActionContext(
+            recipient: "Dana <dana@example.com>; Erin <erin@example.com>", subject: "RE: Numbers",
+            recentThread: quoted, documentIdentity: "editor-reopened")
+        expect(store.resumableRecord(selection: "", context: reopenedWithCc) == nil,
+            "another editor on the same snapshot with more people starts its own conversation")
+        expect(store.resumableRecord(selection: "Here are the numbers.", context: reopenedWithCc)?.id
+            == replyState.historyID,
+            "a reopened draft that gained a Cc resumes when its draft is selected")
     }
 
     static func allRecipientsAreCaptured() {

@@ -130,17 +130,24 @@ selectable Markdown renderer with AI Chat.
   draft without another model request. Tinycast stores context and individual-message fingerprints
   for matching, not a second copy of the quoted email thread. The context identity uses the subject
   and quoted thread, or the native editor identity when no thread exists; recipient order and
-  completeness do not affect it. Overlapping quoted messages keep one conversation together when a
-  new reply changes the snapshot. Each record also remembers its Outlook editor, and that editor's
-  own conversation always wins. Another editor quoting the same messages, such as a reopened draft,
-  continues a conversation unless both fully captured recipient lists differ, so a private reply and
-  a reply-all to one message stay separate. If older records contain duplicates for the same editor,
-  the first matching run keeps the transcript with the most messages and removes the other rows. A
+  completeness do not affect it. Each record also remembers its Outlook editor, and that editor's own
+  conversation wins over any other, even after its subject changes. In a reply it needs the same
+  snapshot or a shared quoted message. In a new email it is refused only when both fully captured
+  recipient lists share no address, because Outlook can hand a new email a closed editor's identity.
+  Another editor continues a drafted conversation when its quote shares a message and the subject,
+  so a new reply that changes the snapshot stays in the conversation, but never when both fully
+  captured recipient lists share no address. On the same snapshot, such as a reopened draft, any
+  difference between those lists also refuses it unless the selection is its latest draft, so a
+  private reply and a reply-all to one message stay separate, while a reopened draft that gained a Cc
+  resumes when its draft is selected. Among matches, a conversation addressed to exactly the same
+  fully captured recipients comes first, then the one with the most messages, then the latest
+  revision. If older records contain duplicates for the same editor, the first matching run keeps
+  that preferred transcript and removes the other rows. A
   row found only through a shared quote, or owned by another editor, is never removed. Reopening does
   not extend retention because only a revision updates the record's
   timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
   Typing does not extend retention. In-flight requests remain recoverable until generation succeeds.
-  New emails without quoted history match by the native Outlook editor identity and subject.
+  New emails without quoted history match only by the native Outlook editor identity.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
   The sidebar can display and copy an older draft, but only the active Composer conversation

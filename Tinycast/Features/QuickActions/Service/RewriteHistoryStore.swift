@@ -111,8 +111,10 @@ final class RewriteHistoryStore {
         let editor = context.documentIdentity
         let sameEditor = matches.filter { editor != nil && $0.editorIdentity == editor }
         let candidates = sameEditor.isEmpty
-            ? matches.filter { Self.mayFollow($0, into: context) } : sameEditor
-        guard let preferred = candidates.max(by: Self.prefersSecond) else { return nil }
+            ? matches.filter { Self.mayFollow($0, selection: selected, into: context) } : sameEditor
+        let addressed = Self.addresses(in: context.recipient)
+        guard let preferred = candidates.max(by: { Self.prefersSecond($0, $1, addressed: addressed) })
+        else { return nil }
 
         let resumed = RewriteHistoryRecord(
             id: preferred.id, createdAt: preferred.createdAt, updatedAt: preferred.updatedAt,
@@ -233,34 +235,64 @@ final class RewriteHistoryStore {
         _ record: RewriteHistoryRecord, selection: String, context: QuickActionContext?
     ) -> Bool {
         guard let context, let identity = context.historyIdentity else { return false }
+        if let editor = context.documentIdentity, record.editorIdentity == editor {
+            guard context.recentThread == nil else {
+                return record.contextIdentity == identity || sharesThread(record, context: context)
+            }
+            return !addressesDisjoint(record, context: context)
+        }
         if record.latestDraft == nil {
             guard context.recentThread != nil || context.documentIdentity != nil,
                 record.contextIdentity == identity
             else { return false }
             return true
         }
-        let contentMatches = normalized(record.original) == selection
-            || record.latestDraft.map { normalized($0) == selection } == true
         if let storedIdentity = record.contextIdentity {
             if storedIdentity == identity {
-                return context.recentThread != nil || context.documentIdentity != nil || contentMatches
+                return context.recentThread != nil || context.documentIdentity != nil
+                    || contentMatches(record, selection: selection)
             }
             return sharesThread(record, context: context) && sameSubject(record, context: context)
         }
-        return contentMatches && sameEnvelope(record, context: context)
+        return contentMatches(record, selection: selection) && sameEnvelope(record, context: context)
+    }
+
+    private static func contentMatches(_ record: RewriteHistoryRecord, selection: String) -> Bool {
+        normalized(record.original) == selection || selectsLatestDraft(record, selection: selection)
+    }
+
+    private static func selectsLatestDraft(_ record: RewriteHistoryRecord, selection: String) -> Bool {
+        record.latestDraft.map { normalized($0) == selection } == true
     }
 
     /// Two replies quoting the same messages are told apart only by whom each one addresses.
     private static func mayFollow(
-        _ record: RewriteHistoryRecord, into context: QuickActionContext
+        _ record: RewriteHistoryRecord, selection: String, into context: QuickActionContext
+    ) -> Bool {
+        guard let stored = addresses(in: record.recipient),
+            let current = addresses(in: context.recipient), stored != current
+        else { return true }
+        guard !stored.isDisjoint(with: current) else { return false }
+        return !sameSnapshot(record, context: context)
+            || (!selection.isEmpty && selectsLatestDraft(record, selection: selection))
+    }
+
+    private static func sameSnapshot(
+        _ record: RewriteHistoryRecord, context: QuickActionContext
     ) -> Bool {
         let fingerprints = Set(context.historyFingerprints)
-        let sameSnapshot = record.contextIdentity == context.historyIdentity
+        return record.contextIdentity == context.historyIdentity
             || (!fingerprints.isEmpty && Set(record.contextFingerprints ?? []) == fingerprints)
-        guard sameSnapshot, let stored = addresses(in: record.recipient),
+    }
+
+    /// Outlook can hand a new email a closed editor's handle, so only the people tell them apart.
+    private static func addressesDisjoint(
+        _ record: RewriteHistoryRecord, context: QuickActionContext
+    ) -> Bool {
+        guard let stored = addresses(in: record.recipient),
             let current = addresses(in: context.recipient)
-        else { return true }
-        return stored == current
+        else { return false }
+        return stored.isDisjoint(with: current)
     }
 
     /// Nil unless every recipient was read, so a partial capture never splits a conversation.
@@ -296,8 +328,11 @@ final class RewriteHistoryStore {
     }
 
     private static func prefersSecond(
-        _ first: RewriteHistoryRecord, _ second: RewriteHistoryRecord
+        _ first: RewriteHistoryRecord, _ second: RewriteHistoryRecord, addressed: Set<String>?
     ) -> Bool {
+        let firstAddressed = addressed != nil && addresses(in: first.recipient) == addressed
+        let secondAddressed = addressed != nil && addresses(in: second.recipient) == addressed
+        if firstAddressed != secondAddressed { return secondAddressed }
         if first.messages.count != second.messages.count {
             return first.messages.count < second.messages.count
         }
