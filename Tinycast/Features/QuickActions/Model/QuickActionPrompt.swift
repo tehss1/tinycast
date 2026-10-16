@@ -257,64 +257,85 @@ enum QuickActionOutput {
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     ]
 
-    private static func repairingIntroducedDashes(in text: String, source: String) -> String {
-        let sourceDashCount = source.filter { $0 == "—" }.count
-        let dashCount = text.filter { $0 == "—" }.count
-        guard dashCount > sourceDashCount else { return text }
-        var protected: Set<Int> = []
-        if sourceDashCount > 0 {
-            var offset = 0
-            for chunk in TextDiffEngine.diff(original: source, modified: text) {
-                switch chunk {
-                case .equal(let value):
-                    for (index, character) in value.enumerated() where character == "—" {
-                        protected.insert(offset + index)
-                    }
-                    offset += value.count
-                case .inserted(let value): offset += value.count
-                case .deleted: break
-                }
-            }
-        }
+    private struct DashContext: Hashable, Sendable {
+        let leftWord: String
+        let rightWord: String
+    }
 
-        guard protected.count >= sourceDashCount else { return text }
-        var result = text
-        var remainingRepairs = dashCount - sourceDashCount
-        for (offset, index) in text.indices.enumerated().reversed() where text[index] == "—" {
-            guard remainingRepairs > 0, !protected.contains(offset) else { continue }
-            let lineStart = text[..<index].lastIndex(where: \.isNewline)
-                .map { text.index(after: $0) } ?? text.startIndex
-            let before = text[lineStart..<index]
-            guard before.contains(where: { !$0.isWhitespace }) else { continue }
+    private static func dashContext(in characters: [Character], at index: Int) -> DashContext {
+        var leftEnd = index
+        while leftEnd > 0, !characters[leftEnd - 1].isLetter, !characters[leftEnd - 1].isNumber,
+            !characters[leftEnd - 1].isNewline, characters[leftEnd - 1] != "—"
+        {
+            leftEnd -= 1
+        }
+        var leftStart = leftEnd
+        while leftStart > 0,
+            characters[leftStart - 1].isLetter || characters[leftStart - 1].isNumber
+        {
+            leftStart -= 1
+        }
+        var rightStart = index + 1
+        while rightStart < characters.count, !characters[rightStart].isLetter,
+            !characters[rightStart].isNumber, !characters[rightStart].isNewline, characters[rightStart] != "—"
+        {
+            rightStart += 1
+        }
+        var rightEnd = rightStart
+        while rightEnd < characters.count,
+            characters[rightEnd].isLetter || characters[rightEnd].isNumber
+        {
+            rightEnd += 1
+        }
+        return DashContext(
+            leftWord: String(characters[leftStart..<leftEnd]).lowercased(),
+            rightWord: String(characters[rightStart..<rightEnd]).lowercased())
+    }
+
+    private static func repairingIntroducedDashes(in text: String, source: String) -> String {
+        guard text.contains("—") else { return text }
+        let sourceCharacters = Array(source)
+        var sourceContexts: [DashContext: Int] = [:]
+        for index in sourceCharacters.indices where sourceCharacters[index] == "—" {
+            sourceContexts[dashContext(in: sourceCharacters, at: index), default: 0] += 1
+        }
+        let characters = Array(text)
+        var result = ""
+        result.reserveCapacity(text.utf8.count)
+        var copiedThrough = 0
+        for index in characters.indices where characters[index] == "—" {
+            let context = dashContext(in: characters, at: index)
+            if let remaining = sourceContexts[context], remaining > 0 {
+                sourceContexts[context] = remaining - 1
+                continue
+            }
             var start = index
-            while start > lineStart, text[text.index(before: start)].isWhitespace {
-                start = text.index(before: start)
+            while start > copiedThrough, characters[start - 1].isWhitespace,
+                !characters[start - 1].isNewline
+            {
+                start -= 1
             }
-            var end = text.index(after: index)
-            while end < text.endIndex, text[end].isWhitespace, !text[end].isNewline {
-                end = text.index(after: end)
+            var end = index + 1
+            while end < characters.count, characters[end].isWhitespace, !characters[end].isNewline {
+                end += 1
             }
-            let left = text[lineStart..<start]
-            let right = text[end...].prefix(while: { !$0.isNewline })
-            guard let leftCharacter = left.last, let rightCharacter = right.first,
-                !leftCharacter.isNumber, !rightCharacter.isNumber
+            guard start > 0, end < characters.count,
+                !characters[start - 1].isNewline, !characters[end].isNewline,
+                !characters[start - 1].isNumber, !characters[end].isNumber
             else { continue }
-            let leftWord = String(left.reversed().prefix(while: \.isLetter).reversed())
-            let rightWord = String(right.prefix(while: \.isLetter))
-            let clause = clauseStarters.contains(rightWord.lowercased())
-            let dayRange = weekdays.contains(leftWord.lowercased()) && weekdays.contains(rightWord.lowercased())
-            let tightRange = start == index && end == text.index(after: index) && !clause
+            let leftWord = String(characters[..<start].reversed().prefix(while: \.isLetter).reversed()).lowercased()
+            let rightWord = String(characters[end...].prefix(while: \.isLetter)).lowercased()
+            let clause = clauseStarters.contains(rightWord)
+            let dayRange = weekdays.contains(leftWord) && weekdays.contains(rightWord)
+            let tightRange = start == index && end == index + 1 && !clause
                 && !leftWord.isEmpty && !rightWord.isEmpty
             guard !tightRange, !dayRange else { continue }
-            let replacement = clause ? ". " + rightWord.prefix(1).uppercased() : ", "
-            if clause { end = text.index(after: end) }
-            let startOffset = text.distance(from: text.startIndex, to: start)
-            let endOffset = text.distance(from: text.startIndex, to: end)
-            let resultStart = result.index(result.startIndex, offsetBy: startOffset)
-            let resultEnd = result.index(result.startIndex, offsetBy: endOffset)
-            result.replaceSubrange(resultStart..<resultEnd, with: replacement)
-            remainingRepairs -= 1
+            result += String(characters[copiedThrough..<start])
+            result += clause ? ". " + String(characters[end]).uppercased() : ", "
+            if clause { end += 1 }
+            copiedThrough = end
         }
+        result += String(characters[copiedThrough...])
         return result
     }
 
@@ -327,20 +348,16 @@ enum QuickActionOutput {
 
     static func preparedForDelivery(
         _ text: String, action: QuickAction, toOutlook: Bool,
-        insertsAtCaret: Bool = false, hasFollowingLineBreak: Bool = false,
-        boundaries: ComposerDraftAnchor.TextBoundaries? = nil, source: String? = nil
+        insertsAtCaret: Bool = false, boundaries: ComposerDraftAnchor.TextBoundaries? = nil
     ) -> String {
-        let body = action.builtInAction == .rewrite ? composerBody(in: text, source: source) : text
-        guard toOutlook, action.builtInAction == .rewrite,
-            let boundaries, boundaries.coversWholeLines
-        else { return body }
-        let formatted = outlookParagraphs(in: body)
+        guard toOutlook, action.builtInAction == .rewrite, let boundaries else { return text }
+        let formatted = boundaries.coversWholeLines ? outlookParagraphs(in: text) : text
         let withoutTrailingNewlines = formatted.trimmingCharacters(in: .newlines)
-        let followingBreaks = max(boundaries.followingLineBreakCount, hasFollowingLineBreak ? 1 : 0)
+        let followingBreaks = boundaries.followingLineBreakCount
         if insertsAtCaret {
             return withoutTrailingNewlines + (followingBreaks > 0 ? "" : "\n")
         }
-        guard
+        guard boundaries.coversWholeLines,
             withoutTrailingNewlines.split(separator: "\n", omittingEmptySubsequences: false)
                 .last?.trimmingCharacters(in: .whitespaces).lowercased() == "best,"
         else { return formatted }

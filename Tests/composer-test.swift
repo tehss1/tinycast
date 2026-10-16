@@ -25,6 +25,8 @@ struct ComposerTests {
         firstFailureCanRetry()
         stopKeepsCompletedDraft()
         settledConversationReopens()
+        fieldReopensOnlyForTheSameText()
+        savedConversationIsViewOnly()
         manualEditsJoinConversation()
         try historyIsScopedAndRecoversInput()
         try historyStorageRecoversValidRecords()
@@ -150,7 +152,7 @@ struct ComposerTests {
             let delivery = QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, insertsAtCaret: range.length == 0,
                 boundaries: boundaries)
-            let trailing = range.length == 0 && wholeLines
+            let trailing = range.length == 0
                 && boundaries?.followingLineBreakCount == 0 ? "\n" : ""
             expect(delivery == (wholeLines ? split : draft) + trailing,
                 "only whole-line replacements and carets on empty lines split into paragraphs")
@@ -358,6 +360,53 @@ struct ComposerTests {
         expect(caret.reopensFromSource, "an unsent caret request reopens with what was typed")
         caret.replacementIssue = "Couldn't capture this Outlook draft. Reopen Composer to try again."
         expect(!caret.reopensFromSource, "a replacement issue makes the next press capture afresh")
+    }
+
+    static func fieldReopensOnlyForTheSameText() {
+        let selected = makeState(caret: false)
+        selected.finish("Finished draft")
+        let range = NSRange(location: 4, length: 11)
+        func reopens(
+            _ state: QuickActionPanelState, _ selection: NSRange?, _ pressed: NSRange?,
+            count: Int? = nil, pressedCount: Int? = nil, text: String? = nil
+        ) -> Bool {
+            state.reopensFromField(
+                selection: selection, pressedSelection: pressed, characterCount: count,
+                pressedCharacterCount: pressedCount, selectedText: { text })
+        }
+        expect(reopens(selected, range, range, text: "Rough\n  notes "),
+            "the same selected text reopens, whatever its whitespace")
+        expect(!reopens(selected, range, range, text: "Other notes"),
+            "different text in the same range starts a new conversation")
+        expect(!reopens(selected, range, range),
+            "unreadable selected text starts a new conversation")
+        expect(!reopens(selected, nil, range, text: "Rough notes"),
+            "a field that reported no range never reopens for a later selection")
+        expect(!reopens(selected, nil, nil, text: "Rough notes"),
+            "a field that never reports a range never reopens")
+
+        let caret = makeState()
+        let point = NSRange(location: 0, length: 0)
+        expect(reopens(caret, point, point, count: 0, pressedCount: 0),
+            "an unchanged field reopens its caret conversation")
+        expect(!reopens(caret, point, point, count: 0, pressedCount: 12),
+            "a field edited since the press starts a new conversation")
+        expect(!reopens(caret, point, point),
+            "a field that cannot report its length starts a new conversation")
+        expect(!reopens(caret, point, NSRange(location: 0, length: 5), count: 0, pressedCount: 0,
+            text: "Hello"), "a selection where the caret was starts a new conversation")
+    }
+
+    static func savedConversationIsViewOnly() {
+        let state = makeState(caret: false)
+        state.finish("Finished draft")
+        expect(state.isViewingActive && state.canDeliver(isViewingActive: state.isViewingActive),
+            "the active conversation can be delivered")
+        state.viewedHistoryID = UUID()
+        expect(!state.isViewingActive && !state.canDeliver(isViewingActive: state.isViewingActive),
+            "a saved conversation on screen is view and copy only")
+        state.viewedHistoryID = state.historyID
+        expect(state.isViewingActive, "returning to the active row restores its controls")
     }
 
     static func manualEditsJoinConversation() {
@@ -602,8 +651,12 @@ struct ComposerTests {
         let data = try JSONSerialization.data(withJSONObject: mixed)
         let sealed = try AES.GCM.seal(data, using: historyKey).combined!
         try sealed.write(to: file)
+        let staged = directory.appendingPathComponent(".rewrite-history-\(UUID().uuidString)")
+        try sealed.write(to: staged)
         let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { timestamp })
         store.load()
+        expect(!FileManager.default.fileExists(atPath: staged.path),
+            "a staged write a crash left behind is removed on load")
         expect(store.records == [record, record],
             "bad records before and between valid records do not discard valid history")
         let preserved = try Data(contentsOf: file)

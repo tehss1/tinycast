@@ -137,8 +137,10 @@ selectable Markdown renderer with AI Chat.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
   The sidebar can display and copy an older draft, but only the active Composer conversation
-  can refine or replace the current target. Right-clicking a sidebar row opens its Delete
-  Conversation action. Deleting the active conversation also closes its panel.
+  can refine, change its audience or replace the current target. Right-clicking a sidebar row,
+  or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
+  Delete Conversation action, which VoiceOver also offers on each row. Deleting the active
+  conversation also closes its panel.
 - **A custom prompt cannot drop those boundaries.** An override on a shipped action may replace
   `boundary`, because the sheet shows the whole prompt. Composer keeps its body-only output rule after
   an override, along with its natural-voice and no-em-dash rules. A custom action *is* the prompt, so
@@ -259,7 +261,9 @@ claim live context, because their quoted text is not retained. `OutlookComposeCo
 all addresses exposed by the To, Cc and Bcc fields, deduplicates them and removes presence labels.
 
 The audience menu offers Automatic, Internal and External. Automatic shows the detected result;
-Internal or External is saved with that conversation. The model menu uses
+Internal or External is saved with that conversation. Choosing the current option again saves
+nothing, so it never extends retention. The menu is hidden while a saved conversation is on screen,
+as the model and reasoning controls are. The model menu uses
 `AIModelOption.availableGroups` and persists only Composer's route override. Until the signed-in
 Claude CLI is ready, a Claude section there turns the provider on, copies its sign-in command or
 opens its install page; the sign-in itself needs a terminal, so opening the menu re-probes.
@@ -298,11 +302,12 @@ because the selection is already its request.
 
 A dismissed Composer conversation stays reachable, whether its draft arrived behind the closed
 panel or before it closed. Pressing the shortcut again in the same text field with the same
-selection or caret, or on the same passage of an unchanged note, reopens it as often as needed. A
-different field, selection or note starts a new conversation, which replaces it, and Insert or
-Replace ends it. A conversation whose panel asks to reopen Composer captures afresh instead. This
-applies only outside an Outlook-context draft. That draft is restored from history instead, so its
-captured body is never stale.
+selected text in the same range, or the same caret in a field whose length has not changed, or on
+the same passage of an unchanged note, reopens it as often as needed. A different field, selection,
+caret, field length or note starts a new conversation, which replaces it, and so does a field that
+reports no selection range. Insert or Replace ends it. A conversation whose panel asks to reopen
+Composer captures afresh instead. This applies only outside an Outlook-context draft. That draft is
+restored from history instead, so its captured body is never stale.
 
 Composer opens centered over the visible source editor, using bounds captured before its panel opens.
 `ComposerPlacementReader` falls back to the source window when the editor has no usable bounds.
@@ -409,9 +414,11 @@ Every other external target gets the same check in a narrower form. When the sho
 the coordinator captures the focused Accessibility element and its selected range, or the caret,
 for every Quick Action, before reading the selection. Focus that moves during the ⌘C fallback
 cannot redirect delivery, and an Outlook capture read after it counts only for that same editor and
-range. After activation, delivery requires that same element to hold focus, and the same range
-when the app reported one. Otherwise nothing is typed and the result is copied. An app that exposes
-no focused element cannot be checked, so activation is its only guard.
+range. After activation, delivery checks the original element's range when reported and compares
+captured selected text when available. A different focused element is accepted only in the same
+process with identical non-empty selected text. Caret insertion requires the original element and
+range; a field that reports neither is held to focus alone. An app that exposes no focused element
+cannot be checked, so activation is its only guard.
 
 When Composer resumes a saved email, the boundary fingerprints locate its current draft. Manual
 Outlook edits become a new draft in the conversation and supply the starting text for further changes.
@@ -447,7 +454,9 @@ to select the draft and reopen Composer.
 - In TextEdit, start Composer generation, dismiss the panel and wait for it to finish. Press the
   shortcut in the same field and confirm the finished draft reopens, ready for refinement or Insert.
   Dismiss and press again to confirm it reopens every time, then select other text and confirm the
-  shortcut starts a new conversation.
+  shortcut starts a new conversation. Repeat with selected text, then retype that range with
+  different words of the same length and confirm a new conversation starts. In a caret-first
+  conversation, type in the field before pressing again and confirm a new conversation starts.
 - In a Tinycast note, select a passage, run Composer, dismiss the panel and wait for it to finish.
   Press the shortcut on the same selection and confirm the draft reopens and Replace lands in the
   note. Change the selection and confirm a new conversation starts.
@@ -504,6 +513,10 @@ to select the draft and reopen Composer.
   reappears, submit it, dismiss again, and confirm the field reopens empty.
 - Right-click a saved Composer conversation and choose Delete Conversation. Confirm it disappears
   and stays absent after relaunch. Delete the active conversation and confirm its panel closes.
+  Select a saved conversation, press ⌘⌫ and Return, and confirm it is deleted; with VoiceOver,
+  confirm each row offers Delete Conversation in its actions.
+- With a saved conversation selected in the sidebar, confirm the audience menu is hidden and the
+  active conversation's audience is unchanged when you return to it.
 - Give Summarize its own model and effort: the row names them, only Summarize uses them, and they
   survive a relaunch. Turn that provider off in AI Settings and Summarize follows the shared model.
 - Save a custom action with its own model, delete it, and confirm no route is left in

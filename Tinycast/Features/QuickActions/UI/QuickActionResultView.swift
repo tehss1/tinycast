@@ -25,7 +25,6 @@ struct QuickActionResultView: View {
     @State private var footerHeight: CGFloat = 0
     @State private var retainedRewriteHeight: CGFloat = 0
     @State private var followsTranscriptTail = true
-    @State private var selectedHistoryID: UUID?
     @State private var transcriptScrollTask: Task<Void, Never>?
     @FocusState private var refinementFocused: Bool
 
@@ -98,15 +97,15 @@ struct QuickActionResultView: View {
                 onSelectionChange(selection.text, selection.isViewingActive)
             }
             .onAppear {
-                selectedHistoryID = state.historyID
+                state.viewedHistoryID = state.historyID
                 refinementFocused = shouldFocusInstruction
             }
             .onChange(of: state.refinementInstruction) { onInstructionChange() }
             .onChange(of: history.records.map(\.id)) { _, ids in
-                guard let selectedHistoryID, selectedHistoryID != state.historyID,
-                    !ids.contains(selectedHistoryID)
+                guard let viewed = state.viewedHistoryID, viewed != state.historyID,
+                    !ids.contains(viewed)
                 else { return }
-                self.selectedHistoryID = state.historyID
+                state.viewedHistoryID = state.historyID
             }
     }
 
@@ -116,11 +115,12 @@ struct QuickActionResultView: View {
             HStack(spacing: 0) {
                 QuickActionHistorySidebar(
                     records: historyEntries,
-                    selectedID: selectedHistoryID,
+                    selectedID: state.viewedHistoryID,
                     currentID: state.historyID,
                     height: panelHeight,
                     onSelect: selectHistory,
                     onActions: openHistoryMenu,
+                    onDelete: { coordinator.deleteComposerConversation($0, from: state) },
                     onCollapse: toggleHistory)
                 Rectangle()
                     .fill(Theme.Colors.separator)
@@ -175,7 +175,7 @@ struct QuickActionResultView: View {
             .onChange(of: state.conversation) {
                 followTranscript(proxy, always: false)
             }
-            .onChange(of: selectedHistoryID) {
+            .onChange(of: state.viewedHistoryID) {
                 followsTranscriptTail = true
                 scrollToTranscriptTail(proxy)
                 refinementFocused = isViewingActive && shouldFocusInstruction
@@ -562,47 +562,37 @@ struct QuickActionResultView: View {
 
     private func selectHistory(_ id: UUID) {
         state.accessory = nil
-        selectedHistoryID = id
+        state.viewedHistoryID = id
     }
 
     private func openHistoryMenu(_ id: UUID) {
-        selectedHistoryID = id
+        state.viewedHistoryID = id
         state.accessorySelection = 0
         state.accessory = .history(id)
     }
 
     private func toggleHistory() {
         state.accessory = nil
-        if historyExpanded { selectedHistoryID = state.historyID }
+        if historyExpanded { state.viewedHistoryID = state.historyID }
         historyExpanded.toggle()
     }
 
-    private var isViewingActive: Bool {
-        selectedHistoryID == nil || selectedHistoryID == state.historyID
-    }
+    private var isViewingActive: Bool { state.isViewingActive }
 
     private var shouldFocusInstruction: Bool {
         state.needsInitialRequest || state.phase == .finished
     }
 
     private var displayedConversation: [RewriteConversationMessage] {
-        let messages = isViewingActive
-            ? state.conversation
-            : history.records.first { $0.id == selectedHistoryID }?.messages ?? []
-        guard state.action == .rewrite else { return messages }
-        return messages.map { message in
-            guard message.role == .assistant else { return message }
-            var bodyMessage = message
-            bodyMessage.text = QuickActionOutput.composerBody(in: message.text)
-            return bodyMessage
-        }
+        isViewingActive ? state.conversation : viewedRecord?.messages ?? []
     }
 
     private var displayedOutput: String {
-        let output = isViewingActive
-            ? state.output
-            : history.records.first { $0.id == selectedHistoryID }?.latestDraft ?? ""
-        return state.action == .rewrite ? QuickActionOutput.composerBody(in: output) : output
+        isViewingActive ? state.output : viewedRecord?.latestDraft ?? ""
+    }
+
+    private var viewedRecord: RewriteHistoryRecord? {
+        history.records.first { $0.id == state.viewedHistoryID }
     }
 
     private var selectionState: SelectionState {

@@ -36,14 +36,19 @@ enum AccessibilityText {
 
     static func read(in app: NSRunningApplication) -> Selection {
         guard let element = focusedElement(in: app) else { return .noFocusedElement }
+        guard let text = selectedText(of: element) else { return .empty }
+        return .text(text)
+    }
+
+    static func selectedText(of element: AXUIElement) -> String? {
         var value: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(
             element,
             kAXSelectedTextAttribute as CFString,
             &value)
-        if status == .success, let text = value as? String, !text.isEmpty { return .text(text) }
-        guard let web = webSelection(in: element), !web.isEmpty else { return .empty }
-        return .text(web)
+        if status == .success, let text = value as? String, !text.isEmpty { return text }
+        guard let web = webSelection(in: element), !web.isEmpty else { return nil }
+        return web
     }
 
     /// A narrower question, for callers that can act on the text but not on why there is none.

@@ -8,6 +8,7 @@ struct QuickActionHistorySidebar: View {
     let height: CGFloat
     let onSelect: (UUID) -> Void
     let onActions: (UUID) -> Void
+    let onDelete: (UUID) -> Void
     let onCollapse: () -> Void
 
     var body: some View {
@@ -38,6 +39,8 @@ struct QuickActionHistorySidebar: View {
                             onSelect(record.id)
                         } onActions: {
                             onActions(record.id)
+                        } onDelete: {
+                            onDelete(record.id)
                         }
                     }
                 }
@@ -62,6 +65,7 @@ struct QuickActionHistorySidebar: View {
         let current: Bool
         let action: () -> Void
         let onActions: () -> Void
+        let onDelete: () -> Void
         @State private var hovered = false
 
         var body: some View {
@@ -92,6 +96,7 @@ struct QuickActionHistorySidebar: View {
             }
             .buttonStyle(.plain)
             .onRightClick(perform: onActions)
+            .accessibilityAction(named: "Delete Conversation", onDelete)
             .onHover { hovered = $0 }
         }
 

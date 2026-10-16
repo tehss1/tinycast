@@ -26,7 +26,9 @@ struct QuickActionTests {
         composerSeparatesRequestsFromContext()
         outlookContextUsesOnlyRecentThread()
         rewriteDeliverySeparatesOutlookSignature()
+        composerDeliveryUsesActualBoundaries()
         composerKeepsSourceSubjectsAndDashes()
+        composerMatchesDashContexts()
         rewriteCanBeRefinedRepeatedly()
         previewChoicesRememberOnlyWhatWasChosen()
         settingsPersistAndRepairTheirRoute()
@@ -639,7 +641,8 @@ struct QuickActionTests {
         expect(
             QuickActionOutput.preparedForDelivery(
                 draft, action: .rewrite, toOutlook: true, insertsAtCaret: true,
-                hasFollowingLineBreak: true, boundaries: boundaries) == draft,
+                boundaries: ComposerDraftAnchor.TextBoundaries(
+                    body: "\nSignature", range: NSRange(location: 0, length: 0))) == draft,
             "an Outlook insertion leaves existing signature line breaks untouched")
         expect(
             QuickActionOutput.preparedForDelivery(
@@ -652,8 +655,9 @@ struct QuickActionTests {
         expect(
             QuickActionOutput.preparedForDelivery(
                 "Subject: Urgent: Call the client\n\nPlease call the client today.",
-                action: .rewrite, toOutlook: false, source: "Call the client.") == "Please call the client today.",
-            "Composer removes a generated subject before copy or delivery")
+                action: .rewrite, toOutlook: false)
+                == "Subject: Urgent: Call the client\n\nPlease call the client today.",
+            "delivery preserves the subject already accepted in the completed draft")
         expect(
             QuickActionOutput.composerBody(
                 in: "**Subject:** Urgent: Call the client\r\n\r\nPlease call the client today.", source: "")
@@ -704,6 +708,60 @@ struct QuickActionTests {
             "existing Outlook line breaks remain unchanged")
     }
 
+    static func composerDeliveryUsesActualBoundaries() {
+        let draft = "First sentence. Second sentence."
+        for lineBreak in ["\n", "\r\n"] {
+            let body = "Intro" + lineBreak + "Best,"
+            let caret = NSRange(location: "Intro".utf16.count + lineBreak.utf16.count, length: 0)
+            let boundaries = ComposerDraftAnchor.TextBoundaries(body: body, range: caret)
+            expect(boundaries?.coversWholeLines == false,
+                "a caret before a nonempty sign-off line cannot request paragraph formatting")
+            let delivery = QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true, boundaries: boundaries)
+            expect(delivery == draft + "\n",
+                "Insert before a nonempty line adds the missing separating line break")
+            var inserted = body
+            inserted.insert(contentsOf: delivery, at: Range(caret, in: body)!.lowerBound)
+            expect(inserted == "Intro" + lineBreak + draft + "\nBest,",
+                "the generated draft never joins the following Outlook sign-off")
+
+            let selected = "Rough notes" + lineBreak
+            let selectedBody = selected + "Signature"
+            let selection = ComposerDraftAnchor.TextBoundaries(
+                body: selectedBody, range: NSRange(location: 0, length: selected.utf16.count))
+            expect(selection?.endsAtLineEnd == true && selection?.coversWholeLines == true,
+                "a paragraph selected with its own trailing newline ends at a line boundary")
+            expect(QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, boundaries: selection)
+                == "First sentence.\n\nSecond sentence.",
+                "a triple-clicked paragraph still receives whole-line paragraph formatting")
+            expect(QuickActionOutput.preparedForDelivery(
+                "Please review.\n\nBest,", action: .rewrite, toOutlook: true, boundaries: selection)
+                == "Please review.\n\nBest,\n\n",
+                "a selected paragraph's consumed newline does not count as a following signature break")
+        }
+        for (body, offset, suffix) in [
+            ("Intro text", 5, "\n"),
+            ("Intro\nBest,", 5, ""),
+            ("Intro\r\n\r\nBest,", 5, ""),
+        ] {
+            let boundaries = ComposerDraftAnchor.TextBoundaries(
+                body: body, range: NSRange(location: offset, length: 0))
+            expect(QuickActionOutput.preparedForDelivery(
+                draft, action: .rewrite, toOutlook: true, insertsAtCaret: true, boundaries: boundaries)
+                == draft + suffix,
+                "known carets preserve following breaks without reflowing mid-line text")
+        }
+        expect(QuickActionOutput.preparedForDelivery(
+            draft + " Best,", action: .rewrite, toOutlook: true, insertsAtCaret: true)
+            == draft + " Best,",
+            "unknown caret boundaries preserve paragraphs and sign-off spacing")
+        expect(ComposerDraftAnchor.TextBoundaries(
+            body: "Rough notes\nSignature", range: NSRange(location: 6, length: 6))?
+            .coversWholeLines == false,
+            "including a trailing newline does not turn a partial-line start into a whole line")
+    }
+
     static func composerKeepsSourceSubjectsAndDashes() {
         let subject = "Subject: Call tomorrow"
         expect(QuickActionOutput.composerDraft(in: subject, source: subject) == subject,
@@ -741,6 +799,48 @@ struct QuickActionTests {
             in: "The result — a useful improvement — is ready.", source: "")
             == "The result, a useful improvement, is ready.",
             "model-introduced prose dashes still use the natural-voice guard")
+    }
+
+    static func composerMatchesDashContexts() {
+        expect(QuickActionOutput.naturalVoice(
+            in: "Ready, send it. Done—we assigned it.", source: "Ready—send it. Done.")
+            == "Ready, send it. Done. We assigned it.",
+            "a removed source dash cannot protect a new dash elsewhere with the same total count")
+        for spacing in [" ", "\t", "\u{00a0}"] {
+            let spaced = "Ready" + spacing + "—" + spacing + "send it. Done—we assigned it."
+            expect(QuickActionOutput.naturalVoice(in: spaced, source: "Ready—send it.")
+                == "Ready" + spacing + "—" + spacing + "send it. Done. We assigned it.",
+                "whitespace around a source dash does not disable repairs elsewhere")
+        }
+        expect(QuickActionOutput.naturalVoice(
+            in: "Ready—send it. Done—we assigned it.", source: "Ready — send it. Done.")
+            == "Ready—send it. Done. We assigned it.",
+            "removing whitespace around a source dash still protects its neighboring words")
+        expect(QuickActionOutput.naturalVoice(
+            in: "Done—we assigned it. Ready — send it.", source: "Ready—send it. Done.")
+            == "Done. We assigned it. Ready — send it.",
+            "reordering text preserves the dash with source neighbors and repairs the unrelated dash")
+        expect(QuickActionOutput.naturalVoice(
+            in: "Ready—we assigned it. Later — send it.", source: "Ready—send it.")
+            == "Ready. We assigned it. Later, send it.",
+            "matching just one neighboring word cannot protect a new dash")
+        expect(QuickActionOutput.naturalVoice(
+            in: "Done—we assigned it. Ready! — send it.", source: "Ready!—send it.")
+            == "Done. We assigned it. Ready! — send it.",
+            "punctuation beside a source dash does not hide its neighboring word")
+        expect(QuickActionOutput.naturalVoice(
+            in: "Ready—we can send it. Ready — we can send it.", source: "Ready—we can send it.")
+            == "Ready—we can send it. Ready. We can send it.",
+            "one source dash protects only one occurrence of its neighboring words")
+        let source = String(repeating: "Ready—send it. ", count: 5_000)
+        let output = String(repeating: "Ready — send it. ", count: 5_000) + "Done—we assigned it."
+        let expected = String(repeating: "Ready — send it. ", count: 5_000) + "Done. We assigned it."
+        expect(QuickActionOutput.naturalVoice(in: output, source: source) == expected,
+            "long drafts match source dash contexts without an alignment token cap")
+        let added = String(repeating: "Done—we assigned it. ", count: 5_000)
+        expect(QuickActionOutput.naturalVoice(in: added, source: "")
+            == String(repeating: "Done. We assigned it. ", count: 5_000),
+            "many introduced dashes are repaired in a single forward pass")
     }
 
     static func previewChoicesRememberOnlyWhatWasChosen() {

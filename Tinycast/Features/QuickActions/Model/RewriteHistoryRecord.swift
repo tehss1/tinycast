@@ -46,17 +46,13 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
     }
 
     var preview: String {
-        guard let text = messages.last(where: {
-            $0.role == .assistant && $0.state == .complete && !$0.text.isEmpty
-        })?.text else { return "" }
-        let body = QuickActionOutput.composerBody(in: text)
-        return String(body.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(96))
+        guard let text = latestDraft else { return "" }
+        return String(text.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(96))
     }
 
     var latestDraft: String? {
-        guard let text = messages.last(where: {
+        messages.last(where: {
             $0.role == .assistant && $0.state == .complete && !$0.text.isEmpty
-        })?.text else { return nil }
-        return QuickActionOutput.composerBody(in: text)
+        })?.text
     }
 }

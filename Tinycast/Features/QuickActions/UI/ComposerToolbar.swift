@@ -20,8 +20,11 @@ struct ComposerToolbar: View {
             }
             .accessibilityLabel("\(contextTitle). Show captured context")
 
-            ComposerAccessoryButton(
-                title: audienceTitle, label: "Audience tone", accessory: .audience, state: state)
+            if isViewingActive {
+                ComposerAccessoryButton(
+                    title: audienceTitle, label: "Audience tone", accessory: .audience,
+                    state: state)
+            }
             Spacer(minLength: 0)
         }
         .buttonStyle(.plain)
@@ -130,7 +133,9 @@ struct ComposerToolbar: View {
         _ event: NSEvent, state: QuickActionPanelState,
         coordinator: QuickActionCoordinator) -> Bool?
     {
-        guard state.accessory != nil else { return nil }
+        guard state.accessory != nil else {
+            return opensConversationMenu(event, state: state) ? true : nil
+        }
         let key = Int(event.keyCode)
         if key == kVK_Escape {
             state.accessory = nil
@@ -152,6 +157,21 @@ struct ComposerToolbar: View {
             return true
         }
         return state.accessory != .context
+    }
+
+    /// Left to a field being edited, where ⌘⌫ deletes to the start of the line.
+    private static func opensConversationMenu(
+        _ event: NSEvent, state: QuickActionPanelState
+    ) -> Bool {
+        let key = Int(event.keyCode)
+        guard state.action == .rewrite,
+            event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+            key == kVK_Delete || key == kVK_ForwardDelete,
+            (event.window?.firstResponder as? NSTextView)?.isFieldEditor != true
+        else { return false }
+        state.accessorySelection = 0
+        state.accessory = .history(state.viewedHistoryID ?? state.historyID)
+        return true
     }
 
     struct AccessoryView: View {

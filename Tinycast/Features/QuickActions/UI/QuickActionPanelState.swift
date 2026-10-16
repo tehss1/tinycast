@@ -12,6 +12,7 @@ final class QuickActionPanelState {
     enum Accessory: Equatable { case context, audience, model, reasoning, history(UUID) }
     var accessory: Accessory?
     var accessorySelection = 0
+    var viewedHistoryID: UUID?
 
     enum Phase: Equatable {
         case awaitingInstruction
@@ -62,6 +63,27 @@ final class QuickActionPanelState {
 
     /// A replacement issue asks the reader to reopen, so pressing again must capture afresh.
     var reopensFromSource: Bool { !isRunning && replacementIssue == nil }
+
+    /// A saved conversation on screen is view and copy only, so it hides the active one's controls.
+    var isViewingActive: Bool { viewedHistoryID == nil || viewedHistoryID == historyID }
+
+    /// Without a known range, or with different text there, the same field is a new request.
+    func reopensFromField(
+        selection: NSRange?, pressedSelection: NSRange?, characterCount: Int?,
+        pressedCharacterCount: Int?, selectedText: () -> String?
+    ) -> Bool {
+        guard reopensFromSource, let selection, selection == pressedSelection else { return false }
+        if insertsAtCaret {
+            return selection.length == 0 && characterCount != nil
+                && characterCount == pressedCharacterCount
+        }
+        guard selection.length > 0, let text = selectedText() else { return false }
+        return Self.collapsingWhitespace(text) == Self.collapsingWhitespace(original)
+    }
+
+    private static func collapsingWhitespace(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
 
     var deliveryActionTitle: String {
         action == .rewrite && insertsAtCaret ? "Insert" : "Replace"
@@ -161,9 +183,7 @@ final class QuickActionPanelState {
     }
 
     func adoptSourceDraft(_ text: String) {
-        let normalized: (String) -> String = {
-            $0.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        }
+        let normalized = Self.collapsingWhitespace
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             normalized(text) != normalized(output),
             originalIsWritingInstruction || normalized(text) != normalized(original)

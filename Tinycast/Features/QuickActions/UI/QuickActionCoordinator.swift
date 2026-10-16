@@ -112,7 +112,8 @@ final class QuickActionCoordinator {
     func selectComposerAudience(
         _ audience: ComposerAudience?, for state: QuickActionPanelState
     ) {
-        guard !state.isRunning else { return }
+        guard !state.isRunning, state.isViewingActive, state.audienceOverride != audience
+        else { return }
         state.audienceOverride = audience
         saveHistory(state)
     }
@@ -366,7 +367,10 @@ final class QuickActionCoordinator {
             let now = current.text, case .focusedField(let nowSelection) = now.scope,
             CFEqual(now.editor, field.editor)
         else { return false }
-        return selection == nil || nowSelection == selection
+        return state.reopensFromField(
+            selection: selection, pressedSelection: nowSelection,
+            characterCount: field.characterCount, pressedCharacterCount: now.characterCount,
+            selectedText: { AccessibilityText.selection(in: app) })
     }
 
     /// Read after the ⌘C fallback's wait, so it counts only from the field the shortcut found.
@@ -596,7 +600,6 @@ final class QuickActionCoordinator {
         let deliveredText = QuickActionOutput.preparedForDelivery(
             text, action: action, toOutlook: OutlookComposeContextReader.isOutlook(target.app),
             insertsAtCaret: insertsAtCaret,
-            hasFollowingLineBreak: textTarget?.hasFollowingLineBreak ?? false,
             boundaries: textTarget?.textBoundaries)
         if let note = target.note {
             guard core.notesCoordinator.editorInput == note.document,
@@ -636,6 +639,7 @@ final class QuickActionCoordinator {
 
     private func present(_ state: QuickActionPanelState, target: Target) {
         track(state, target: target)
+        state.viewedHistoryID = nil
         panels.present(
             state,
             coordinator: self,

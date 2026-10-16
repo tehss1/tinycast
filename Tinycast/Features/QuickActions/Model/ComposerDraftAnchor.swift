@@ -15,6 +15,7 @@ struct ComposerDraftAnchor: Codable, Equatable, Sendable {
                 || body[body.index(before: selection.lowerBound)].isNewline
             endsAtLineEnd = selection.upperBound == body.endIndex
                 || body[selection.upperBound].isNewline
+                || (!selection.isEmpty && body[body.index(before: selection.upperBound)].isNewline)
             followingLineBreakCount = body[selection.upperBound...].prefix(while: \.isNewline).count
         }
     }

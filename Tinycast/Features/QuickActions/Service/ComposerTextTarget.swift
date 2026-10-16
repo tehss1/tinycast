@@ -4,7 +4,8 @@ import AppKit
 /// The text field a Quick Action was invoked from, checked again before anything is delivered.
 @MainActor
 final class ComposerTextTarget {
-    /// Outside Outlook the field's whole value is never read, so only focus and selection are kept.
+    private static let deliveryTimeout: Float = 1
+
     enum Scope {
         case outlookDraft
         case focusedField(selection: NSRange?)
@@ -40,6 +41,8 @@ final class ComposerTextTarget {
     let body: String
     let selectedRange: NSRange
     let scope: Scope
+    private let selectionText: String?
+    let characterCount: Int?
     private(set) var replacementRange: NSRange?
     private(set) var preparationFailure: PreparationFailure?
 
@@ -52,10 +55,6 @@ final class ComposerTextTarget {
         return String(body[range])
     }
 
-    var hasFollowingLineBreak: Bool {
-        (textBoundaries?.followingLineBreakCount ?? 0) > 0
-    }
-
     var textBoundaries: ComposerDraftAnchor.TextBoundaries? {
         guard case .outlookDraft = scope, let replacementRange else { return nil }
         return ComposerDraftAnchor.TextBoundaries(body: body, range: replacementRange)
@@ -66,6 +65,8 @@ final class ComposerTextTarget {
         self.body = body
         self.selectedRange = selectedRange
         scope = .outlookDraft
+        selectionText = nil
+        characterCount = body.utf16.count
         replacementRange = selectedRange
     }
 
@@ -74,6 +75,17 @@ final class ComposerTextTarget {
         body = ""
         selectedRange = selection ?? NSRange(location: NSNotFound, length: 0)
         scope = .focusedField(selection: selection)
+        selectionText = AccessibilityText.selectedText(of: field)
+        characterCount = Self.characterCount(of: field)
+    }
+
+    /// A count, never the value: outside Outlook the field's text itself is not read.
+    private static func characterCount(of field: AXUIElement) -> Int? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            field, kAXNumberOfCharactersAttribute as CFString, &value) == .success
+        else { return nil }
+        return (value as? NSNumber)?.intValue
     }
 
     static func focusedField(in app: NSRunningApplication?) -> ComposerTextTarget? {
@@ -99,6 +111,10 @@ final class ComposerTextTarget {
             return prepareField(in: app, selection: selection)
         }
         guard let app, let replacementRange else {
+            preparationFailure = .targetUnavailable
+            return false
+        }
+        guard AXUIElementSetMessagingTimeout(editor, Self.deliveryTimeout) == .success else {
             preparationFailure = .targetUnavailable
             return false
         }
@@ -137,15 +153,38 @@ final class ComposerTextTarget {
         return accepted
     }
 
-    /// A field that never reported a selection range can only be held to focus.
     private func prepareField(in app: NSRunningApplication?, selection: NSRange?) -> Bool {
-        guard let app, isFocused(in: app) else {
+        guard let app, let focused = AccessibilityText.focusedElement(in: app) else {
             preparationFailure = .fieldChanged
             return false
         }
-        guard let selection else { return true }
-        guard AccessibilityText.selectedRange(of: editor) == selection else {
+        var originalProcess: pid_t = 0
+        var focusedProcess: pid_t = 0
+        guard AXUIElementGetPid(editor, &originalProcess) == .success,
+            AXUIElementGetPid(focused, &focusedProcess) == .success,
+            originalProcess == app.processIdentifier, focusedProcess == originalProcess
+        else {
+            preparationFailure = .fieldChanged
+            return false
+        }
+        let sameElement = CFEqual(focused, editor)
+        if sameElement, let selection, AccessibilityText.selectedRange(of: focused) != selection {
             preparationFailure = .selectionChanged
+            return false
+        }
+        if !sameElement, selection?.length == 0 {
+            preparationFailure = .fieldChanged
+            return false
+        }
+        if let selectionText {
+            guard AccessibilityText.selectedText(of: focused) == selectionText else {
+                preparationFailure = .selectionChanged
+                return false
+            }
+            return true
+        }
+        guard sameElement else {
+            preparationFailure = .fieldChanged
             return false
         }
         return true
