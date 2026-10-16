@@ -30,6 +30,7 @@ final class RewriteHistoryStore {
     func load() {
         observeDayChange()
         try? FileManager.default.removeItem(at: unsealedURL)
+        removeStagedFiles()
         if isExpiredOnDisk { try? FileManager.default.removeItem(at: fileURL) }
         unreadableFile = FileManager.default.fileExists(atPath: fileURL.path)
         guard let sealed = try? Data(contentsOf: fileURL), let key,
@@ -174,9 +175,20 @@ final class RewriteHistoryStore {
         }
     }
 
+    private static let stagedPrefix = ".rewrite-history-"
+
+    /// A crash between staging and the rename leaves a sealed copy that no later write replaces.
+    private func removeStagedFiles() {
+        let directory = fileURL.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for name in names where name.hasPrefix(Self.stagedPrefix) {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
+    }
+
     private func write(_ sealed: Data) throws -> Bool {
         var staged = fileURL.deletingLastPathComponent()
-            .appendingPathComponent(".rewrite-history-\(UUID().uuidString)")
+            .appendingPathComponent("\(Self.stagedPrefix)\(UUID().uuidString)")
         let descriptor = Darwin.open(staged.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(0o600))
         guard descriptor >= 0 else { return false }
         defer { try? FileManager.default.removeItem(at: staged) }
