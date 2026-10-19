@@ -39,6 +39,9 @@ cp "$root/Scripts/check-composer-retention.sh" "$scratch/repo/Scripts/"
 cp -R "$root/Tinycast" "$scratch/repo/"
 cp "$root/project.yml" "$scratch/repo/"
 git -C "$scratch/repo" init -q
+# Git 2.54 repacks in the background after a commit, racing the cleanup trap's rm -rf.
+git -C "$scratch/repo" config maintenance.auto false
+git -C "$scratch/repo" config gc.auto 0
 git -C "$scratch/repo" add .
 git -C "$scratch/repo" -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm baseline
 base="$(git -C "$scratch/repo" rev-parse HEAD)"
