@@ -1,6 +1,5 @@
 import Foundation
 
-/// A meeting's join link and the service behind it, read out of the event's own text.
 struct MeetingLink: Hashable, Sendable {
     let provider: Provider
     let url: URL
@@ -111,7 +110,7 @@ extension MeetingLink {
             case .gotoMeeting: return "GoTo Meeting"
             case .blueJeans: return "BlueJeans"
             case .skype: return "Skype"
-            case .generic: return "Meeting Link"
+            case .generic: return String(localized: "Meeting Link")
             }
         }
 

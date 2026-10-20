@@ -34,7 +34,7 @@ final class QuickActionRunner {
         // Only when Accessibility saw a text element is "nothing is selected" the honest answer.
         throw reported == .empty
             ? QuickActionFailure.noSelection
-            : .unreadableApp(targetApp.localizedName ?? "That app")
+            : .unreadableApp(targetApp.localizedName)
     }
 
     static func accepted(_ text: String) throws -> String {
@@ -65,6 +65,7 @@ final class QuickActionRunner {
         // Edited instructions can ask for more than the selection, as a custom action's can.
         let outgrowsSelection = selectionIsWritingInstruction || instructionOverride != nil
         let request = AIRequest(
+<<<<<<< HEAD
             instructions: instructions,
             messages: [AIMessage(role: .user, text: message)],
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
@@ -115,6 +116,16 @@ final class QuickActionRunner {
         _ request: AIRequest, using provider: any AIProvider, selectionSized: Bool,
         onDelta: @MainActor (String) -> Void
     ) async throws -> String {
+=======
+            instructions: QuickActionPrompt.instructions(
+                for: action, override: instructionOverride),
+            messages: [
+                AIMessage(
+                    role: .user,
+                    text: QuickActionPrompt.message(for: action, selection: selection))
+            ],
+            maxOutputTokens: maxOutputTokens(for: action, selection: selection, on: provider))
+>>>>>>> refs/upstream/v0.12.1
         var text = ""
         for try await event in provider.stream(request) {
             // A cut-off reply would replace the whole selection with part of it.
@@ -127,8 +138,20 @@ final class QuickActionRunner {
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw AIProviderError.responseFailed("The model returned nothing.")
+            throw AIProviderError.responseFailed(String(localized: "The model returned nothing."))
         }
         return trimmed
     }
+<<<<<<< HEAD
+=======
+
+    /// The on-device window counts the prompt and the reply against one budget, so both need a cap.
+    private static func maxOutputTokens(
+        for action: QuickAction, selection: String, on provider: any AIProvider
+    ) -> Int {
+        guard provider is AppleIntelligenceProvider else { return AIRequest.defaultMaxOutputTokens }
+        let approximateTokens = max(selection.count / 3, 64)
+        return action == .summarize ? min(approximateTokens, 512) : approximateTokens * 2
+    }
+>>>>>>> refs/upstream/v0.12.1
 }

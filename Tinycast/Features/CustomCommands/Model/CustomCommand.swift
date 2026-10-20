@@ -74,7 +74,6 @@ struct CustomCommand: Codable, Hashable, Identifiable, Sendable {
         self.iconSymbol = iconSymbol
     }
 
-    /// The glyph every surface draws for this command.
     var symbol: String { iconSymbol ?? Self.sfSymbol }
 
     var entryID: String { Self.entryIDPrefix + id.uuidString.lowercased() }
@@ -138,10 +137,10 @@ enum CustomCommandValidationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyName: return "Enter a name for the command."
-        case .emptyCommand: return "Enter a command to run."
-        case .duplicateName: return "A custom command with this name already exists."
-        case .invalidCharacter: return "Names and commands cannot contain null characters."
+        case .emptyName: return String(localized: "Enter a name for the command.")
+        case .emptyCommand: return String(localized: "Enter a command to run.")
+        case .duplicateName: return String(localized: "A custom command with this name already exists.")
+        case .invalidCharacter: return String(localized: "Names and commands cannot contain null characters.")
         }
     }
 }

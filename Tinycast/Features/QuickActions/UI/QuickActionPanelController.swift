@@ -95,10 +95,8 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
             placeAtCursor(panel)
         }
         // Non-activating like the palette: key focus without pulling the reader out of their app.
-        panel.fadeIn(duration: Theme.Duration.enter) {
-            panel.makeKeyAndOrderFront(nil)
-            panel.orderFrontRegardless()
-        }
+        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
     }
 
     func dismiss(preservingDraft: Bool = true) {
@@ -113,9 +111,13 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         isViewingActiveConversation = true
         closing.delegate = nil
         closing.onKey = nil
+<<<<<<< HEAD
         closing.onAccessoryKey = nil
         preserveDraft?()
         closing.fadeOut(duration: Theme.Duration.exit)
+=======
+        closing.orderOut(nil)
+>>>>>>> refs/upstream/v0.12.1
     }
 
     private func copyOutput(_ text: String) {

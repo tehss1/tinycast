@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// The layout library, inside the Window Management pane: layouts belong to window management.
 struct WindowLayoutsSection: View {
     let onEdit: (WindowLayout?) -> Void
     let onDelete: (WindowLayout) -> Void
@@ -59,12 +58,11 @@ struct WindowLayoutsSection: View {
 
     private var emptyMessage: String {
         store.layouts.isEmpty
-            ? "Save an arrangement, then restore it with one shortcut."
-            : "No layout matches “\(query)”."
+            ? String(localized: "Save an arrangement, then restore it with one shortcut.")
+            : String(localized: "No layout matches “\(query)”.")
     }
 }
 
-/// One layout's alias, shortcut, launcher checkbox and actions, shaped like the window-command row.
 private struct WindowLayoutSettingsRow: View {
     let layout: WindowLayout
     let showsInLauncher: Bool

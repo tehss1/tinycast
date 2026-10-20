@@ -194,6 +194,14 @@ struct QuickActionResultView: View {
             .overlay(alignment: .bottom) { measured(footer) { footerHeight = $0 } }
         }
         .frame(width: metrics.size.quickActionPanel, height: panelHeight)
+<<<<<<< HEAD
+=======
+        .background(Theme.Colors.panelScrim)
+        .background(GlassEffectView())
+        .clipShape(RoundedRectangle(cornerRadius: metrics.radius.dialog, style: .continuous))
+        // Reported, not measured: the frame above is ours, so reading it back would feed itself.
+        .onChange(of: panelHeight, initial: true) { onHeight(panelHeight) }
+>>>>>>> refs/upstream/v0.12.1
     }
 
     private func measured(_ bar: some View, action: @escaping (CGFloat) -> Void) -> some View {
@@ -371,7 +379,7 @@ struct QuickActionResultView: View {
         if !chunks.isEmpty {
             // One `Text` per chunk would break the wrap, so the runs are styled inside one string.
             prose(Text(attributed(chunks)))
-        } else if state.action == .summarize {
+        } else if state.action.rendersMarkdown {
             ChatMarkdownText(blocks: MarkdownBlock.parse(state.output, midStream: state.isRunning))
         } else {
             prose(Text(state.output))

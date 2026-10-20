@@ -1,5 +1,3 @@
-// Standalone contract tests for the real pure snippet sources and main-actor store watcher.
-
 import AppKit
 import Foundation
 import SwiftUI
@@ -675,6 +673,42 @@ struct SnippetsTests {
         check(
             "the reader's clipboard is restored afterwards",
             backing.string(forType: .string) == "Original")
+
+        let manager = ClipboardManager()
+        let paused = TextInjector(clipboardManager: manager, settings: AppSettings())
+        seed("Original")
+        let probe = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            let pausesAtCopy = manager.pauses
+            let item = NSPasteboardItem()
+            item.setString("the selection", forType: .string)
+            backing.clearContents()
+            _ = backing.writeObjects([item])
+            return pausesAtCopy
+        }
+        _ = await paused.copySelection(from: nil, pasteboard: pasteboard)
+        let pausesAtCopy = await probe.value
+        check("history is paused while the borrowed copy lands", pausesAtCopy == 1)
+        check("the restore is baselined before history resumes", manager.syncedWhilePaused)
+        check("a landed copy resumes history", manager.pauses == 0)
+        _ = await paused.copySelection(from: nil, pasteboard: pasteboard)
+        check("a copy that never lands resumes history", manager.pauses == 0)
+
+        // Two borrows in flight: the later one must not read the earlier one's restore as a copy.
+        seed("Secret")
+        let first = Task { @MainActor in
+            await injector.copySelection(from: nil, pasteboard: pasteboard)
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+        let second = await injector.copySelection(from: nil, pasteboard: pasteboard)
+        let earlier = await first.value
+        check(
+            "overlapping borrows never return the clipboard as a selection: "
+                + "\(earlier ?? "nil"), \(second ?? "nil")",
+            earlier == nil && second == nil)
+        check(
+            "overlapping borrows leave the clipboard as it was",
+            backing.string(forType: .string) == "Secret")
     }
 
     /// Our panels never activate, so the frontmost app is not where the typist's caret is.
@@ -1334,13 +1368,11 @@ struct SnippetsTests {
                 subject, snippets: [subject], context: context, userArguments: arguments)
         }
 
-        // New date/time tokens.
         check(
             "datetime combines the date and time styles",
             expand("{datetime}").text == "Jul 24, 2026 at 1:05\u{202F}PM")
         check("day renders the weekday name", expand("{day}").text == "Friday")
 
-        // Offsets: signed, multi-unit, and every documented unit.
         check(
             "a single signed offset shifts the date",
             expand("{date offset=\"+1d\"}").text == "Jul 25, 2026")
@@ -1358,7 +1390,6 @@ struct SnippetsTests {
             "an offset without an amount leaves the token literal",
             expand("{date offset=\"d\"}").text == "{date offset=\"d\"}")
 
-        // Locale and format.
         check(
             "locale overrides the context locale",
             expand("{date locale=\"fr-FR\"}").text == "24 juil. 2026")
@@ -1388,7 +1419,6 @@ struct SnippetsTests {
         // UUID comes from the injected source, once per token.
         check("each uuid token draws a fresh value", expand("{uuid}|{uuid}").text == "uuid-1|uuid-2")
 
-        // Clipboard history.
         check(
             "clipboard offset zero is the current clipboard",
             expand("{clipboard}").text == "  newest  ")
@@ -1402,7 +1432,6 @@ struct SnippetsTests {
             "a negative clipboard offset leaves the token literal",
             expand("{clipboard offset=-1}").text == "{clipboard offset=-1}")
 
-        // Modifier pipeline.
         check(
             "uppercase and lowercase modifiers apply",
             expand("{selection | uppercase}|{selection | lowercase}").text == "PICKED|picked")
@@ -1431,7 +1460,6 @@ struct SnippetsTests {
             "a pipe inside a quoted value is not a modifier separator",
             expand("{date format=\"yyyy|MM\"}").text == "2026|07")
 
-        // Arguments: defaults and options.
         let defaulted = expand("{argument name=\"Tone\" default=\"happy\"}")
         check(
             "an argument default expands without prompting",
@@ -1551,7 +1579,6 @@ struct SnippetsTests {
                 text: text, context: context, userArguments: arguments, encoding: encoding)
         }
 
-        // The text entry point.
         check(
             "a bare template expands without a snippet record",
             expand("q={clipboard}").text == "q=a b&c")
@@ -1563,7 +1590,6 @@ struct SnippetsTests {
             expand("{argument name=\"Repository\"}").missingArguments
                 == [.init(name: "Repository", options: [])])
 
-        // Percent encoding of produced values.
         check(
             "percent encoding escapes a value substituted into a URL",
             expand("https://x.com/?q={clipboard}", encoding: .percentEncoding).text
@@ -1590,7 +1616,6 @@ struct SnippetsTests {
             "snippets ask for no encoding, so their expansion is unchanged",
             expand("{clipboard}").text == "a b&c")
 
-        // {selectedText} is an accepted spelling of {selection}.
         check(
             "selectedText resolves to the selection",
             expand("{selectedText}").text == expand("{selection}").text)
@@ -1613,17 +1638,21 @@ struct SnippetsTests {
             SnippetTemplateEngine.expand(aliasSnippet, snippets: [], context: context).text
                 == "[a b&c]")
 
-        // usesSelection drives the selection-fallback setting.
         check(
-            "usesSelection sees both spellings",
-            SnippetTemplateEngine.usesSelection("a {selection} b")
-                && SnippetTemplateEngine.usesSelection("a {selectedText} b"))
+            "readsSelection sees both spellings",
+            expand("a {selection} b").readsSelection && expand("a {selectedText} b").readsSelection)
         check(
-            "usesSelection is false for a template that reads no selection",
-            !SnippetTemplateEngine.usesSelection("{clipboard} {date}"))
+            "readsSelection is false for a template that reads no selection",
+            !expand("{clipboard} {date}").readsSelection)
         check(
-            "usesSelection parses rather than searches, so a malformed token does not count",
-            !SnippetTemplateEngine.usesSelection("{selection offset=1}"))
+            "readsSelection parses rather than searches, so a malformed token does not count",
+            !expand("{selection offset=1}").readsSelection)
+        let quoting = record("/tmp/quoting.md", Snippet(name: "Quoting", text: "> {selection}"))
+        let quoted = record("/tmp/quoted.md", Snippet(name: "Quoted", text: "{snippet:Quoting}"))
+        check(
+            "readsSelection reaches into a nested snippet",
+            SnippetTemplateEngine.expand(quoted, snippets: [quoting, quoted], context: context)
+                .readsSelection)
 
         // {query} is Raycast's spelling of {argument}.
         check(
@@ -2067,7 +2096,13 @@ private final class StubPasteboard: PasteboardAccess {
 final class ClipboardManager {
     static let internalType = NSPasteboard.PasteboardType("com.tinycast.internal")
     func prepareForTinycastPasteboardMutation() {}
-    func synchronizeAfterTinycastPasteboardMutation(changeCount: Int) {}
+    private(set) var pauses = 0
+    private(set) var syncedWhilePaused = false
+    func synchronizeAfterTinycastPasteboardMutation(changeCount: Int) {
+        syncedWhilePaused = pauses > 0
+    }
+    func pauseCapture() { pauses += 1 }
+    func resumeCapture() { pauses -= 1 }
 }
 
 @MainActor

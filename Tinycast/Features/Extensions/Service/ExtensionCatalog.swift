@@ -1,6 +1,5 @@
 import Foundation
 
-/// An installed extension: its manifest plus where it lives on disk.
 struct InstalledExtension: Sendable, Hashable, Identifiable {
     let manifest: ExtensionManifest
     let directory: URL
@@ -22,7 +21,6 @@ struct InstalledExtension: Sendable, Hashable, Identifiable {
 
     var assetsPath: String { directory.appendingPathComponent("assets").path }
 
-    /// The prebuilt CommonJS bundle for a command, or nil when the install is incomplete.
     func bundleURL(for command: ExtensionCommand) -> URL? {
         let url = directory.appendingPathComponent("\(command.name).js")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
@@ -33,7 +31,6 @@ struct InstalledExtension: Sendable, Hashable, Identifiable {
     }
 }
 
-/// A specific command of a specific extension — what the launcher activates.
 struct ExtensionCommandRef: Sendable, Hashable {
     let extensionName: String
     let commandName: String
@@ -185,15 +182,21 @@ enum ExtensionCatalog {
         var errorDescription: String? {
             switch self {
             case .notAnExtension(let url):
-                return
-                    "\(url.lastPathComponent) doesn't contain a Raycast extension (no package.json with commands)."
+                return String(
+                    localized: """
+                        \(url.lastPathComponent) doesn't contain a Raycast extension (no package.json \
+                        with commands).
+                        """)
             case .noBuiltCommands(let name):
-                return
-                    "\(name) has no built command bundles. Tinycast installs prebuilt extensions — run `ray build` in the extension folder first, or import one from an installed Raycast."
+                return String(
+                    localized: """
+                        \(name) has no built command bundles. Tinycast installs prebuilt extensions — run \
+                        `ray build` in the extension folder first, or import one from an installed Raycast.
+                        """)
             case .wrongPlatform(let name):
-                return "\(name) doesn't support macOS."
+                return String(localized: "\(name) doesn't support macOS.")
             case .copyFailed(let reason):
-                return "Couldn't install the extension: \(reason)"
+                return String(localized: "Couldn't install the extension: \(reason)")
             }
         }
     }

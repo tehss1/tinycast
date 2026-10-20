@@ -74,7 +74,7 @@ fit the table.
 | `Service`     | A stateless capability other types call                                       |
 | `Provider`    | Supplies values on demand, owning no policy about their use                   |
 | `Monitor`     | Watches an external stream and reports changes; owns no policy                |
-| `Scanner`     | Reads the filesystem to produce candidates                                    |
+| `Scanner`     | Reads the filesystem or system state to produce candidates                    |
 | `Runner`      | Performs one effectful operation on request                                   |
 | `Launcher`    | An `NSWorkspace.open` wrapper specifically                                    |
 | `Center`      | The Carbon registration layer specifically                                    |
@@ -84,13 +84,17 @@ fit the table.
 | `Catalog`     | Pure static namespace over a built-in list                                    |
 | `Index`       | A searchable collection, rebuilt as its inputs change                         |
 | `Engine`      | A pure evaluator: input → output                                              |
+| `Lexer`       | Splits text into classified token ranges in one pass; never rejects input     |
 | `Policy`      | A pure decision — no state, no effects                                        |
+| `Remapper`    | Keeps one HID key mapping on every matching device, including later arrivals  |
 
 `Manager` is the one worth thinking twice about. It means _lifecycle plus policy_, which is a lot for one
-type, so there are only two: `ClipboardManager` (polls, and owns the capture policy and the paste-side
-handshake) and `HotKeyManager` (persists bindings, and drives Carbon registration and double-tap
-dispatch). A third is fine if it genuinely owns both halves — but check first whether `Store`, `Monitor`
-or `Coordinator` describes it better, because usually one of them does.
+type, so there are only four: `ClipboardManager` (polls, and owns the capture policy and the
+paste-side handshake), `HotKeyManager` (persists bindings, and drives Carbon registration and
+double-tap dispatch), `HyperKeyManager` (drives the tap, the remap and their pauses, and owns the
+conflict and Secure Input policy) and `DictationKeyManager` (the 🎤 remap). Another is fine if it
+genuinely owns both halves — but check first whether `Store`, `Monitor` or `Coordinator` describes it
+better, because usually one of them does.
 
 `Registry` and `ViewModel` are retired: a static table is a `Catalog`, shared app state is a `State`.
 SwiftUI-layer names (`View`, `Screen`, `Card`, `Row`, `Sheet`) are a separate vocabulary and are not
@@ -231,6 +235,43 @@ comment is written buys a second edit; these are cheap to get right on the first
 Every custom control carries a label and the traits that describe it. The palette is an entirely custom
 control surface, so nothing comes for free — a row, a keycap chip, a footer pill and a dialog button all
 need saying explicitly. Adding it as the view is written costs a line; retrofitting it costs a rewrite.
+
+## Localization
+
+Tinycast ships English plus German, Spanish, French, Japanese, Korean, Portuguese, Russian and
+Simplified Chinese. Every string lives in `Tinycast/Resources/Localizable.xcstrings`, keyed by its
+English source text; the compiler extracts the keys, and `./Scripts/sync-strings.sh` writes them into
+the catalog (Xcode's own build does the same in the IDE). The six privacy prompts live in
+`InfoPlist.xcstrings`, keyed by their `Info.plist` key.
+
+- **SwiftUI's own initializers localize literals already** — `Text("…")`, `Button("…")`, `.help("…")`
+  and the rest take a `LocalizedStringKey`. A `String` *variable* passed to them is shown verbatim, so
+  the place that wrote the English is the place that localizes it.
+- **A view that only ever labels takes `LocalizedStringResource`**, so its callers pass plain literals
+  and the compiler still extracts them: `SettingsRowTitle`, `SettingsAnchor`, `SettingsSearchEntry`,
+  `FormRow`, `FeatureSwitchSection`, `SettingsEditorHeader`, `SettingsFilterField`.
+- **Everything that also carries runtime text keeps `String`**, and its literal callers write
+  `String(localized: "…")` — dialogs, HUD messages, `PopoverMenuItem`, AppKit menus and windows,
+  `LocalizedError`, and every model `title`. `Model/` files use it too; it is Foundation.
+- **One sentence is one literal.** Never assemble one with `+` or from localized fragments: the
+  translation has to be free to reorder it. A long one is a `"""` literal with `\` continuations.
+  Interpolate data — a name, a count — never a phrase.
+- **A count is one interpolated string** (`"\(count) items"`) with plural variations in the catalog, never
+  a `== 1 ?` branch.
+- **Not language, not in the catalog**: glyphs, separators and samples are `Text(verbatim:)`.
+- **Never localized**: anything from macOS, the user or an extension — app and pane names, user
+  content, everything a Raycast extension supplies or receives — and persisted formats, identifiers,
+  log text, prompts sent to a model, and what the calculator parses.
+- **Tinycast's own command names are translated and stay findable in English**: `CommandID`,
+  `SystemAction` and `WindowCommand` keep their English source as `englishName`, which the launcher
+  indexes as an alternate title.
+
+English is the default; Tinycast never follows the Mac's language. Settings › General › Language
+writes the same per-app `AppleLanguages` key as System Settings › Language & Region › Applications,
+and it applies on relaunch. `TinycastLaunch` writes the key back before anything is localized, so an
+empty or unshipped list still launches in English. Because that key also changes
+`Locale.preferredLanguages` for this process, anything that indexes what the user *types* — app
+names, emoji keywords — reads macOS's own list through `SystemLanguages.preferred` instead.
 
 ## What is actually checked
 

@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// The Raycast Store's search, and an install button per result.
 struct ExtensionStorePanel: View {
     let storeInstall: ExtensionDeepLink.StoreInstall?
     let onClose: () -> Void
@@ -25,8 +24,12 @@ struct ExtensionStorePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
             ExtensionSettingsEditorHeader(
-                title: storeInstall == nil ? "Search Extensions" : "Install Extension",
-                subtitle: "The Raycast Store's extensions arrive built, so they install as they are.")
+                title: storeInstall == nil
+                    ? String(localized: "Search Extensions") : String(localized: "Install Extension"),
+                subtitle: String(
+                    localized: """
+                        The Raycast Store's extensions arrive built, so they install as they are.
+                        """))
             // The same borderless field the panes use, rather than a bordered capsule of its own.
             if storeInstall == nil {
                 SettingsFilterField(prompt: "Search extensions…", query: $query)
@@ -61,8 +64,9 @@ struct ExtensionStorePanel: View {
             placeholder(searchFailure)
         } else if results.isEmpty && searched {
             placeholder(
-                storeInstall.map { "“\($0.handle)/\($0.name)” is unavailable in the Raycast Store." }
-                    ?? "Nothing matches “\(query)”.")
+                storeInstall.map {
+                    String(localized: "“\($0.handle)/\($0.name)” is unavailable in the Raycast Store.")
+                } ?? String(localized: "Nothing matches “\(query)”."))
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
@@ -193,7 +197,6 @@ struct ExtensionStorePanel: View {
     }
 }
 
-/// One search result: what it is, who made it, how many use it, and the button that installs it.
 private struct StoreRow: View {
     enum InstallState: Equatable {
         case idle
@@ -257,7 +260,7 @@ private struct StoreRow: View {
             }
             StoreFact(
                 symbol: "square.grid.2x2",
-                text: "\(listing.commandCount) command\(listing.commandCount == 1 ? "" : "s")")
+                text: String(localized: "\(listing.commandCount) commands"))
             if let downloads = listing.downloadCount, downloads > 0 {
                 StoreFact(symbol: "arrow.down.circle", text: ExtensionListing.abbreviate(downloads))
                     .help("\(downloads.formatted()) installs")
@@ -294,7 +297,6 @@ private struct StoreRow: View {
     }
 }
 
-/// One fact under a result, behind the glyph that says what kind of fact it is.
 private struct StoreFact: View {
     let symbol: String
     let text: String

@@ -341,6 +341,7 @@ It could not have been built on `HUDPresenter`: `HUDPanel` sets `ignoresMouseEve
 `false` from `canBecomeKey`, so it is click-through and hosts no buttons. Nor on `DialogAccessory`,
 which is a closed two-case enum measured once at present time — a growing stream would clip.
 
+<<<<<<< HEAD
 Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
 Keys go through `sendEvent`: `⌘↵` delivers, as does `↵` outside a text field, `⌘C` copies the shown
 result outside a text field, and `esc` dismisses. Composer labels delivery
@@ -388,6 +389,15 @@ largest height it has reached when the reader switches between saved conversatio
 minimum body leaves room for the first writing request before a transcript exists. Centring on every
 measure would walk it up the screen. `MarkdownView` and `MarkdownBlock.parse` are reused from chat;
 neither takes palette state.
+=======
+Non-activating, so the target app keeps its selection while the panel holds key. Keys go through
+`sendEvent`: `↵` replaces, `⌘C` copies, `esc` dismisses; click-away dismisses like every other
+borderless surface. The panel is anchored by its **top-left** and re-measured as the reply arrives —
+centring on every measure would walk it up the screen. Summarize and custom actions use chat's
+`ChatMarkdownText` and `MarkdownBlock.parse`, keeping the whole result selectable across paragraphs
+and headings, with the same math as chat; `midStream` is on while it runs, so an equation still
+arriving is held back.
+>>>>>>> refs/upstream/v0.12.1
 
 The body is a `ScrollView` with its height **set** rather than capped: a scroll view has no ideal
 height, so `NSHostingView.fittingSize` measures it as nothing and the body collapses to a slot. The
@@ -421,7 +431,10 @@ first, because Chromium builds its accessibility tree only once something asks a
 apps and VS Code otherwise answer every attribute with nothing.
 
 When Accessibility yields nothing, `TextInjector.copySelection` borrows a ⌘C: snapshot the
-pasteboard, synthesise the chord, wait for `changeCount` to **move**, read, restore. It lives on
+pasteboard, pause clipboard history, synthesise the chord, wait for `changeCount` to **move**, read,
+restore, resume. The pause keeps the borrowed copy out of history. Only one borrow runs at a time:
+a second would snapshot the first one's copy and read its restore as a selection, so it returns
+nothing instead. It lives on
 `TextInjector` because the pasteboard has one owner — the same lease, queue and `ClipboardManager`
 coordination a paste needs, and a second owner would race it.
 
@@ -438,6 +451,10 @@ text.
 Copying is the selected-text fallback and never the first try: it synthesises a keystroke into
 somebody else's app. When the selection tiers come back empty, only an Accessibility result of
 `.empty` justifies "nothing is selected"; otherwise the app told us nothing either way and says so.
+
+Quicklinks and snippets read `{selection}` through the same two tiers, with one rule of their own:
+the ⌘C is sent only when the expanded template reads the selection. A snippet's keyword expansion
+never sends one, since a typed keyword leaves nothing selected.
 
 ## Delivery
 

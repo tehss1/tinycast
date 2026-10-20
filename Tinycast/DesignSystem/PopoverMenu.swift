@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// A menu row's leading glyph: a symbol, a bundled template asset, or an app icon from `IconCache`.
 enum PopoverMenuIcon: Equatable {
     case symbol(String)
     case asset(String)
@@ -10,14 +9,12 @@ enum PopoverMenuIcon: Equatable {
     /// No glyph and no slot: a run of rows under one repeated icon says more without it.
     case blank
 
-    /// A paste row's glyph: the target app's icon when known, else a generic symbol.
     static func paste(_ target: PasteTarget?, fallback: String) -> PopoverMenuIcon {
         guard let path = target?.iconPath else { return .symbol(fallback) }
         return .file(path: path)
     }
 }
 
-/// One menu row; both the render path and the key handlers address rows through these.
 struct PopoverMenuItem {
     let title: String
     let icon: PopoverMenuIcon
@@ -28,7 +25,6 @@ struct PopoverMenuItem {
     var shortcut: String?
     /// A value the row states rather than a chord it runs — what a "Copy as" row copies.
     var detail: String?
-    /// Destructive rows (delete) tint their icon + label red, matching the native menu convention.
     var isDestructive: Bool = false
     let action: () -> Void
 
@@ -223,12 +219,12 @@ struct PopoverMenu: View {
         let extent = listExtent
         return ScrollViewReader { proxy in
             ScrollView {
-                // Lazy: a model menu runs to hundreds of rows, and only the viewport's are ever seen.
+                // Lazy: a model menu runs to hundreds of rows, and only the viewport's are seen.
                 LazyVStack(alignment: .leading, spacing: 0) {
                     // Index-as-id is stable: a menu's rows never reorder while it is open.
                     ForEach(items.indices, id: \.self) { index in
                         VStack(alignment: .leading, spacing: 0) {
-                            // Inside the first row's target, so revealing that row brings the title.
+                            // In the first row's target, so revealing that row brings the title.
                             if index == 0, let header {
                                 headerLabel(header)
                                 Color.clear.frame(height: metrics.size.menuRowSpacing)
@@ -252,7 +248,7 @@ struct PopoverMenu: View {
                 }
                 .padding(.horizontal, listInset)
             }
-            // A margin, not padding: a revealed end row keeps its inset instead of meeting the edge.
+            // A margin, not padding: a revealed end row keeps its inset, never meeting the edge.
             .contentMargins(.vertical, listInset, for: .scrollContent)
             .frame(height: extent.viewport + listInset * 2)
             // `never`, not `hidden`: hidden still lets AppKit claim the scroller's gutter.
@@ -352,6 +348,7 @@ private struct PopoverMenuRow: View {
     let selected: Bool
     let onActivate: () -> Void
     @Environment(\.metrics) private var metrics
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: onActivate) {
@@ -365,7 +362,7 @@ private struct PopoverMenuRow: View {
                     case .blank:
                         EmptyView()
                     case .symbol(let name):
-                        Image(systemName: SystemSymbolName.resolve(name))
+                        Image(systemName: SystemSymbolName.resolve(name, isDark: colorScheme == .dark))
                             .font(
                                 .system(
                                     size: metrics.scaled(Theme.Typography.menuSymbolSize),

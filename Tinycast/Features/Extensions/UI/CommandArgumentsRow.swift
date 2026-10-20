@@ -9,7 +9,6 @@ struct CommandArgumentsRow: View {
     /// Binding factory keyed by argument name — the values live in the palette view's state.
     let value: (String) -> Binding<String>
     @FocusState.Binding var focused: String?
-    /// ↵ from inside a field runs the command, like ↵ in the search field.
     let onSubmit: () -> Void
 
     var body: some View {
@@ -90,7 +89,9 @@ private struct ArgumentField: View {
                 .strokeBorder(
                     stroke, lineWidth: isFocused ? form.focusStrokeWidth : Theme.Size.hairline)
         )
-        .help(argument.required ? "\(argument.placeholder) — required" : argument.placeholder)
+        .help(
+            argument.required
+                ? String(localized: "\(argument.placeholder) — required") : argument.placeholder)
     }
 
     private var stroke: Color {

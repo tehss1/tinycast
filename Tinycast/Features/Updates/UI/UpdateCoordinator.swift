@@ -24,7 +24,7 @@ final class UpdateCoordinator {
     /// Environment injection and activity reads only — never for state this type owns.
     private unowned let core: AppCore
     @ObservationIgnored private lazy var window = AppWindowController(
-        title: "Software Update", contentSize: UpdateWindowView.initialSize,
+        title: String(localized: "Software Update"), contentSize: UpdateWindowView.initialSize,
         activation: core.activationPolicy)
     @ObservationIgnored private var installTask: Task<Void, Never>?
 
@@ -34,7 +34,7 @@ final class UpdateCoordinator {
     }
 
     var channel: ReleaseChannel { store.channel }
-    var runningVersion: String { store.runningVersion?.description ?? "unknown" }
+    var runningVersion: String { store.runningVersion?.description ?? String(localized: "unknown") }
 
     /// A local build has no release stream, so it does not advertise the command either.
     func applyEnabled() {
@@ -79,6 +79,7 @@ final class UpdateCoordinator {
             guard case .checking = stage else { return }
             if let release = store.update {
                 stage = .available(release)
+<<<<<<< HEAD
                 return
             }
             switch outcome {
@@ -88,6 +89,12 @@ final class UpdateCoordinator {
             case .limited: stage = .failed(.rateLimited)
             case .busy: stage = .failed(.checkInProgress)
             case .unreachable: stage = .failed(.downloadFailed("Tinycast could not reach GitHub."))
+=======
+            } else if answered {
+                stage = .upToDate
+            } else {
+                stage = .failed(.downloadFailed(String(localized: "Tinycast could not reach GitHub.")))
+>>>>>>> refs/upstream/v0.12.1
             }
         }
     }
@@ -156,10 +163,8 @@ final class UpdateCoordinator {
         window.close()
     }
 
-    /// `NSApp.terminate`, never `exit`: it flushes a note draft and returns the HID remap.
     func relaunch() {
-        RelaunchRunner.relaunchAfterExit(Bundle.main.bundleURL)
-        NSApp.terminate(nil)
+        core.relaunch()
     }
 
     // MARK: - Private

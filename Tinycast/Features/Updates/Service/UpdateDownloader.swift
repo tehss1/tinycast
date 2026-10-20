@@ -67,11 +67,16 @@ private final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked S
     ) {
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else {
+<<<<<<< HEAD
             let refused = status == 401 || status == 404
             events.finish(
                 throwing: refused
                     ? UpdateFailure.accessRefused
                     : UpdateFailure.downloadFailed("The server answered \(status)."))
+=======
+            events.finish(
+                throwing: UpdateFailure.downloadFailed(String(localized: "The server answered \(status).")))
+>>>>>>> refs/upstream/v0.12.1
             return
         }
         do {
