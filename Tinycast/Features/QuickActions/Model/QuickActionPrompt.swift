@@ -450,7 +450,7 @@ enum QuickActionOutput {
         // the first line still lines up with the rest.
         let indentSource = result.contains(where: \.isNewline)
             ? text.prefix(while: \.isWhitespace) : leading
-        return lineBreaks(in: leading) + indentation(in: indentSource) + result + String(trailing)
+        return String(lineBreaks(in: leading)) + String(indentation(in: indentSource)) + result + String(trailing)
     }
 
     private static func lineBreaks(in leading: Substring) -> Substring {
