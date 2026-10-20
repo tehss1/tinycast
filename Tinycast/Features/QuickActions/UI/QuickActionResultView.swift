@@ -345,7 +345,8 @@ struct QuickActionResultView: View {
         let messages = displayedConversation
         return VStack(alignment: .leading, spacing: metrics.spacing.xl) {
             ForEach(messages) { message in
-                ConversationRow(message: message)
+                ConversationRow(message: message,
+                    screenshot: isViewingActive ? state.screenshot : nil)
             }
             if messages.isEmpty {
                 switch phase {
@@ -438,7 +439,10 @@ struct QuickActionResultView: View {
                     .font(metrics.typography.rowTrailing)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
-            if state.action == .rewrite, isViewingActive { refinementControls }
+            if state.action == .rewrite, isViewingActive {
+                screenshotControls
+                refinementControls
+            }
             HStack(spacing: metrics.spacing.md) {
                 if state.action == .rewrite, isViewingActive {
                     ComposerModelControls(state: state)
@@ -457,6 +461,80 @@ struct QuickActionResultView: View {
         }
         .padding(.horizontal, metrics.spacing.xxl)
         .padding(.vertical, metrics.spacing.xl)
+    }
+
+    private var screenshotControls: some View {
+        VStack(alignment: .leading, spacing: metrics.spacing.sm) {
+            if state.screenshotAttached {
+                HStack(spacing: metrics.spacing.md) {
+                    ScreenshotPreview(screenshot: state.screenshot)
+                    VStack(alignment: .leading, spacing: metrics.spacing.xs) {
+                        Text("Screenshot attached")
+                        if state.screenshot == nil {
+                            Text("Reattach or remove it. Images aren't kept in history.")
+                        } else if !state.supportsScreenshotDelivery {
+                            Text("Notes accept text only. Remove the screenshot to replace text.")
+                        }
+                        if state.screenshot != nil, !coordinator.composerSeesScreenshots {
+                            Text("Delivery only. This model can't see the screenshot.")
+                        }
+                    }
+                    .font(metrics.typography.rowTrailing)
+                    .foregroundStyle(Theme.Colors.textSecondary)
+                    Spacer(minLength: 0)
+                    Button("Replace") { coordinator.attachClipboardScreenshot(to: state) }
+                    Button("Remove") { coordinator.removeComposerScreenshot(from: state) }
+                }
+                .disabled(state.isRunning)
+            } else if state.offersClipboardScreenshot {
+                Button {
+                    coordinator.attachClipboardScreenshot(to: state)
+                } label: {
+                    Label {
+                        Text("Attach clipboard screenshot")
+                    } icon: {
+                        SymbolImage(name: "photo", size: metrics.size.chatAttachmentGlyph)
+                    }
+                }
+                .disabled(state.isRunning || state.isAttachingScreenshot)
+            }
+            if state.isAttachingScreenshot {
+                HStack(spacing: metrics.spacing.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("Attaching screenshot…")
+                }
+            }
+            if let issue = state.screenshotIssue {
+                Text(issue).foregroundStyle(Theme.Colors.destructive)
+            }
+        }
+        .font(metrics.typography.rowTrailing)
+    }
+
+    private struct ScreenshotPreview: View {
+        @Environment(\.metrics) private var metrics
+        let screenshot: RewriteConversationMessage.Screenshot?
+        @State private var image: NSImage?
+
+        var body: some View {
+            Group {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit()
+                        .frame(maxWidth: metrics.size.chatImageThumb, maxHeight: metrics.size.chatImageThumb)
+                        .clipShape(RoundedRectangle(cornerRadius: metrics.radius.thumbnail))
+                        .accessibilityLabel("Attached screenshot")
+                } else {
+                    Label {
+                        Text("Screenshot (not stored)")
+                    } icon: {
+                        SymbolImage(name: "photo", size: metrics.size.chatAttachmentGlyph)
+                    }
+                        .font(metrics.typography.rowTrailing)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+            .task(id: screenshot?.png) { image = screenshot.flatMap { NSImage(data: $0.png) } }
+        }
     }
 
     private var refinementControls: some View {
@@ -495,6 +573,7 @@ struct QuickActionResultView: View {
     private struct ConversationRow: View {
         @Environment(\.metrics) private var metrics
         let message: RewriteConversationMessage
+        var screenshot: RewriteConversationMessage.Screenshot?
 
         var body: some View {
             HStack {
@@ -524,7 +603,16 @@ struct QuickActionResultView: View {
                 .padding(.horizontal, metrics.spacing.sm)
                 .padding(.vertical, metrics.spacing.md)
             } else {
-                Text(message.text)
+                VStack(alignment: .leading, spacing: metrics.spacing.sm) {
+                    let parts = RewriteConversationMessage.Screenshot.parts(message.text, offset: message.screenshotOffset)
+                    if message.screenshotOffset != nil {
+                        Text(parts.before)
+                        ScreenshotPreview(screenshot: screenshot)
+                        Text(parts.after)
+                    } else {
+                        Text(message.text)
+                    }
+                }
                     .font(metrics.typography.rowTitle)
                     .lineSpacing(metrics.spacing.xs)
                     .foregroundStyle(

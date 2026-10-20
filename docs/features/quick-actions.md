@@ -125,6 +125,33 @@ selectable Markdown renderer with AI Chat.
   can override it for one conversation; that override follows the conversation through its seven-day
   history. The configured domains are excluded from settings backups because they identify an
   organization and change model behavior.
+- **One screenshot belongs to a Composer conversation.** ⌘V in its request field attaches an image
+  instead of inserting a path. Local image file URLs, legacy filename lists, raw PNG/TIFF, absolute
+  path strings and file promises are accepted. A decoded image file wins over a Finder file icon.
+  Reads and resizing run off-main, accept regular files up to 64 MiB and cap encoded PNG at the AI
+  attachment budget. A promise has two seconds to complete; its private, bundle-scoped cache directory
+  is removed after success, failure or cancellation. A changed clipboard or superseded conversation
+  cannot receive a stale read. The footer previews the screenshot and offers Replace and Remove.
+  A screenshot on the clipboard at opening attaches automatically only when clipboard capture
+  observed that exact change count within the last two minutes. That window covers capture then
+  compose, without treating an old clipboard as today's request. Missing, future or older copy times
+  require the one-click **Attach clipboard screenshot** control. No timestamp is guessed at startup.
+- **Screenshot placement is data, never draft markup.** The model emits one
+  `<<<COMPOSER_SCREENSHOT_7E12C8>>>` marker at the inline position. The first marker supplies a UTF-16
+  text offset, all markers are removed, and an omitted marker means the end. Streaming hides partial
+  marker suffixes too. The transcript places its thumbnail at the stored offset; refinements recreate
+  the marker only in model input, so requests such as “move the screenshot above the steps” retain
+  placement context. Subject cleanup happens before extracting the offset. Native attachment
+  characters in a resumed Outlook draft are converted back to placement metadata rather than prose.
+- **Images use the shared provider adapters.** Claude already runs `-p --input-format stream-json`
+  and receives a base64 PNG image content block beside the fenced conversation, with all existing
+  no-tools, no-session, MCP and environment restrictions. Codex already uses its app-server adapter:
+  `turn/start.input` carries an image data URL; it does not spawn `codex exec`. HTTP routes use their
+  existing image blocks, and OpenCode uses private per-turn image files only for catalog models that
+  accept images. Apple Intelligence, Grok, Cursor and catalog-declared nonvision models receive text
+  and placement instructions only; the footer says the model cannot see the delivery-only screenshot.
+  A provider rejection remains a visible generation failure. The screenshot is sent once on the newest
+  user turn of every request, including refinements.
 - **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
   to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
   AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. Screenshot history contains only an

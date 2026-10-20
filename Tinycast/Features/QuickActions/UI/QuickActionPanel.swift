@@ -10,6 +10,7 @@ final class QuickActionPanel: NSPanel {
     }
 
     var onKey: ((Key) -> Void)?
+    var onPasteScreenshot: (() -> Bool)?
     var onAccessoryKey: ((NSEvent) -> Bool?)?
 
     init(content: NSView) {
@@ -38,6 +39,13 @@ final class QuickActionPanel: NSPanel {
     override func sendEvent(_ event: NSEvent) {
         guard event.type == .keyDown, let onKey else {
             super.sendEvent(event)
+            return
+        }
+        if Int(event.keyCode) == kVK_ANSI_V,
+            event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            let editor = firstResponder as? NSTextView, editor.isFieldEditor,
+            onPasteScreenshot?() == true
+        {
             return
         }
         // An input method owns Escape and Return until it commits or cancels its marked text.

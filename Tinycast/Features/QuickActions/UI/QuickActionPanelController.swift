@@ -76,6 +76,10 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
             guard let state, let coordinator else { return nil }
             return ComposerToolbar.handleKey(event, state: state, coordinator: coordinator)
         }
+        panel.onPasteScreenshot = { [weak state, weak coordinator] in
+            guard let state, let coordinator else { return false }
+            return coordinator.pasteComposerScreenshot(into: state)
+        }
         panel.delegate = self
         panel.onKey = { [weak self] key in
             guard let self, let state = self.state else { return }
@@ -112,6 +116,7 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         closing.delegate = nil
         closing.onKey = nil
         closing.onAccessoryKey = nil
+        closing.onPasteScreenshot = nil
         preserveDraft?()
         closing.orderOut(nil)
     }

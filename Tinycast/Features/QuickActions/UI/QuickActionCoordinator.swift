@@ -99,6 +99,85 @@ final class QuickActionCoordinator {
         composerEfforts.first { $0.id == composerModel?.effort }?.title ?? "Default reasoning"
     }
 
+    var composerSeesScreenshots: Bool {
+        switch composerModel {
+        case .claude?, .codex?: return true
+        case .appleIntelligence?, .grok?, .cursor?, nil: return false
+        case .openCode(let model, _)?:
+            return core.installedAI.status(for: .openCode).models.contains { $0.id == model && $0.acceptsImages }
+        case .api(let connection, let model, _)?:
+            return core.aiSettings.connection(id: connection)?.capabilities(for: model).images == true
+        }
+    }
+
+    @ObservationIgnored private var screenshotRead: Task<Void, Never>?
+    @ObservationIgnored private var screenshotReadID = UUID()
+
+    func pasteComposerScreenshot(into state: QuickActionPanelState) -> Bool {
+        guard state.action == .rewrite, state.isViewingActive, state.accessory == nil,
+            QuickActionRunner.ScreenshotReader.hasCandidate(on: .general)
+        else { return false }
+        guard !state.isRunning else { return true }
+        attachClipboardScreenshot(to: state)
+        return true
+    }
+
+    func attachClipboardScreenshot(to state: QuickActionPanelState) {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return }
+        screenshotRead?.cancel()
+        let id = UUID()
+        screenshotReadID = id
+        state.isAttachingScreenshot = true
+        screenshotRead = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let image = try await QuickActionRunner.ScreenshotReader.read(
+                    from: .general, promiseRoot: AppPaths.caches())
+                guard !Task.isCancelled, screenshotReadID == id, activeComposer === state else { return }
+                state.setScreenshot(image)
+                saveHistory(state)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, screenshotReadID == id, activeComposer === state else { return }
+                state.screenshotIssue = error.localizedDescription
+            }
+            guard screenshotReadID == id else { return }
+            state.isAttachingScreenshot = false
+            screenshotRead = nil
+        }
+    }
+
+    func removeComposerScreenshot(from state: QuickActionPanelState) {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return }
+        screenshotReadID = UUID()
+        screenshotRead?.cancel()
+        screenshotRead = nil
+        state.isAttachingScreenshot = false
+        state.setScreenshot(nil)
+        saveHistory(state)
+    }
+
+    private func prepareClipboardScreenshot(for state: QuickActionPanelState, target: Target) async {
+        state.supportsScreenshotDelivery = target.note == nil
+        guard QuickActionRunner.ScreenshotReader.hasCandidate(on: .general) else { return }
+        state.offersClipboardScreenshot = true
+        guard !state.hasSavedHistory,
+            RewriteConversationMessage.Screenshot.isRecent(
+                copiedAt: core.clipboardManager.copiedAt(changeCount: NSPasteboard.general.changeCount), now: Date())
+        else { return }
+        do {
+            let image = try await QuickActionRunner.ScreenshotReader.read(from: .general, promiseRoot: AppPaths.caches())
+            try Task.checkCancellation()
+            state.setScreenshot(image)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            state.screenshotIssue = error.localizedDescription
+        }
+    }
+
     var usesOutlookContext: Bool { store.settings.usesOutlookContextForRewrite }
 
     func detectedComposerAudience(for state: QuickActionPanelState) -> ComposerAudience {
@@ -421,6 +500,10 @@ final class QuickActionCoordinator {
     }
 
     private func forgetComposer() {
+        screenshotReadID = UUID()
+        screenshotRead?.cancel()
+        screenshotRead = nil
+        activeComposer?.isAttachingScreenshot = false
         activeComposer = nil
         composerApp = nil
     }
@@ -442,6 +525,7 @@ final class QuickActionCoordinator {
 
     private func begin(_ action: QuickAction, target invoked: Target) async {
         var target = invoked
+        let previousComposer = action == .rewrite ? activeComposer : nil
         let input: QuickActionRunner.Input
         do {
             if let noteSelection = target.note {
@@ -506,6 +590,11 @@ final class QuickActionCoordinator {
                 restoring: record, context: context, targetLanguage: targetLanguage,
                 insertsAtCaret: resumeTarget == .insertionPoint
                     || (resumeTarget == .unavailable && input == .insertionPoint))
+            if previousComposer?.historyID == record.id {
+                state.screenshot = previousComposer?.screenshot
+            }
+            await prepareClipboardScreenshot(for: state, target: target)
+            guard !Task.isCancelled else { return }
             let rewritesSelection = state.resumeSource(
                 resumeTarget, text: capture.target.draft, anchor: capture.target.anchor)
             present(state, target: target)
@@ -525,6 +614,10 @@ final class QuickActionCoordinator {
             action: action, original: selection, context: context,
             targetLanguage: targetLanguage,
             awaitsWritingInstruction: input == .insertionPoint)
+        if action == .rewrite {
+            await prepareClipboardScreenshot(for: state, target: target)
+            guard !Task.isCancelled else { return }
+        }
         state.draftAnchor = capture?.target.anchor
         if readsOutlook, OutlookComposeContextReader.isOutlook(target.app), capture == nil {
             state.replacementIssue =
@@ -638,6 +731,7 @@ final class QuickActionCoordinator {
             context: state.context,
             selectionIsWritingInstruction: state.originalIsWritingInstruction,
             audience: state.action == .rewrite ? composerAudience(for: state) : nil,
+            screenshot: composerSeesScreenshots ? state.screenshot : nil, hasScreenshot: state.screenshotAttached,
             onDelta: { delta in
                 guard streaming, requestGeneration == self.generation, state.isRunning
                 else { return }
@@ -821,6 +915,7 @@ final class QuickActionCoordinator {
                     for: BuiltInQuickAction.rewrite),
                 originalIsWritingInstruction: state.originalIsWritingInstruction,
                 audience: composerAudience(for: state),
+                screenshot: composerSeesScreenshots ? state.screenshot : nil, hasScreenshot: state.screenshotAttached,
                 onDelta: {
                     guard requestGeneration == self.generation, state.isRunning else { return }
                     state.append($0)
