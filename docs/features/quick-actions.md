@@ -156,7 +156,9 @@ selectable Markdown renderer with AI Chat.
   to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
   AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. Screenshot history contains only an
   attached flag and per-draft offsets, never image bytes, thumbnails, data URLs or temporary paths.
-  A disk-restored conversation requires reattachment or explicit removal before delivery. When Keychain cannot supply the key the
+  Dismissing and reopening the active conversation retains its in-memory image. A disk-restored
+  conversation shows **Screenshot (not stored)** and requires reattachment or explicit removal before
+  delivery; no unrelated clipboard image silently replaces the missing screenshot. When Keychain cannot supply the key the
   history is neither read nor written, and a new key is made only when none exists. Key creation
   never replaces an existing key, including one created by another instance at the same time, and a
   malformed existing Keychain value is preserved rather than replaced. Launching never accesses
@@ -551,7 +553,57 @@ gone stale. The button says **Replace** or **Insert** by that effective target. 
 or outside caret moves a valid saved boundary only once a draft lands there. A selected-text press
 without a usable range disables Replace with a request to select the draft and reopen Composer.
 
+### Screenshot delivery
+
+A screenshot draft enters `TextInjector`'s existing serial delivery queue. Rich serialization runs
+outside the main actor and transfers one `NSPasteboardItem` back with `sending`. That item offers
+HTML with an embedded PNG and explicit CSS dimensions, native RTFD with an inline TIFF attachment,
+and marker-free plain text. The fitted width is at most 640 CSS pixels, never upscaled; up to 2×
+pixels are retained. Very tall images also fit within 4096 logical pixels high to bound memory.
+The RTFD representation uses 0.75 typographic points per CSS pixel, including the TIFF's logical size
+and the attachment bounds. For example, 1280 × 800 pixels display at 640 × 400 CSS px / 480 × 300 pt.
+
+The existing Outlook paragraph/signature formatter processes the marked draft before rich encoding,
+then the marker is removed again. `ComposerTextTarget.prepare` validates the captured editor, body,
+range and selection inside the queue after activation and again immediately before one ⌘V. Draft
+boundary fingerprints and successful-delivery retargeting use the existing anchor path. Rich delivery
+bypasses AX text replacement and Unicode typing, since those cannot carry an image. Its clipboard
+lease restores every original item and representation after paste confirmation plus one second,
+provided the change count still belongs to Tinycast. A newer copy is preserved, including on failure.
+A failure keeps the screenshot in the active Composer and reports that it could not paste; it does not
+copy a text fallback over a newer clipboard. Text-only delivery keeps the existing AX/event tiers,
+edge handling, note editing, undo and failed-delivery copy behavior. Tinycast Notes accepts text only;
+its footer requires removing the screenshot before replacing text, while model input may use it.
+
+Official transport contracts, checked with Claude Code 2.1.305 and Codex CLI 0.163.0 help on
+2026-10-20: [Claude image input](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode),
+[Codex CLI image flag](https://developers.openai.com/codex/cli/reference/), and
+[Codex app-server image input](https://developers.openai.com/codex/app-server/).
+The CLI offers `--image`; Composer retains its existing app-server transport rather than changing
+providers. No live model inference or Outlook paste has been validated for this native integration.
+Outlook's choice of rich pasteboard representation, inline placement and retained dimensions remain
+manual checks, including whether it consumes the payload before clipboard restoration.
+
 ### Manual sweep
+
+- With CleanShot, copy a screenshot, open Composer at an Outlook caret and confirm a recent capture
+  attaches with a real preview. Repeat after two minutes, with clipboard capture off and after app
+  startup: each should require the attachment chip. Paste a new capture into the request field with
+  ⌘V, including with text already typed. Confirm the image replaces the attachment and no path appears.
+  Repeat with a Finder image file and a CleanShot file promise; confirm failure is visible if the
+  promise cannot be fulfilled. Remove an attachment while a read is pending and confirm it stays gone.
+- Ask Claude or Codex to describe a visible detail, then move the screenshot above the steps. Confirm
+  the thumbnail moves inline and no marker appears in streaming, Copy or saved history. Select a
+  text-only provider and confirm the delivery-only notice; generation should still work.
+- Insert the screenshot email into an empty Outlook reply and Replace a selected draft. Confirm the
+  text and image arrive together, the image is inline and at most 640 CSS px wide, and the signature
+  keeps its spacing. Dismiss/reopen and refine, replace again, then test a caret outside the saved
+  draft and a different selected paragraph. No image or old draft should be duplicated. Check a small
+  screenshot is not enlarged and a Retina capture stays sharp. Reopen the Outlook draft to check sizing.
+- During rich delivery, copy unrelated text in another app. Confirm the new clipboard survives. Move
+  focus or edit the source while generation runs and confirm the original target stays protected.
+  Relaunch Tinycast, reopen an attached conversation, and confirm it requires reattachment or Remove.
+  In a note, confirm the text-only message and that Remove restores ordinary replacement and Undo.
 
 - Open Composer in an Outlook reply with several To recipients. Inspect Email context captured and
   confirm every address appears once, with the subject and bounded quoted text. Check partial context
@@ -671,5 +723,7 @@ without a usable range disables Replace with a request to select the draft and r
   seven-day Composer history, preview choices, routes and their repair),
   `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, which
   conversations reopen, resumed delivery targets, scoped history matching, separate replies to one
-  message and newest quoted messages), and
+  message and newest quoted messages),
+  `composer-screenshot-test` (isolated pasteboards, file/icon precedence, bitmap/file/promise capture,
+  rich HTML/RTFD dimensions and ordering, and initial/refinement image requests), and
   `text-diff-test` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).

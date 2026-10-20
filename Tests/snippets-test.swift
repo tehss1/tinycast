@@ -1019,6 +1019,26 @@ struct SnippetsTests {
             emptyLease?.restoreIfOwned() != nil
                 && pasteboard.pasteboardItems?.isEmpty != false)
 
+        let rich = NSPasteboardItem()
+        rich.setString("Text and image", forType: .string)
+        rich.setString("<p>Text<img src='data:image/png;base64,AAAA'></p>", forType: .html)
+        rich.setData(Data([7, 8, 9]), forType: .rtfd)
+        let richLease = TemporaryPasteboardLease.begin(item: rich, pasteboard: pasteboard)
+        check("rich loan uses one item with all three representations",
+            pasteboard.pasteboardItems?.count == 1
+                && pasteboard.data(forType: .rtfd) == Data([7, 8, 9])
+                && pasteboard.string(forType: .html)?.contains("<img") == true)
+        check("rich clipboard restores the empty original", richLease?.restoreIfOwned() != nil
+            && pasteboard.pasteboardItems?.isEmpty != false)
+        let richAgain = NSPasteboardItem()
+        richAgain.setData(Data([1, 3]), forType: .rtfd)
+        let richSuperseded = TemporaryPasteboardLease.begin(item: richAgain, pasteboard: pasteboard)
+        let fresh = NSPasteboardItem()
+        fresh.setString("Fresh copy", forType: .string)
+        _ = pasteboard.replaceObjects([fresh])
+        check("new copy during rich delivery survives restoration",
+            richSuperseded?.restoreIfOwned() == .superseded && pasteboard.string(forType: .string) == "Fresh copy")
+
         let imageOnlyItem = NSPasteboardItem()
         imageOnlyItem.setData(Data([9, 8, 7]), forType: .png)
         _ = pasteboard.replaceObjects([imageOnlyItem])

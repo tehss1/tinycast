@@ -126,6 +126,7 @@ struct ComposerScreenshotTests {
             !$0.hasPrefix("composer-promise-")
         }, "promise scratch removed after success and timeout")
         pasteKeyRouting()
+        try await delivery(captured)
         try await providers(captured)
         print("\(checks) screenshot checks passed")
     }
@@ -156,6 +157,27 @@ struct ComposerScreenshotTests {
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         memset(bitmap.bitmapData!, 128, bitmap.bytesPerRow * height)
         return bitmap.representation(using: .png, properties: [:])!
+    }
+
+    static func delivery(_ image: RewriteConversationMessage.Screenshot) async throws {
+        let text = "Before <&>\n\nSteps"
+        let item = try await QuickActionRunner.ScreenshotDelivery.item(text: text, offset: 12, image: image)
+        expect(item.string(forType: .string) == text, "plain text is exactly marker-free draft")
+        let html = item.string(forType: .html)!
+        expect(html.contains("width=\"640.0\"") && html.contains("height=\"400.0\""), "HTML carries explicit CSS sizes")
+        expect(html.contains("Before &lt;&amp;&gt;") && html.contains("data:image/png;base64,"),
+            "HTML escapes text and embeds PNG")
+        expect(html.range(of: "<img")!.lowerBound < html.range(of: "Steps")!.lowerBound, "HTML puts image before steps")
+        let rich = try NSAttributedString(data: item.data(forType: .rtfd)!, options: [
+            .documentType: NSAttributedString.DocumentType.rtfd
+        ], documentAttributes: nil)
+        let range = (rich.string as NSString).range(of: "\u{fffc}")
+        expect(range.location != NSNotFound, "RTFD contains inline attachment")
+        let attachment = rich.attribute(.attachment, at: range.location, effectiveRange: nil) as! NSTextAttachment
+        let decoded = NSBitmapImageRep(data: attachment.fileWrapper!.regularFileContents!)!
+        expect(decoded.pixelsWide == 1280 && decoded.pixelsHigh == 800, "TIFF retains retina resolution")
+        expect(abs(decoded.size.width - 480) < 1 && abs(decoded.size.height - 300) < 1, "RTFD uses 480pt for 640 CSS px")
+        expect(!rich.string.contains(RewriteConversationMessage.Screenshot.marker), "RTFD never carries marker")
     }
 
     static func providers(_ image: RewriteConversationMessage.Screenshot) async throws {

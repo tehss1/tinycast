@@ -312,4 +312,49 @@ extension QuickActionRunner {
         }
     }
 
+    enum ScreenshotDelivery {
+        @concurrent static func item(
+            text: String, offset: Int?, image: RewriteConversationMessage.Screenshot
+        ) async throws -> sending NSPasteboardItem {
+            let parts = RewriteConversationMessage.Screenshot.parts(text, offset: offset)
+            let before = parts.before.isEmpty || parts.before.hasSuffix("\n") ? parts.before : parts.before + "\n\n"
+            let after = parts.after.isEmpty || parts.after.hasPrefix("\n") ? parts.after : "\n\n" + parts.after
+            guard let bitmap = NSBitmapImageRep(data: image.png) else { throw ScreenshotReader.Failure.unreadable }
+            let size = NSSize(width: image.width * 0.75, height: image.height * 0.75)
+            bitmap.size = size
+            guard let tiff = bitmap.representation(using: .tiff, properties: [:]) else {
+                throw ScreenshotReader.Failure.unreadable
+            }
+            let file = FileWrapper(regularFileWithContents: tiff)
+            file.preferredFilename = "Screenshot.tiff"
+            let attachment = NSTextAttachment(fileWrapper: file)
+            attachment.bounds = CGRect(origin: .zero, size: size)
+            let rich = NSMutableAttributedString(string: before)
+            rich.append(NSAttributedString(attachment: attachment))
+            rich.append(NSAttributedString(string: after))
+            let rtfd = try rich.data(from: NSRange(location: 0, length: rich.length), documentAttributes: [
+                .documentType: NSAttributedString.DocumentType.rtfd
+            ])
+            let html = "<html><head><meta charset=\"utf-8\"></head><body>" + htmlText(before)
+                + "<img src=\"data:image/png;base64,\(image.png.base64EncodedString())\" "
+                + "width=\"\(image.width)\" height=\"\(image.height)\" "
+                + "style=\"width:\(image.width)px;height:\(image.height)px;max-width:100%;\" alt=\"Screenshot\">"
+                + htmlText(after) + "</body></html>"
+            let item = NSPasteboardItem()
+            guard item.setData(rtfd, forType: .rtfd), item.setString(html, forType: .html),
+                item.setString(text, forType: .string)
+            else { throw ScreenshotReader.Failure.unreadable }
+            return item
+        }
+
+        nonisolated private static func htmlText(_ text: String) -> String {
+            text.replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .replacingOccurrences(of: "\n", with: "<br>")
+        }
+    }
 }

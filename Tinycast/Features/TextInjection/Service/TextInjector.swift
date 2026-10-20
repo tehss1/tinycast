@@ -254,6 +254,45 @@ final class TextInjector {
             onDelivered: onDelivered, onFailed: onFailed)
     }
 
+    func replaceSelection(
+        with makeItem: @escaping @MainActor () async throws -> NSPasteboardItem,
+        in targetApp: NSRunningApplication?,
+        prepareTarget: @escaping @MainActor () -> Bool,
+        onDelivered: @escaping @MainActor () -> Void,
+        onFailed: @escaping @MainActor () -> Void
+    ) {
+        deliveryQueue.enqueue(isAutomatic: false) { [weak self] in
+            guard let self else { onFailed(); return }
+            let completion = DeliveryCompletion(onDelivered: onDelivered, onFailed: onFailed)
+            defer { completion.settle() }
+            let item: NSPasteboardItem
+            do { item = try await makeItem() } catch { return }
+            guard !Task.isCancelled, finishPendingPasteboardOwnership(),
+                await activateAndWaitForTarget(targetApp, automaticGeneration: nil),
+                deliveryIsAllowed(automaticGeneration: nil, targetApp: targetApp,
+                    promptForInteractiveAccessibility: true), prepareTarget()
+            else { return }
+            clipboardManager.prepareForTinycastPasteboardMutation()
+            guard let lease = TemporaryPasteboardLease.begin(item: item, pasteboard: NSPasteboard.general,
+                onMutation: { [clipboardManager] count in
+                    clipboardManager.synchronizeAfterTinycastPasteboardMutation(changeCount: count)
+                })
+            else { return }
+            activePasteboardLease = lease
+            defer { finish(lease) }
+            guard await wait(for: .milliseconds(80)), lease.isOwned,
+                deliveryIsAllowed(automaticGeneration: nil, targetApp: targetApp,
+                    promptForInteractiveAccessibility: false), prepareTarget()
+            else { return }
+            let previousState = accessibilityTextState(in: targetApp)
+            Paster.postCommandV(toPid: targetApp?.processIdentifier)
+            let confirmed = await waitForPasteConfirmation(previousState: previousState,
+                pasteboardLease: lease, targetApp: targetApp, automaticGeneration: nil)
+            _ = await wait(for: .seconds(1))
+            if confirmed { completion.confirm() }
+        }
+    }
+
     /// A `changeCount` that never moves means nothing was selected, not that the old clipboard won.
     func copySelection(from targetApp: NSRunningApplication?) async -> String? {
         await deliveryQueue.drain()
@@ -1168,14 +1207,23 @@ final class TemporaryPasteboardLease {
         pasteboard: any PasteboardAccess,
         onMutation: (Int) -> Void = { _ in }
     ) -> TemporaryPasteboardLease? {
-        guard let snapshot = PasteboardSnapshot(pasteboard: pasteboard),
-            let temporaryItem = PasteboardSnapshot.temporaryItem(carrying: text),
+        guard let item = PasteboardSnapshot.temporaryItem(carrying: text) else { return nil }
+        return begin(item: item, pasteboard: pasteboard, onMutation: onMutation)
+    }
+
+    static func begin(
+        item: NSPasteboardItem, pasteboard: any PasteboardAccess,
+        onMutation: (Int) -> Void = { _ in }
+    ) -> TemporaryPasteboardLease? {
+        guard item.setData(Data(), forType: ClipboardManager.internalType),
+            item.setData(Data(), forType: PasteboardSnapshot.transientType),
+            let snapshot = PasteboardSnapshot(pasteboard: pasteboard),
             let originalItems = snapshot.pasteboardItems(),
             pasteboard.changeCount == snapshot.changeCount
         else { return nil }
 
         pasteboard.clearContents()
-        guard pasteboard.writeObjects([temporaryItem]) else {
+        guard pasteboard.writeObjects([item]) else {
             if originalItems.isEmpty || pasteboard.writeObjects(originalItems) {
                 onMutation(pasteboard.changeCount)
             }

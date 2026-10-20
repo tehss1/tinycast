@@ -676,7 +676,8 @@ final class QuickActionCoordinator {
             deliver(
                 state.output, replacing: state.original, to: target, action: state.action,
                 textTarget: target.text,
-                insertsAtCaret: state.insertsAtCaret)
+                insertsAtCaret: state.insertsAtCaret,
+                screenshot: state.screenshot, screenshotOffset: state.screenshotOffset)
         } catch is CancellationError {
             return
         } catch let error as TextTranslator.Failure where error.needsDownload {
@@ -743,14 +744,19 @@ final class QuickActionCoordinator {
     private func deliver(
         _ text: String, replacing selection: String, to target: Target, action: QuickAction,
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
+        screenshot: RewriteConversationMessage.Screenshot? = nil, screenshotOffset: Int? = nil,
         onDelivered delivered: @escaping @MainActor () -> Void = {}
     ) {
         // A note floats over the frontmost app, so Outlook behind it is not where the text lands.
         let toOutlook = target.note == nil && OutlookComposeContextReader.isOutlook(target.app)
-        let deliveredText = QuickActionOutput.preparedForDelivery(
-            text, action: action, toOutlook: toOutlook,
+        let marked = screenshot == nil ? text : RewriteConversationMessage.Screenshot.marked(text, offset: screenshotOffset)
+        let formatted = QuickActionOutput.preparedForDelivery(
+            marked, action: action, toOutlook: toOutlook,
             insertsAtCaret: insertsAtCaret,
             boundaries: textTarget?.textBoundaries, replacing: insertsAtCaret ? "" : selection)
+        let parsed = screenshot == nil ? (text: formatted, offset: formatted.utf16.count)
+            : RewriteConversationMessage.Screenshot.split(formatted)
+        let deliveredText = parsed.text
         if let note = target.note {
             guard core.notesCoordinator.editorInput == note.document,
                 note.editor.window?.isVisible == true,
@@ -768,23 +774,32 @@ final class QuickActionCoordinator {
         let verb = insertsAtCaret ? "insert" : "replace"
         let excludesEdges = toOutlook && !insertsAtCaret
             && !QuickActionOutput.carriesEdges(of: selection, in: deliveredText)
-        injector.replaceSelection(
-            with: deliveredText, in: target.app,
-            prepareTarget: {
-                textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
-            },
-            onDelivered: { [weak self] in
-                delivered()
-                self?.core.showMessage("\(action.title) applied")
-            },
-            onFailed: { [weak self] in
-                textTarget?.restoreSelection(in: target.app)
-                Paster.copyPlainText(deliveredText)
-                self?.core.showMessage(
-                    textTarget?.preparationFailure?.message
-                        ?? "\(action.title) couldn't \(verb) the draft. Draft copied.",
-                    tone: .danger)
-            })
+        let prepare: @MainActor () -> Bool = {
+            textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
+        }
+        let success: @MainActor () -> Void = { [weak self] in
+            delivered()
+            self?.core.showMessage("\(action.title) applied")
+        }
+        let failure: @MainActor () -> Void = { [weak self] in
+            textTarget?.restoreSelection(in: target.app)
+            if screenshot == nil { Paster.copyPlainText(deliveredText) }
+            let issue = screenshot == nil ? textTarget?.preparationFailure?.message : nil
+            let fallback = screenshot == nil
+                ? "\(action.title) couldn't \(verb) the draft. Draft copied."
+                : "Couldn't paste the screenshot draft. Reopen Composer to retry; clipboard preserved."
+            self?.core.showMessage(issue
+                ?? fallback, tone: .danger)
+        }
+        if let screenshot {
+            injector.replaceSelection(with: {
+                try await QuickActionRunner.ScreenshotDelivery.item(
+                    text: deliveredText, offset: parsed.offset, image: screenshot)
+            }, in: target.app, prepareTarget: prepare, onDelivered: success, onFailed: failure)
+        } else {
+            injector.replaceSelection(with: deliveredText, in: target.app, prepareTarget: prepare,
+                onDelivered: success, onFailed: failure)
+        }
     }
 
     /// A failure the reader cannot see is a hotkey that silently did nothing.
@@ -828,6 +843,7 @@ final class QuickActionCoordinator {
                     text, replacing: state.original, to: target, action: state.action,
                     textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret,
+                    screenshot: state.screenshot, screenshotOffset: state.screenshotOffset,
                     onDelivered: { [weak self] in
                         guard let self else { return }
                         if state === activeComposer { forgetComposer() }
