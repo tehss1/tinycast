@@ -9,6 +9,85 @@ struct ComposerTests {
     static var failures = 0
     static var passes = 0
 
+    static func screenshotConversations() throws {
+        typealias Screenshot = RewriteConversationMessage.Screenshot
+        let marker = Screenshot.marker
+        let raw = "  😀 Intro\n" + marker + "\nSteps\n" + marker + "  "
+        let parsed = Screenshot.split(raw, trim: true)
+        expect(parsed.text == "😀 Intro\n\nSteps", "all image markers stripped")
+        expect(parsed.offset == "😀 Intro\n".utf16.count, "first marker uses UTF-16 offset after trim")
+        expect(Screenshot.split("Body").offset == 4, "missing marker goes at end")
+        expect(Screenshot.split(marker + "Body").offset == 0, "marker can be first")
+        expect(Screenshot.marked(parsed.text, offset: parsed.offset).contains(marker), "position reconstructs for refinement")
+        for length in 1..<marker.count {
+            expect(Screenshot.split("Text" + marker.prefix(length), streaming: true).text == "Text",
+                "partial marker hidden at every chunk boundary")
+        }
+        expect(Screenshot.parts("😀Text", offset: 1).before.isEmpty, "invalid surrogate offset clamps safely")
+        expect(Screenshot.parts("Hi", offset: -20).before.isEmpty, "negative offset clamps")
+        expect(Screenshot.parts("Hi", offset: 100).after.isEmpty, "oversized offset clamps")
+        let now = Date(timeIntervalSince1970: 1000)
+        expect(Screenshot.isRecent(copiedAt: now.addingTimeInterval(-120), now: now), "two-minute boundary attaches")
+        expect(!Screenshot.isRecent(copiedAt: now.addingTimeInterval(-121), now: now), "stale image requires click")
+        expect(!Screenshot.isRecent(copiedAt: nil, now: now), "unknown copy time requires click")
+        expect(!Screenshot.isRecent(copiedAt: now.addingTimeInterval(1), now: now), "future copy time is not trusted")
+        let retina = Screenshot.fittedSize(pixelWidth: 2560, pixelHeight: 1600, dpi: 144)
+        expect(retina?.width == 640 && retina?.height == 400, "fits CSS width preserving aspect")
+        expect(retina?.pixelsWide == 1280 && retina?.pixelsHigh == 800, "retains 2x pixels")
+        let small = Screenshot.fittedSize(pixelWidth: 240, pixelHeight: 160, dpi: 72)
+        expect(small?.width == 240 && small?.pixelsWide == 240, "small screenshot is never upscaled")
+        let smallRetina = Screenshot.fittedSize(pixelWidth: 400, pixelHeight: 200, dpi: 144)
+        expect(smallRetina?.width == 200 && smallRetina?.pixelsWide == 400, "small Retina image keeps logical size")
+        expect(Screenshot.fittedSize(pixelWidth: .infinity, pixelHeight: 100, dpi: 72) == nil, "invalid size refused")
+        let huge = Screenshot.fittedSize(pixelWidth: .greatestFiniteMagnitude,
+            pixelHeight: .greatestFiniteMagnitude, dpi: 72)
+        expect(huge?.width == 640 && huge?.height == 640, "fit arithmetic cannot overflow on finite dimensions")
+        let state = QuickActionPanelState(action: .rewrite, original: "Notes", targetLanguage: .init(identifier: "en"))
+        state.setScreenshot(.init(png: Data([1, 2, 3]), pixelWidth: 2, pixelHeight: 2, width: 2, height: 2))
+        state.append("Intro" + String(marker.prefix(10)))
+        expect(state.output == "Intro", "streamed output never exposes marker fragments")
+        state.append(String(marker.dropFirst(10)) + "Steps")
+        expect(state.output == "IntroSteps", "streamed marker stays separate")
+        expect(state.finish("Subject: Demo\n\nIntro" + marker + "Steps"), "image draft finishes")
+        expect(state.output == "IntroSteps" && state.screenshotOffset == 5, "subject removal preserves image offset")
+        state.refinementInstruction = "Move screenshot above steps"
+        let request = state.beginRefinement()
+        expect(request?.messages.contains { $0.role == .assistant && $0.text == "Intro" + marker + "Steps" } == true,
+            "refinement sees previous placement")
+        state.fail("Stopped")
+        expect(state.output == "IntroSteps" && state.screenshotOffset == 5, "stopped refinement retains prior placement")
+        let record = state.historyRecord(now: now)!
+        let encoded = try JSONEncoder().encode(record)
+        let json = String(decoding: encoded, as: UTF8.self)
+        expect(record.screenshotAttached == true && !json.contains(marker), "history stores attachment metadata without marker")
+        expect(!json.contains("png") && !json.contains("base64"), "history contains no screenshot bytes")
+        let restored = QuickActionPanelState(restoring: try JSONDecoder().decode(RewriteHistoryRecord.self, from: encoded),
+            context: nil, targetLanguage: .init(identifier: "en"), insertsAtCaret: false)
+        expect(restored.screenshot == nil && restored.screenshotAttached, "restored history remembers missing screenshot")
+        expect(!restored.canReplace, "missing historical image cannot silently deliver only text")
+        restored.setScreenshot(nil)
+        expect(restored.canReplace, "explicit removal permits text delivery")
+        state.adoptSourceDraft("Intro\u{fffc}Steps", reanchoring: true)
+        expect(state.output == "IntroSteps" && state.screenshotOffset == 5,
+            "native attachment character does not become draft text on reopen")
+        state.adoptSourceDraft("\u{fffc}IntroSteps", reanchoring: true)
+        expect(state.screenshotOffset == 0 && state.conversation.last?.screenshotOffset == 0,
+            "manually moved inline image keeps its position on reopen")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("screenshot-history-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { now })
+        let context = QuickActionContext(recipient: "one@example.com", subject: "Screenshot", recentThread: nil,
+            documentIdentity: "screenshot-editor")
+        var saved = RewriteHistoryRecord(id: UUID(), createdAt: now, updatedAt: now,
+            subject: context.subject, recipient: context.recipient, contextIdentity: context.historyIdentity,
+            editorIdentity: context.documentIdentity, original: "Notes", messages: [], screenshotAttached: true)
+        saved.messages = [.init(role: .assistant, text: "Draft", state: .complete, screenshotOffset: 2)]
+        expect(store.save(saved), "screenshot metadata saves through encrypted history")
+        let resumed = store.resumableRecord(selection: "", context: context)
+        expect(resumed?.screenshotAttached == true && resumed?.messages.last?.screenshotOffset == 2,
+            "history resume and dedup preserve attachment metadata")
+    }
+
     static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if condition() { passes += 1 } else {
             failures += 1
@@ -54,6 +133,7 @@ struct ComposerTests {
         contextIndicatorIsHonest()
         audienceOverrideSurvivesHistory()
         panelFollowsComposeArea()
+        try screenshotConversations()
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
     }

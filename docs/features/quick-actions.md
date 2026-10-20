@@ -127,7 +127,9 @@ selectable Markdown renderer with AI Chat.
   organization and change model behavior.
 - **Composer history stays local for seven days.** `RewriteHistoryStore` writes transcripts and requests
   to `rewrite-history.sealed` under the bundle-specific Application Support directory, encrypted with
-  AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. When Keychain cannot supply the key the
+  AES-GCM under a key `RewriteHistoryKey` keeps in Keychain. Screenshot history contains only an
+  attached flag and per-draft offsets, never image bytes, thumbnails, data URLs or temporary paths.
+  A disk-restored conversation requires reattachment or explicit removal before delivery. When Keychain cannot supply the key the
   history is neither read nor written, and a new key is made only when none exists. Key creation
   never replaces an existing key, including one created by another instance at the same time, and a
   malformed existing Keychain value is preserved rather than replaced. Launching never accesses

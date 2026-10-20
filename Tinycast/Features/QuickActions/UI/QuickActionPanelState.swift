@@ -67,6 +67,20 @@ final class QuickActionPanelState {
     var draftAnchor: ComposerDraftAnchor?
     var replacementIssue: String?
     var audienceOverride: ComposerAudience?
+    var screenshot: RewriteConversationMessage.Screenshot?
+    var screenshotAttached = false
+    var offersClipboardScreenshot = false
+    var isAttachingScreenshot = false
+    var screenshotIssue: String?
+    var supportsScreenshotDelivery = true
+    private(set) var screenshotOffset: Int?
+    @ObservationIgnored private var streamedDraft = ""
+
+    func setScreenshot(_ image: RewriteConversationMessage.Screenshot?) {
+        screenshot = image
+        screenshotAttached = image != nil
+        screenshotIssue = nil
+    }
 
     @ObservationIgnored private var cachedDiff: [TextDiffEngine.Chunk]?
     @ObservationIgnored private var previousOutput: String?
@@ -86,6 +100,7 @@ final class QuickActionPanelState {
 
     var canReplace: Bool {
         phase == .finished && !output.isEmpty && replacementIssue == nil
+            && !isAttachingScreenshot && (!screenshotAttached || (screenshot != nil && supportsScreenshotDelivery))
             && selectedSourceAwaitingRewrite == nil
     }
 
@@ -129,7 +144,7 @@ final class QuickActionPanelState {
     }
 
     var canRefine: Bool {
-        action == .rewrite && (phase == .finished || needsInitialRequest)
+        action == .rewrite && !isAttachingScreenshot && (phase == .finished || needsInitialRequest)
             && (hasInstruction || canDraftFromContext || retriesOriginalRequest)
     }
 
@@ -191,6 +206,8 @@ final class QuickActionPanelState {
         self.targetLanguage = targetLanguage
         draftAnchor = record.draftAnchor
         audienceOverride = record.audienceOverride
+        screenshotAttached = record.screenshotAttached == true
+        screenshotOffset = record.messages.last { $0.role == .assistant && $0.state == .complete }?.screenshotOffset
         for index in conversation.indices where conversation[index].state == .streaming {
             conversation[index].state = .failed
             conversation[index].text = "Generation was interrupted. Send your request again to retry."
@@ -284,14 +301,21 @@ final class QuickActionPanelState {
 
     func adoptSourceDraft(_ text: String, reanchoring: Bool = false) {
         let normalized = Self.collapsingWhitespace
+        let imageDraft = screenshotAttached && text.contains("\u{fffc}")
+            ? RewriteConversationMessage.Screenshot.split(
+                text.replacingOccurrences(of: "\u{fffc}", with: RewriteConversationMessage.Screenshot.marker)) : nil
+        let text = imageDraft?.text ?? text
+        let movedImage = imageDraft.map { $0.offset != screenshotOffset } ?? false
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            normalized(text) != normalized(output),
+            normalized(text) != normalized(output) || movedImage,
             reanchoring || selectedSourceAwaitingRewrite != nil || originalIsWritingInstruction
                 || normalized(text) != normalized(original)
         else { return }
         conversation.append(RewriteConversationMessage(
             role: .user, text: Self.editedDraftRequest, state: .complete))
-        conversation.append(RewriteConversationMessage(role: .assistant, text: text, state: .complete))
+        screenshotOffset = screenshotAttached ? (imageDraft?.offset ?? text.utf16.count) : nil
+        conversation.append(RewriteConversationMessage(role: .assistant, text: text, state: .complete,
+            screenshotOffset: screenshotOffset))
         output = text
         phase = .finished
         cachedDiff = nil
@@ -299,7 +323,9 @@ final class QuickActionPanelState {
 
     func append(_ delta: String) {
         guard isRunning else { return }
-        output += delta
+        streamedDraft += delta
+        let parsed = RewriteConversationMessage.Screenshot.split(streamedDraft, streaming: true)
+        output = action == .rewrite ? parsed.text : streamedDraft
         guard action == .rewrite else { return }
         if conversation.last?.role != .assistant
             || conversation.last?.state != .streaming
@@ -307,11 +333,15 @@ final class QuickActionPanelState {
             conversation.append(
                 RewriteConversationMessage(role: .assistant, text: "", state: .streaming))
         }
-        conversation[conversation.count - 1].text += delta
+        conversation[conversation.count - 1].text = parsed.text
+        conversation[conversation.count - 1].screenshotOffset =
+            screenshotAttached && streamedDraft.contains(RewriteConversationMessage.Screenshot.marker)
+                ? parsed.offset : nil
     }
 
     func restart() {
         output = ""
+        streamedDraft = ""
         phase = .running
         previousOutput = nil
         cachedDiff = nil
@@ -328,6 +358,7 @@ final class QuickActionPanelState {
         conversation.append(
             RewriteConversationMessage(role: .assistant, text: "", state: .streaming))
         output = ""
+        streamedDraft = ""
         phase = .running
         refinementInstruction = ""
         return instruction
@@ -344,6 +375,7 @@ final class QuickActionPanelState {
         conversation.append(
             RewriteConversationMessage(role: .assistant, text: "", state: .streaming))
         output = ""
+        streamedDraft = ""
         phase = .running
         refinementInstruction = ""
         return (previousOutput ?? "", requestMessages)
@@ -354,15 +386,18 @@ final class QuickActionPanelState {
     /// Cleanup can strip a reply down to nothing, which must fail rather than finish empty.
     @discardableResult
     func finish(_ text: String) -> Bool {
-        let completed = action == .rewrite
+        let cleaned = action == .rewrite
             ? QuickActionOutput.composerDraft(
                 in: text, source: previousOutput ?? (originalIsWritingInstruction ? "" : original))
             : text
+        let parsed = RewriteConversationMessage.Screenshot.split(cleaned)
+        let completed = action == .rewrite ? parsed.text : cleaned
         if action == .rewrite, completed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             fail(Self.emptyDraftMessage)
             return false
         }
         output = completed
+        screenshotOffset = screenshotAttached ? parsed.offset : nil
         phase = .finished
         cachedDiff = nil
         refinementInstruction = ""
@@ -374,9 +409,11 @@ final class QuickActionPanelState {
         {
             conversation[conversation.count - 1].text = completed
             conversation[conversation.count - 1].state = .complete
+            conversation[conversation.count - 1].screenshotOffset = screenshotOffset
         } else {
             conversation.append(
-                RewriteConversationMessage(role: .assistant, text: completed, state: .complete))
+                RewriteConversationMessage(role: .assistant, text: completed, state: .complete,
+                    screenshotOffset: screenshotOffset))
         }
         return true
     }
@@ -425,7 +462,10 @@ final class QuickActionPanelState {
             ? Array(complete.dropFirst()) : complete
         return requestConversation.map { message in
             return AIMessage(
-                role: message.role == .user ? .user : .assistant, text: message.text)
+                role: message.role == .user ? .user : .assistant,
+                text: screenshotAttached && message.role == .assistant
+                    ? RewriteConversationMessage.Screenshot.marked(
+                        message.text, offset: message.screenshotOffset) : message.text)
         }
     }
 
@@ -442,6 +482,6 @@ final class QuickActionPanelState {
                 ?? (refinementInstruction.isEmpty ? nil : refinementInstruction),
             originalIsWritingInstruction: originalIsWritingInstruction,
             draftAnchor: draftAnchor,
-            audienceOverride: audienceOverride)
+            audienceOverride: audienceOverride, screenshotAttached: screenshotAttached)
     }
 }

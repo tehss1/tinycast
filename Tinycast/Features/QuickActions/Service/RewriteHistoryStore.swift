@@ -216,7 +216,7 @@ final class RewriteHistoryStore {
             pendingInstruction: preferred.pendingInstruction,
             originalIsWritingInstruction: preferred.originalIsWritingInstruction,
             draftAnchor: preferred.draftAnchor,
-            audienceOverride: preferred.audienceOverride)
+            audienceOverride: preferred.audienceOverride, screenshotAttached: preferred.screenshotAttached)
         // Another editor's row, or one found only through a shared quote, may be a separate reply.
         let duplicates = candidates.filter { record in
             record.id != preferred.id
