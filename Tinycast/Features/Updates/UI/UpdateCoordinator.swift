@@ -79,7 +79,6 @@ final class UpdateCoordinator {
             guard case .checking = stage else { return }
             if let release = store.update {
                 stage = .available(release)
-<<<<<<< HEAD
                 return
             }
             switch outcome {
@@ -88,13 +87,8 @@ final class UpdateCoordinator {
             case .missing: stage = .failed(.feedMissing)
             case .limited: stage = .failed(.rateLimited)
             case .busy: stage = .failed(.checkInProgress)
-            case .unreachable: stage = .failed(.downloadFailed("Tinycast could not reach GitHub."))
-=======
-            } else if answered {
-                stage = .upToDate
-            } else {
+            case .unreachable:
                 stage = .failed(.downloadFailed(String(localized: "Tinycast could not reach GitHub.")))
->>>>>>> refs/upstream/v0.12.1
             }
         }
     }

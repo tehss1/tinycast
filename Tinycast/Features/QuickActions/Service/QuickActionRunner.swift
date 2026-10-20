@@ -62,10 +62,12 @@ final class QuickActionRunner {
             selectionIsWritingInstruction
             ? QuickActionPrompt.compositionMessage(instruction: selection, context: context)
             : QuickActionPrompt.message(for: action, selection: selection, context: context)
-        // Edited instructions can ask for more than the selection, as a custom action's can.
+        // Edited instructions can ask for more than the selection, as a custom action's can. Only
+        // the on-device window needs a selection-sized cap: a remote thinking model spends the
+        // same budget on thinking, so a short selection would leave it no room to answer.
         let outgrowsSelection = selectionIsWritingInstruction || instructionOverride != nil
+            || !(provider is AppleIntelligenceProvider)
         let request = AIRequest(
-<<<<<<< HEAD
             instructions: instructions,
             messages: [AIMessage(role: .user, text: message)],
             maxOutputTokens: QuickActionPrompt.maxOutputTokens(
@@ -116,16 +118,6 @@ final class QuickActionRunner {
         _ request: AIRequest, using provider: any AIProvider, selectionSized: Bool,
         onDelta: @MainActor (String) -> Void
     ) async throws -> String {
-=======
-            instructions: QuickActionPrompt.instructions(
-                for: action, override: instructionOverride),
-            messages: [
-                AIMessage(
-                    role: .user,
-                    text: QuickActionPrompt.message(for: action, selection: selection))
-            ],
-            maxOutputTokens: maxOutputTokens(for: action, selection: selection, on: provider))
->>>>>>> refs/upstream/v0.12.1
         var text = ""
         for try await event in provider.stream(request) {
             // A cut-off reply would replace the whole selection with part of it.
@@ -142,16 +134,4 @@ final class QuickActionRunner {
         }
         return trimmed
     }
-<<<<<<< HEAD
-=======
-
-    /// The on-device window counts the prompt and the reply against one budget, so both need a cap.
-    private static func maxOutputTokens(
-        for action: QuickAction, selection: String, on provider: any AIProvider
-    ) -> Int {
-        guard provider is AppleIntelligenceProvider else { return AIRequest.defaultMaxOutputTokens }
-        let approximateTokens = max(selection.count / 3, 64)
-        return action == .summarize ? min(approximateTokens, 512) : approximateTokens * 2
-    }
->>>>>>> refs/upstream/v0.12.1
 }

@@ -341,7 +341,6 @@ It could not have been built on `HUDPresenter`: `HUDPanel` sets `ignoresMouseEve
 `false` from `canBecomeKey`, so it is click-through and hosts no buttons. Nor on `DialogAccessory`,
 which is a closed two-case enum measured once at present time — a growing stream would clip.
 
-<<<<<<< HEAD
 Non-activating, so the target app keeps its selection or insertion point while the panel holds key.
 Keys go through `sendEvent`: `⌘↵` delivers, as does `↵` outside a text field, `⌘C` copies the shown
 result outside a text field, and `esc` dismisses. Composer labels delivery
@@ -387,17 +386,9 @@ Click-away dismisses like every other borderless surface. The panel is anchored 
 and re-measured as the reply arrives. A Composer panel may grow while it is open, but it keeps the
 largest height it has reached when the reader switches between saved conversations. Its larger
 minimum body leaves room for the first writing request before a transcript exists. Centring on every
-measure would walk it up the screen. `MarkdownView` and `MarkdownBlock.parse` are reused from chat;
-neither takes palette state.
-=======
-Non-activating, so the target app keeps its selection while the panel holds key. Keys go through
-`sendEvent`: `↵` replaces, `⌘C` copies, `esc` dismisses; click-away dismisses like every other
-borderless surface. The panel is anchored by its **top-left** and re-measured as the reply arrives —
-centring on every measure would walk it up the screen. Summarize and custom actions use chat's
-`ChatMarkdownText` and `MarkdownBlock.parse`, keeping the whole result selectable across paragraphs
-and headings, with the same math as chat; `midStream` is on while it runs, so an equation still
-arriving is held back.
->>>>>>> refs/upstream/v0.12.1
+measure would walk it up the screen. Summarize and custom actions use chat's `ChatMarkdownText` and
+`MarkdownBlock.parse`, keeping the whole result selectable across paragraphs and headings, with the
+same math as chat; `midStream` is on while it runs, so an equation still arriving is held back.
 
 The body is a `ScrollView` with its height **set** rather than capped: a scroll view has no ideal
 height, so `NSHostingView.fittingSize` measures it as nothing and the body collapses to a slot. The

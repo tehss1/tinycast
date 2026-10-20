@@ -43,47 +43,6 @@ private func hyperKeyEventTapCallback(
     }
 }
 
-<<<<<<< HEAD
-/// HID remap of Caps Lock → F18 while it is Hyper. See docs/features/hotkeys.md#the-hyper-key.
-private enum CapsLockRemap {
-    // HID usages: keyboard page 0x07, Caps Lock 0x39, F18 0x6D.
-    private static let mappingOn =
-        #"{"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":0x700000039,"HIDKeyboardModifierMappingDst":0x70000006D}]}"#
-    private static let mappingOff = #"{"UserKeyMapping":[]}"#
-
-    // Serial, so rapid on→off→on toggles apply in call order rather than racing.
-    private static let queue = DispatchQueue(label: "com.tinycast.capslock-remap", qos: .utility)
-
-    static func setEnabled(_ enabled: Bool) {
-        let mapping = enabled ? mappingOn : mappingOff
-        queue.async { apply(mapping) }
-    }
-
-    /// Synchronous for `applicationWillTerminate`, and queued so no pending toggle lands after it.
-    static func clearBlocking() {
-        queue.sync { apply(mappingOff) }
-    }
-
-    private static func apply(_ mapping: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/hidutil")
-        process.arguments = ["property", "--set", mapping]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.runObservingExit().wait()
-            if process.terminationStatus != 0 {
-                NSLog("Tinycast: hidutil remap exited %d", process.terminationStatus)
-            }
-        } catch {
-            NSLog("Tinycast: hidutil caps lock remap failed: %@", error.localizedDescription)
-        }
-    }
-}
-
-/// The Hyper Key engine, a modifying tap. See docs/features/hotkeys.md#the-hyper-key.
-=======
->>>>>>> refs/upstream/v0.12.1
 @MainActor
 final class HyperKeyTap {
     /// What the callback should do, decided on the actor; `asFlagsChanged` converts in place.
@@ -112,37 +71,16 @@ final class HyperKeyTap {
         didSet { if route != oldValue { cancelHold() } }
     }
 
-<<<<<<< HEAD
-    @ObservationIgnored private var settings: AppSettings?
-    // Raw CF handles the tap callback and teardown reach; never a view dependency.
-    @ObservationIgnored private var tapPort: CFMachPort?
-    @ObservationIgnored private var runLoopSource: CFRunLoopSource?
-    @ObservationIgnored private var sessionTokens: [NotificationToken] = []
-    @ObservationIgnored private var sessionActive = true
-    @ObservationIgnored private var hidConnect: io_connect_t = IO_OBJECT_NULL
-=======
     var onUnmappedCapsLock: (() -> Void)?
->>>>>>> refs/upstream/v0.12.1
 
     private let settings: AppSettings
     private var tapPort: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var hidConnect: io_connect_t = IO_OBJECT_NULL
 
-<<<<<<< HEAD
-    /// Mirror of `settings.hyperKey`; the toggles are read live, so nothing goes stale.
-    @ObservationIgnored private var key: HyperKeyPhysicalKey = .none
-
-    // Hold state machine, written from the tap callback on every keystroke.
-    @ObservationIgnored private var hyperActive = false
-    @ObservationIgnored private var hyperDownAt: ContinuousClock.Instant?
-    @ObservationIgnored private var otherKeyPressed = false
-    @ObservationIgnored private var capsLockRemapEnabled: Bool?
-=======
     private var hyperActive = false
     private var hyperDownAt: ContinuousClock.Instant?
     private var otherKeyPressed = false
->>>>>>> refs/upstream/v0.12.1
     private let clock = ContinuousClock()
     private static let quickPressWindow: Duration = .milliseconds(250)
 
@@ -202,11 +140,7 @@ final class HyperKeyTap {
     func decide(
         type: CGEventType, keyCode: Int, flagsRaw: UInt64, isAutorepeat: Bool, isSynthetic: Bool
     ) -> Decision {
-<<<<<<< HEAD
-        guard sessionActive, !isSynthetic, let tapCode = key.tapKeyCode else { return .pass }
-=======
         guard !isSynthetic, let route else { return .pass }
->>>>>>> refs/upstream/v0.12.1
 
         if keyCode == route.tapKeyCode {
             return decideHyperKeyEvent(
@@ -282,12 +216,8 @@ final class HyperKeyTap {
     }
 
     private func fireQuickPress(_ action: HyperKeyQuickPress, for key: HyperKeyPhysicalKey) {
-<<<<<<< HEAD
-        guard sessionActive else { return }
-=======
         // Secure Input hides the key that made this press a chord, so a short hold proves nothing.
         guard !IsSecureEventInputEnabled() else { return }
->>>>>>> refs/upstream/v0.12.1
         switch action {
         case .none:
             break
@@ -304,56 +234,12 @@ final class HyperKeyTap {
         otherKeyPressed = false
     }
 
-<<<<<<< HEAD
-    // MARK: - Configuration
-
-    private func applyKey(_ newKey: HyperKeyPhysicalKey) {
-        guard newKey != key else { return }
-        cancelHold()
-        let wasCapsLock = key == .capsLock
-        key = newKey
-        syncTapPresence()
-        if wasCapsLock || newKey == .capsLock { syncCapsLockRemap() }
-    }
-
-    private func syncCapsLockRemap() {
-        let secureInput = IsSecureEventInputEnabled()
-        let shouldEnable = sessionActive && key == .capsLock && status == .active && !secureInput
-        if secureInput { cancelHold() }
-        guard capsLockRemapEnabled != shouldEnable else { return }
-        if shouldEnable { setCapsLockState(false) }
-        capsLockRemapEnabled = shouldEnable
-        CapsLockRemap.setEnabled(shouldEnable)
-    }
-
-    /// The HID remap outlives the process, so hand the key back before exiting.
-    func prepareForTermination() {
-        if key == .capsLock { CapsLockRemap.clearBlocking() }
-    }
-
-    // MARK: - Tap lifecycle
-
-    private func syncTapPresence() {
-        if key == .none {
-            tearDownTap()
-            healthTicker?.unsubscribe(self)
-            status = .off
-        } else {
-            healthTicker?.subscribe(self)
-            installTapIfNeeded()
-        }
-    }
-
-    private func installTapIfNeeded() {
-        guard sessionActive, tapPort == nil, key != .none else { return }
-=======
     // MARK: - Tap lifecycle
 
     /// False when Accessibility is missing: only a trusted process may modify events.
     @discardableResult
     func install() -> Bool {
         guard tapPort == nil else { return true }
->>>>>>> refs/upstream/v0.12.1
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
@@ -390,42 +276,9 @@ final class HyperKeyTap {
     /// Called when the system disables the tap; any half-tracked hold is stale by then.
     func reenable() {
         cancelHold()
-        guard sessionActive else { return }
         if let tapPort { CGEvent.tapEnable(tap: tapPort, enable: true) }
     }
 
-<<<<<<< HEAD
-    /// One-second watchdog while a key is configured. See docs/features/hotkeys.md#lifecycle.
-    func healthCheck() {
-        guard sessionActive, key != .none else { return }
-        if tapPort == nil {
-            installTapIfNeeded()
-        } else if !Permissions.isAccessibilityTrusted() {
-            tearDownTap()
-            status = .needsAccessibility
-        } else if let tapPort, !CGEvent.tapIsEnabled(tap: tapPort) {
-            CGEvent.tapEnable(tap: tapPort, enable: true)
-        }
-        if key == .capsLock { syncCapsLockRemap() }
-    }
-
-    private func sessionDidResign() {
-        sessionActive = false
-        cancelHold()
-        if let tapPort { CGEvent.tapEnable(tap: tapPort, enable: false) }
-        if key == .capsLock {
-            capsLockRemapEnabled = false
-            CapsLockRemap.setEnabled(false)
-        }
-    }
-
-    private func sessionDidBecomeActive() {
-        sessionActive = true
-        healthCheck()
-    }
-
-=======
->>>>>>> refs/upstream/v0.12.1
     // MARK: - Synthetics & caps state
 
     /// Synthesize a bare key press for Quick Press, tagged so `decide` ignores it.

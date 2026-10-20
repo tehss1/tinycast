@@ -111,13 +111,9 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         isViewingActiveConversation = true
         closing.delegate = nil
         closing.onKey = nil
-<<<<<<< HEAD
         closing.onAccessoryKey = nil
         preserveDraft?()
-        closing.fadeOut(duration: Theme.Duration.exit)
-=======
         closing.orderOut(nil)
->>>>>>> refs/upstream/v0.12.1
     }
 
     private func copyOutput(_ text: String) {

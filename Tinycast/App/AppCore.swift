@@ -440,19 +440,13 @@ final class AppCore {
                 windowLayoutIDs: Set(windowLayouts.layouts.map(\.id)),
                 windowRoomIDs: Set(rooms.rooms.map(\.id)),
                 customWindowSizeIDs: Set(customWindowSizes.sizes.map(\.id)),
-<<<<<<< HEAD
                 quickActionIDs: customQuickActions.isAvailable
                     ? Set(customQuickActions.actions.map(\.id)) : nil)
-            // Keeps running while Carbon pauses: the recorder needs its rewritten flags.
-            hyperKeyTap.start(settings: settings)
-=======
-                quickActionIDs: Set(customQuickActions.actions.map(\.id)))
             // After `hotKeys.start`: Secure Input equivalents are built from the loaded bindings.
             hyperKey.onProblem = { [weak self] in self?.showMessage($0, tone: .danger) }
             hyperKey.start()
             dictationKey.onProblem = { [weak self] in self?.showMessage($0, tone: .danger) }
             dictationKey.start()
->>>>>>> refs/upstream/v0.12.1
 
             snippetsStore.onSnapshot = { [weak self] snapshot in
                 guard let self else { return }

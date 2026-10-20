@@ -63,31 +63,10 @@ jobs:
 
       - name: Compute release metadata
         id: meta
-<<<<<<< HEAD
         env:
           CHANNEL: ${{ inputs.channel }}
           BASE_VERSION: ${{ inputs.version }}
         run: ./Scripts/release-metadata.sh "$GITHUB_OUTPUT"
-=======
-        run: |
-          CHANNEL="${{ github.event.inputs.channel }}"
-          BASE_VERSION="${{ github.event.inputs.version }}"
-          # Each channel is a distinct side-by-side app with its own name, bundle id and cask.
-          case "$CHANNEL" in
-            beta)   SUFFIX="-beta.${GITHUB_RUN_NUMBER}";  DISPLAY="Tinycast Beta";  BUNDLE="com.tinycast.app.beta";  CASK="tinycast@beta";  PRERELEASE=true ;;
-            stable) SUFFIX="";                            DISPLAY="Tinycast";       BUNDLE="com.tinycast.app";       CASK="tinycast";       PRERELEASE=false ;;
-          esac
-          FULL="${BASE_VERSION}${SUFFIX}"
-          {
-            echo "full_version=${FULL}"
-            echo "display_name=${DISPLAY}"
-            echo "bundle_id=${BUNDLE}"
-            echo "cask_name=${CASK}"
-            echo "dmg_file=Tinycast-${FULL}.dmg"
-            echo "zip_file=Tinycast-${FULL}.zip"
-            echo "prerelease=${PRERELEASE}"
-          } >> "$GITHUB_OUTPUT"
->>>>>>> refs/upstream/v0.12.1
 
       # The SAME cert on every release is what keeps users' Accessibility grant across updates.
       - name: Import signing certificate
@@ -190,14 +169,8 @@ jobs:
           if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
-<<<<<<< HEAD
-          # --notes-file, never --generate-notes: gh prepends --notes to generated notes, which would
-          # put the install boilerplate back above the changelog.
-          gh release create "$TAG" --target "$GITHUB_SHA" \
-=======
           # --notes-file, never --generate-notes: gh would put the install text above the changelog.
-          gh release create "$TAG" \
->>>>>>> refs/upstream/v0.12.1
+          gh release create "$TAG" --target "$GITHUB_SHA" \
             "dist/${{ steps.meta.outputs.dmg_file }}" \
             "dist/${{ steps.meta.outputs.zip_file }}" \
             --title "${{ steps.meta.outputs.display_name }} ${{ steps.meta.outputs.full_version }}" \

@@ -216,16 +216,8 @@ from both ends**: every function key reports `NX_SECONDARYFNMASK`, harmless on a
 real fn press once the event is a `flagsChanged`, which fired anything bound to fn on every Hyper
 press. Only the Hyper key's own two events are scrubbed, so Hyper+F-key and Hyper+arrow keep the fn
 bit they are entitled to. A classic `IOHIDSystem` connection reads and drives the Caps Lock LED and
-<<<<<<< HEAD
-lock state; it is used only by the explicit Quick Press toggle and the one-time unlatch when the remap
-is installed. The remap is applied only after the modifying tap starts; a failed tap leaves Caps Lock
-native rather than stranded as F18. Secure Event Input also blocks the tap, so the one-second health
-check clears the remap while it is active and restores Hyper after it ends. A fast user switch clears
-the remap until the session becomes active again.
-=======
 lock state; it is used only by the explicit Quick Press toggle and the unlatch when the remap is
 installed or repaired.
->>>>>>> refs/upstream/v0.12.1
 
 ### Per-keyboard remapping
 
@@ -353,15 +345,6 @@ it, so ✦Q can be neither recorded nor fired while it is on.
 
 ### Lifecycle
 
-<<<<<<< HEAD
-Like every keyboard tap it needs the **Accessibility** grant and never prompts for it. A one-second
-watchdog runs while a key is configured: it retries installation until the grant lands, notices
-revocation, revives a tap the system disabled on timeout or user input, and clears a stuck hold. On
-fast user switching another session owns the keyboard, so half-held state is dropped and rewriting
-stops until this session is active again. The watchdog, tap recovery and configuration changes all
-respect that inactive-session gate. The HID remap outlives the process, so
-`applicationWillTerminate` hands the key back to the system before exiting.
-=======
 Like every keyboard tap it needs the **Accessibility** grant; choosing a key in Settings is the one
 place that prompts for it. A one-second watchdog runs while a key is live: it retries installation
 until the grant lands, notices revocation, revives a tap the system disabled on timeout or user input,
@@ -374,7 +357,6 @@ Apple's 🎤 key (Consumer `0xC000000CF`) can't be recorded. While a recorder is
 F20, `DictationKeyManager` remaps it to **F20**, a bare F-key Carbon fires on press and release, even
 in Secure Input, with no tap or permission. Otherwise, and in other users' sessions, macOS Dictation
 keeps it. F20 keycaps draw as `mic`.
->>>>>>> refs/upstream/v0.12.1
 
 ## Recorder
 

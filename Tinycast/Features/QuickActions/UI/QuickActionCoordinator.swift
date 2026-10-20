@@ -203,24 +203,15 @@ final class QuickActionCoordinator {
         Task {
             guard
                 await core.confirm(
-<<<<<<< HEAD
-                    title: "Enable Quick Actions?",
-                    message:
-                        "Tinycast needs Accessibility permission to read selected text or the "
-                        + "active text field in other apps, then insert a result. Nothing is read "
-                        + "until you press a shortcut.",
-                    symbol: "wand.and.sparkles", confirmTitle: "Continue", tone: .neutral,
-=======
                     title: String(localized: "Enable Quick Actions?"),
                     message: String(
                         localized: """
-                            Tinycast needs the Accessibility permission to read the text you have \
-                            selected in other apps and replace it. Nothing is read until you press \
-                            a shortcut.
+                            Tinycast needs Accessibility permission to read selected text or the \
+                            active text field in other apps, then insert a result. Nothing is read \
+                            until you press a shortcut.
                             """),
                     symbol: "wand.and.sparkles", confirmTitle: String(localized: "Continue"),
                     tone: .neutral,
->>>>>>> refs/upstream/v0.12.1
                     confirmRole: .standard)
             else { return }
             guard !settings.quickActionsEnabled else { return }
@@ -559,23 +550,14 @@ final class QuickActionCoordinator {
         Task {
             guard
                 await core.reportFailure(
-<<<<<<< HEAD
-                    title: "Quick Actions can't read this text field",
-                    message:
-                        "Tinycast needs Accessibility permission to read the active text field and "
-                        + "insert a result. If Tinycast is already listed, switch it off "
-                        + "and on again — a rebuilt app keeps a stale entry.",
-                    symbol: "wand.and.sparkles", recovery: "Open System Settings")
-=======
-                    title: String(localized: "Quick Actions can't read your selection"),
+                    title: String(localized: "Quick Actions can't read this text field"),
                     message: String(
                         localized: """
-                            Tinycast needs the Accessibility permission to read the text you have \
-                            selected and replace it. If Tinycast is already listed, switch it off \
-                            and on again — a rebuilt app keeps a stale entry.
+                            Tinycast needs Accessibility permission to read the active text field \
+                            and insert a result. If Tinycast is already listed, switch it off and \
+                            on again — a rebuilt app keeps a stale entry.
                             """),
                     symbol: "wand.and.sparkles", recovery: String(localized: "Open System Settings"))
->>>>>>> refs/upstream/v0.12.1
             else { return }
             Permissions.openAccessibilitySettings()
         }
@@ -664,7 +646,6 @@ final class QuickActionCoordinator {
     }
 
     /// A replacement that never lands would otherwise lose the reply, so the clipboard keeps it.
-<<<<<<< HEAD
     private func deliver(
         _ text: String, replacing selection: String, to target: Target, action: QuickAction,
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
@@ -677,23 +658,6 @@ final class QuickActionCoordinator {
             insertsAtCaret: insertsAtCaret,
             boundaries: textTarget?.textBoundaries, replacing: insertsAtCaret ? "" : selection)
         if let note = target.note {
-=======
-    private func deliver(_ text: String, to target: Target, action: QuickAction) {
-        let onDelivered: @MainActor @Sendable () -> Void = { [weak self] in
-            self?.core.showMessage(String(localized: "\(action.title) applied"))
-        }
-        let onFailed: @MainActor @Sendable () -> Void = { [weak self] in
-            Paster.copyPlainText(text)
-            self?.core.showMessage(
-                String(localized: "\(action.title) couldn't replace the selection — copied instead"),
-                tone: .danger)
-        }
-        switch target {
-        case .external(let app):
-            injector.replaceSelection(
-                with: text, in: app, onDelivered: onDelivered, onFailed: onFailed)
-        case .note(let note):
->>>>>>> refs/upstream/v0.12.1
             guard core.notesCoordinator.editorInput == note.document,
                 note.editor.window?.isVisible == true,
                 note.editor.replaceUnchangedSelection(

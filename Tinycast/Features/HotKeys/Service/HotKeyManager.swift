@@ -91,14 +91,11 @@ final class HotKeyManager {
     private let boundSnippetKey = "boundSnippetIDs"
     private let boundExtensionCommandKey = "boundExtensionCommandEntryIDs"
 
-<<<<<<< HEAD
-    /// A nil set is a store that couldn't read its file: its shortcuts are kept, not pruned.
-=======
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
->>>>>>> refs/upstream/v0.12.1
+    /// A nil set is a store that couldn't read its file: its shortcuts are kept, not pruned.
     func start(
         customCommandIDs: Set<UUID>, quicklinkIDs: Set<UUID>?, windowLayoutIDs: Set<UUID>,
         windowRoomIDs: Set<UUID>, customWindowSizeIDs: Set<UUID>, quickActionIDs: Set<UUID>?

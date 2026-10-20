@@ -31,17 +31,10 @@ enum BuiltInQuickAction: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var progressTitle: String {
         switch self {
-<<<<<<< HEAD
-        case .fixGrammar: return "Fixing Grammar…"
-        case .rewrite: return "Composing…"
-        case .translate: return "Translating…"
-        case .summarize: return "Summarizing…"
-=======
         case .fixGrammar: return String(localized: "Fixing Grammar…")
-        case .rewrite: return String(localized: "Rewriting…")
+        case .rewrite: return String(localized: "Composing…")
         case .translate: return String(localized: "Translating…")
         case .summarize: return String(localized: "Summarizing…")
->>>>>>> refs/upstream/v0.12.1
         }
     }
 
