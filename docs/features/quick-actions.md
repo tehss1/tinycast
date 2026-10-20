@@ -579,36 +579,8 @@ Official transport contracts, checked with Claude Code 2.1.305 and Codex CLI 0.1
 2026-10-20: [Claude image input](https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode),
 [Codex CLI image flag](https://developers.openai.com/codex/cli/reference/), and
 [Codex app-server image input](https://developers.openai.com/codex/app-server/).
-The CLI offers `--image`; Composer retains its existing app-server transport rather than changing
-providers. No live model inference or Outlook paste has been validated for this native integration.
-Outlook's choice of rich pasteboard representation, inline placement and retained dimensions remain
-manual checks, including whether it consumes the payload before clipboard restoration.
-
-### Screenshot implementation verification (2026-10-20)
-
-On `gordies-mac-mini` over SSH (macOS 26.5.2, Swift CLT 6.2.3, macOS 26.2 SDK), a disposable
-clone under `~/agent-tmp/` ran the unmodified suite: 94 of 108 harnesses passed in 116 seconds.
-The final focused reruns passed 462 Composer assertions, 28 native screenshot checks and the full
-snippet/clipboard-lease harness. The shared provider harness passed 878 assertions in the suite.
-The screenshot harness uses an isolated pasteboard and an unshown panel; it posts no keys, activates
-no app, touches no general clipboard and installs or launches no Tinycast build.
-
-The 14 full-suite failures were environment/baseline blockers: nine harnesses need the absent
-`SwiftUIMacros` plug-in; `language-test` needs `xcstringstool`; `apple-intelligence-test` references
-`SystemLanguageModel.tokenCount`, absent from this SDK; two MCP harnesses need Node; the isolated
-Keychain harness could not create/recover its fresh test key in the SSH session. SwiftLint and Xcode
-were unavailable, so neither `Scripts/lint.sh` nor a Debug `xcodebuild` completed. On Linux, settings
-search/localization checks, `git diff --check` and the Model-import check passed.
-
-A whole-app `swiftc -typecheck` was attempted against all 829 app sources, excluding the three
-helper targets. The shipped source stops at the missing SwiftUI macro. A separate diagnostic copy
-passed whole-module typechecking in Swift 6 mode with complete strict concurrency, `-D DEBUG` and
-`-warnings-as-errors`, with an empty diagnostic log. That copy expanded the six existing `@Entry`
-properties, made existing `OverflowFade` opacity conversions explicit, bypassed the SDK's existing
-NSCache sendability declarations and omitted the unavailable `tokenCount` body. These diagnostic
-substitutions were confined to scratch files and are not shipped changes or a substitute for an
-Xcode build. New functionality stays in existing app source files; the new standalone test is listed
-in `run-tests.sh`, so no project regeneration was required. All Mac scratch directories were removed.
+The CLI offers `--image`; Composer keeps its existing app-server transport rather than changing
+providers.
 
 ### Manual sweep
 
