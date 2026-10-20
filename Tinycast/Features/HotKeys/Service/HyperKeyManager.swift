@@ -93,11 +93,17 @@ final class HyperKeyManager: HealthCheckable {
             return stop(.blocked(appName: blocker))
         }
         guard pauseReasons.isEmpty else { return stop(.paused) }
-        if route.remap != nil, remapper.mapping == nil { tap.unlatchCapsLock() }
-        guard remapper.apply(route.remap) else { return stop(.remapUnavailable) }
         setRoute(route)
         healthTicker?.subscribe(self)
-        status = tap.install() ? .active : .needsAccessibility
+        // The remap follows the tap: without one, Caps Lock would be stranded as F18.
+        guard tap.install() else {
+            remapper.apply(nil)
+            status = .needsAccessibility
+            return syncSecureInputHotKeys()
+        }
+        if route.remap != nil, remapper.mapping == nil { tap.unlatchCapsLock() }
+        guard remapper.apply(route.remap) else { return stop(.remapUnavailable) }
+        status = .active
         syncSecureInputHotKeys()
     }
 
@@ -131,9 +137,11 @@ final class HyperKeyManager: HealthCheckable {
         secureInput.refresh()
         let previous = status
         if !tap.isInstalled {
-            if tap.install() { status = .active }
+            // Through `apply`, so the remap returns with the tap.
+            if tap.install() { return apply() }
         } else if !Permissions.isAccessibilityTrusted() {
             tap.tearDown()
+            remapper.apply(nil)
             status = .needsAccessibility
         } else if tap.isEnabled == false {
             tap.reenable()

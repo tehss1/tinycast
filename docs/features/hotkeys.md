@@ -194,8 +194,11 @@ raw HID listener, which needs Input Monitoring — a permission Tinycast never a
 
 `HyperKeyManager.apply()` is the one funnel. Settings, sleep, lock, session switches and blocking apps
 all call it, and it converges on what the settings ask for: no key is `.off`, a running blocker is
-`.blocked`, a pause reason is `.paused`, a refused remap is `.remapUnavailable`; otherwise the remap goes
-in, the tap installs, and the status is `.active` or `.needsAccessibility`.
+`.blocked`, a pause reason is `.paused`; otherwise the tap installs first. Without Accessibility it
+can't, so the remap stays out (Caps Lock stays Caps Lock, never a stranded F18) and the status is
+`.needsAccessibility` until the watchdog's next install succeeds and calls `apply()` again. With the
+tap in, a refused remap is `.remapUnavailable`, and anything else is `.active`. Losing Accessibility
+later takes the remap out with the tap.
 
 ### Caps Lock has to stop being Caps Lock
 

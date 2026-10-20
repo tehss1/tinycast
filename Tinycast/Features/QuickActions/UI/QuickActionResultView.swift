@@ -81,7 +81,6 @@ struct QuickActionResultView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: metrics.radius.dialog, style: .continuous))
-            .panelEntrance()
             // Reported, not measured: the frame above is ours, so reading it back would feed itself.
             .onChange(of: panelHeight, initial: true) { _, height in
                 if state.action == .rewrite {
