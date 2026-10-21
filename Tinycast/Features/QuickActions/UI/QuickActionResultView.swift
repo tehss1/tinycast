@@ -467,26 +467,11 @@ struct QuickActionResultView: View {
     private var screenshotControls: some View {
         VStack(alignment: .leading, spacing: metrics.spacing.sm) {
             if state.screenshotAttached {
-                HStack(spacing: metrics.spacing.md) {
-                    ScreenshotPreview(screenshot: state.screenshot)
-                    VStack(alignment: .leading, spacing: metrics.spacing.xs) {
-                        Text("Screenshot attached")
-                        if state.screenshot == nil {
-                            Text("Reattach or remove it. Images aren't kept in history.")
-                        } else if !state.supportsScreenshotDelivery {
-                            Text("Notes accept text only. Remove the screenshot to replace text.")
-                        }
-                        if state.screenshot != nil, !coordinator.composerSeesScreenshots {
-                            Text("Delivery only. This model can't see the screenshot.")
-                        }
-                    }
-                    .font(metrics.typography.rowTrailing)
-                    .foregroundStyle(Theme.Colors.textSecondary)
-                    Spacer(minLength: 0)
-                    Button("Replace") { coordinator.attachClipboardScreenshot(to: state) }
-                    Button("Remove") { coordinator.removeComposerScreenshot(from: state) }
-                }
-                .disabled(state.isRunning)
+                ScreenshotAttachmentRow(
+                    state: state, seesScreenshots: coordinator.composerSeesScreenshots,
+                    onReplace: { coordinator.attachClipboardScreenshot(to: state) },
+                    onRemove: { coordinator.removeComposerScreenshot(from: state) })
+                    .id(state.screenshotRevision)
             } else if state.offersClipboardScreenshot {
                 Button {
                     coordinator.attachClipboardScreenshot(to: state)
@@ -512,16 +497,87 @@ struct QuickActionResultView: View {
         .font(metrics.typography.rowTrailing)
     }
 
+    private struct ScreenshotAttachmentRow: View {
+        @Environment(\.metrics) private var metrics
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        let state: QuickActionPanelState
+        let seesScreenshots: Bool
+        let onReplace: () -> Void
+        let onRemove: () -> Void
+        @State private var expanded = true
+        @State private var hovered = false
+        @State private var collapseRequest = UUID()
+
+        var body: some View {
+            HStack(spacing: metrics.spacing.md) {
+                if state.screenshot != nil {
+                    Button(action: expand) {
+                        ScreenshotPreview(screenshot: state.screenshot,
+                            maximumSide: expanded ? metrics.size.chatImageThumb : metrics.size.chatAttachmentThumb)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        hovered = inside
+                        if inside {
+                            expand()
+                        } else {
+                            collapseRequest = UUID()
+                        }
+                    }
+                } else {
+                    ScreenshotPreview(screenshot: nil)
+                }
+                VStack(alignment: .leading, spacing: metrics.spacing.xs) {
+                    Text("Screenshot attached")
+                    if state.screenshot == nil {
+                        Text("Reattach or remove it. Images aren't kept in history.")
+                    } else if !state.supportsScreenshotDelivery {
+                        Text("Notes accept text only. Remove the screenshot to replace text.")
+                    }
+                    if state.screenshot != nil, !seesScreenshots {
+                        Text("Delivery only. This model can't see the screenshot.")
+                    }
+                }
+                .font(metrics.typography.rowTrailing)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                Spacer(minLength: 0)
+                Button("Replace", action: onReplace)
+                Button("Remove", action: onRemove)
+            }
+            .disabled(state.isRunning)
+            .task(id: collapseRequest) {
+                guard expanded, !hovered, state.screenshot != nil else { return }
+                let request = collapseRequest
+                do {
+                    try await Task.sleep(for: .seconds(Theme.Duration.screenshotCollapse))
+                } catch { return }
+                guard !Task.isCancelled, request == collapseRequest, !hovered else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: Theme.Duration.chatFooter)) {
+                    expanded = false
+                }
+            }
+        }
+
+        private func expand() {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: Theme.Duration.chatFooter)) {
+                expanded = true
+            }
+            collapseRequest = UUID()
+        }
+    }
+
     private struct ScreenshotPreview: View {
         @Environment(\.metrics) private var metrics
         let screenshot: RewriteConversationMessage.Screenshot?
+        var maximumSide: CGFloat?
         @State private var image: NSImage?
 
         var body: some View {
             Group {
                 if let image {
                     Image(nsImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: metrics.size.chatImageThumb, maxHeight: metrics.size.chatImageThumb)
+                        .frame(maxWidth: maximumSide ?? metrics.size.chatImageThumb,
+                            maxHeight: maximumSide ?? metrics.size.chatImageThumb)
                         .clipShape(RoundedRectangle(cornerRadius: metrics.radius.thumbnail))
                         .accessibilityLabel("Attached screenshot")
                 } else {

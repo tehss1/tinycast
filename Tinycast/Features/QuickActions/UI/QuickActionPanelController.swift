@@ -114,6 +114,7 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         closing.onAccessoryKey = nil
         preserveDraft?()
         closing.orderOut(nil)
+        closing.contentView = nil
     }
 
     private func copyOutput(_ text: String) {

@@ -44,6 +44,9 @@ struct ComposerTests {
         expect(huge?.width == 640 && huge?.height == 640, "fit arithmetic cannot overflow on finite dimensions")
         let state = QuickActionPanelState(action: .rewrite, original: "Notes", targetLanguage: .init(identifier: "en"))
         state.setScreenshot(.init(png: Data([1, 2, 3]), pixelWidth: 2, pixelHeight: 2, width: 2, height: 2))
+        let attachedRevision = state.screenshotRevision
+        state.setScreenshot(state.screenshot)
+        expect(state.screenshotRevision != attachedRevision, "replacing with the same image resets the preview")
         state.append("Intro" + String(marker.prefix(10)))
         expect(state.output == "Intro", "streamed output never exposes marker fragments")
         state.append(String(marker.dropFirst(10)) + "Steps")

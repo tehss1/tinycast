@@ -138,6 +138,12 @@ selectable Markdown renderer with AI Chat.
   attachment budget. A promise has two seconds to complete; its private, bundle-scoped cache directory
   is removed after success, failure or cancellation. A changed clipboard or superseded conversation
   cannot receive a stale read. The footer previews the screenshot and offers Replace and Remove.
+  A newly attached or replaced screenshot starts with a large preview, then collapses after three
+  seconds to a compact thumbnail and label with both buttons still available. Hovering or clicking
+  the thumbnail expands it again; it collapses three seconds after the pointer leaves. Reduce Motion
+  skips the animation while preserving the delay. The panel retains its largest height and its
+  top-left anchor while the footer re-measures, leaving the reclaimed space to the transcript.
+  Inline transcript thumbnails keep their size.
   A screenshot on the clipboard at opening attaches automatically only when clipboard capture
   observed that exact change count within the last two minutes. That window covers capture then
   compose, without treating an old clipboard as today's request. Missing, future or older copy times

@@ -68,6 +68,7 @@ final class QuickActionPanelState {
     var replacementIssue: String?
     var audienceOverride: ComposerAudience?
     var screenshot: RewriteConversationMessage.Screenshot?
+    private(set) var screenshotRevision = UUID()
     var screenshotAttached = false
     var offersClipboardScreenshot = false
     var isAttachingScreenshot = false
@@ -77,6 +78,7 @@ final class QuickActionPanelState {
     @ObservationIgnored private var streamedDraft = ""
 
     func setScreenshot(_ image: RewriteConversationMessage.Screenshot?) {
+        screenshotRevision = UUID()
         screenshot = image
         screenshotAttached = image != nil
         screenshotIssue = nil
