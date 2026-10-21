@@ -125,9 +125,15 @@ selectable Markdown renderer with AI Chat.
   can override it for one conversation; that override follows the conversation through its seven-day
   history. The configured domains are excluded from settings backups because they identify an
   organization and change model behavior.
-- **One screenshot belongs to a Composer conversation.** ⌘V in its request field attaches an image
-  instead of inserting a path. Local image file URLs, legacy filename lists, raw PNG/TIFF, absolute
-  path strings and file promises are accepted. A decoded image file wins over a Finder file icon.
+- **One screenshot belongs to a Composer conversation.** ⌘V, Edit → Paste and contextual Paste in
+  its request editor attach an image instead of inserting a path. The editor handles Paste itself,
+  because AppKit can resolve its key equivalent before the panel receives a key event. Local image
+  file URLs, legacy filename lists, raw image data, absolute path strings and image file promises are
+  accepted. Plain text and non-image file paths stay text. A post-paste check removes inserted image
+  paths without changing surrounding text; submission also resolves existing image paths embedded in
+  the request, attaches them and removes them before generation, independently of the current clipboard.
+  Paths may contain spaces, including CleanShot's timestamped `@2x` filenames.
+  A decoded image file wins over a Finder file icon.
   Reads and resizing run off-main, accept regular files up to 64 MiB and cap encoded PNG at the AI
   attachment budget. A promise has two seconds to complete; its private, bundle-scoped cache directory
   is removed after success, failure or cancellation. A changed clipboard or superseded conversation

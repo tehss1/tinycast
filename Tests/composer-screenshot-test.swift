@@ -57,8 +57,30 @@ final class ScreenshotPromiseFixture: NSFilePromiseReceiver {
     }
 }
 
+final class ScreenshotPromiseProviderFixture: NSObject, NSFilePromiseProviderDelegate, Sendable {
+    let png: Data
+    let queue = OperationQueue()
+
+    init(png: Data) { self.png = png }
+
+    func filePromiseProvider(_ provider: NSFilePromiseProvider, fileNameForType type: String) -> String {
+        "Promised screenshot.png"
+    }
+
+    func filePromiseProvider(_ provider: NSFilePromiseProvider, writePromiseTo url: URL,
+        completionHandler: @escaping ((any Error)?) -> Void)
+    {
+        do {
+            try png.write(to: url)
+            completionHandler(nil)
+        } catch { completionHandler(error) }
+    }
+
+    func operationQueue(for provider: NSFilePromiseProvider) -> OperationQueue { queue }
+}
+
 @MainActor
-final class MarkedScreenshotField: NSTextView {
+final class MarkedScreenshotField: QuickActionPanel.RequestEditor {
     override func hasMarkedText() -> Bool { true }
 }
 
@@ -125,29 +147,134 @@ struct ComposerScreenshotTests {
         expect(contents.allSatisfy {
             !$0.hasPrefix("composer-promise-")
         }, "promise scratch removed after success and timeout")
-        pasteKeyRouting()
+        try await pasteRouting(board: board, file: file, png: png, root: root)
         try await delivery(captured)
         try await providers(captured)
         print("\(checks) screenshot checks passed")
     }
 
-    static func pasteKeyRouting() {
+    static func pasteRouting(board: NSPasteboard, file: URL, png: Data, root: URL) async throws {
         _ = NSApplication.shared
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        let editor = MarkedScreenshotField(frame: content.bounds)
-        editor.isFieldEditor = true
-        editor.string = "Keep this request"
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+        let editor = QuickActionPanel.RequestEditor(frame: content.bounds)
+        editor.isRichText = false
+        editor.importsGraphics = false
+        editor.pasteboard = board
         content.addSubview(editor)
         let panel = QuickActionPanel(content: content)
         panel.onKey = { _ in fatalError("paste is not a delivery shortcut") }
-        var attached = false
-        panel.onPasteScreenshot = { attached = true; return true }
+        expect(!editor.isFieldEditor, "multiline request is a text view, not a field editor")
         expect(panel.makeFirstResponder(editor), "request field accepts focus without showing a window")
+        var attachments = 0
+        editor.onPasteScreenshot = { board in
+            guard QuickActionRunner.ScreenshotReader.hasCandidate(on: board) else { return false }
+            attachments += 1
+            return true
+        }
+        func reset() {
+            board.clearContents()
+            editor.string = "testing "
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+        }
+        let media = root.appending(
+            path: "Library/Application Support/CleanShot/media/media_Wy1LFDcQMj", directoryHint: .isDirectory)
+        let cleanShot = media.appending(path: "CleanShot 2026-10-20 at 9.23.25 PM@2x.png")
+        try FileManager.default.createDirectory(at: cleanShot.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try png.write(to: cleanShot)
+        reset()
+        let item = NSPasteboardItem()
+        item.setString(cleanShot.absoluteString, forType: .fileURL)
+        item.setString(cleanShot.path, forType: .string)
+        expect(board.writeObjects([item]), "CleanShot file URL and plain path fixture writes")
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
             timestamp: 0, windowNumber: panel.windowNumber, context: nil,
             characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9)!
-        panel.sendEvent(event)
-        expect(attached && editor.string == "Keep this request", "image paste intercepted even during marked text")
+        expect(editor.performKeyEquivalent(with: event), "command-V reaches the request responder")
+        expect(attachments == 1 && editor.string == "testing ", "command-V consumes file URL and path without insertion")
+        let mixed = try await QuickActionRunner.ScreenshotReader.read(from: board, promiseRoot: root)
+        expect(mixed.width == 640, "intercepted CleanShot fixture decodes through chip reader")
+        reset()
+        board.setString(cleanShot.path, forType: .string)
+        let menu = NSMenu()
+        let paste = NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        paste.target = editor
+        menu.addItem(paste)
+        expect(NSApp.sendAction(paste.action!, to: editor, from: paste), "Edit menu dispatches directly to paste action")
+        expect(attachments == 2 && editor.string == "testing ", "menu Paste consumes a plain path with spaces and @2x")
+        let textPath = try await QuickActionRunner.ScreenshotReader.read(from: board, promiseRoot: root)
+        expect(textPath.pixelWidth == 1280, "plain path reader retains Retina image")
+        reset()
+        board.setString(file.absoluteString, forType: .fileURL)
+        board.setData(png, forType: .png)
+        expect(editor.readSelection(from: board), "context Paste handles PNG plus file URL")
+        expect(attachments == 3 && editor.string == "testing ", "context Paste attaches once without path text")
+        let pngAndFile = try await QuickActionRunner.ScreenshotReader.read(from: board, promiseRoot: root)
+        expect(pngAndFile.width == 640 && pngAndFile.pixelWidth == 1280, "PNG plus file URL decodes through chip reader")
+        reset()
+        board.setString(cleanShot.absoluteString, forType: .string)
+        expect(editor.readSelection(from: board, type: .string), "typed selection reader handles file URL text")
+        expect(attachments == 4 && editor.string == "testing ", "file URL text is consumed")
+        reset()
+        board.setPropertyList([file.path], forType: .init("NSFilenamesPboardType"))
+        expect(editor.readSelection(from: board), "legacy filename list attaches through untyped selection reader")
+        expect(attachments == 5 && editor.string == "testing ", "legacy filenames do not enter the request")
+        reset()
+        let promiseDelegate = ScreenshotPromiseProviderFixture(png: png)
+        let promise = NSFilePromiseProvider(fileType: "public.png", delegate: promiseDelegate)
+        expect(board.writeObjects([promise]), "isolated board accepts real image file promise")
+        expect(editor.validateUserInterfaceItem(paste), "Paste menu remains enabled for an image-only promise")
+        expect(editor.readSelection(from: board), "promise Paste consumes unresolved image promise")
+        expect(attachments == 6 && editor.string == "testing ", "promise paste attaches before any filename resolves")
+        reset()
+        board.setString("ordinary text", forType: .string)
+        editor.paste(nil)
+        expect(attachments == 6 && editor.string == "testing ordinary text", "ordinary text pastes after existing text")
+        editor.undoManager?.undo()
+        expect(editor.string == "testing ", "ordinary Paste remains undoable")
+        editor.undoManager?.redo()
+        expect(editor.string == "testing ordinary text", "ordinary Paste remains redoable")
+        let document = root.appending(path: "notes.txt")
+        try Data("not an image".utf8).write(to: document)
+        reset()
+        board.setString(document.path, forType: .string)
+        board.setString(document.absoluteString, forType: .fileURL)
+        editor.paste(nil)
+        expect(attachments == 6 && editor.string == "testing " + document.path, "non-image file URL and path paste as text")
+        reset()
+        board.setString(root.appending(path: "missing.png").path, forType: .string)
+        editor.paste(nil)
+        expect(attachments == 6 && editor.string.contains("missing.png"), "missing image paths remain ordinary text")
+        var recovered: [URL] = []
+        editor.onPasteImageFiles = { recovered = $0; return true }
+        editor.onPasteScreenshot = { _ in false }
+        reset()
+        board.setString(cleanShot.path, forType: .string)
+        editor.paste(nil)
+        expect(editor.string == "testing " && recovered == [cleanShot],
+            "post-paste safety net strips only the inserted image path")
+        let references = QuickActionRunner.ScreenshotReader.imageReferences(in: "testing " + cleanShot.path + " then explain it")
+        expect(references.text == "testing  then explain it" && references.urls == [cleanShot],
+            "submit guard removes embedded CleanShot path while retaining request text")
+        let nested = QuickActionRunner.ScreenshotReader.imageReferences(in: "Ignore /missing and describe " + cleanShot.path)
+        expect(nested.text == "Ignore /missing and describe " && nested.urls == [cleanShot],
+            "submit guard finds an image path after unrelated slash text")
+        board.clearContents()
+        board.setString("newer unrelated clipboard text", forType: .string)
+        expect(!QuickActionRunner.ScreenshotReader.hasCandidate(on: board), "submit fixture has a changed, text-only clipboard")
+        let recoveredImage = try await QuickActionRunner.ScreenshotReader.readFiles(references.urls)
+        expect(recoveredImage.width == 640, "submit guard resolves image independently of current clipboard")
+        let urlReferences = QuickActionRunner.ScreenshotReader.imageReferences(in: "Describe " + cleanShot.absoluteString)
+        expect(urlReferences.text == "Describe " && urlReferences.urls == [cleanShot], "submit guard removes encoded file URLs")
+        expect(QuickActionRunner.ScreenshotReader.imageReferences(in: "Keep " + document.path).urls.isEmpty,
+            "submit guard keeps non-image paths")
+        let marked = MarkedScreenshotField(frame: content.bounds)
+        marked.pasteboard = board
+        marked.string = "Keep marked text"
+        marked.onPasteScreenshot = { _ in attachments += 1; return true }
+        content.addSubview(marked)
+        expect(panel.makeFirstResponder(marked), "marked request editor accepts focus")
+        expect(marked.performKeyEquivalent(with: event), "image paste routes during composition")
+        expect(attachments == 7 && marked.string == "Keep marked text", "image attachment preserves marked text")
         panel.close()
     }
 

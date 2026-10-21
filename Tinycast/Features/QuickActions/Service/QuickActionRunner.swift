@@ -157,6 +157,7 @@ final class QuickActionRunner {
 }
 
 extension QuickActionRunner {
+    @MainActor
     enum ScreenshotReader {
         nonisolated private static let maximumFileBytes = 64 * 1_048_576
 
@@ -166,17 +167,73 @@ extension QuickActionRunner {
 
             var errorDescription: String? {
                 switch self {
-                case .unreadable: "Couldn't read a screenshot from the clipboard. Copy it again and paste here."
-                case .clipboardChanged: "The clipboard changed while attaching. Paste the screenshot again."
+                case .unreadable:
+                    String(localized: "Couldn't read a screenshot from the clipboard. Copy it again and paste here.")
+                case .clipboardChanged:
+                    String(localized: "The clipboard changed while attaching. Paste the screenshot again.")
                 }
             }
         }
 
         static func hasCandidate(on board: NSPasteboard) -> Bool {
-            let types = Set(board.types ?? [])
-            return !types.isDisjoint(with: [.png, .tiff, .fileURL, .init("NSFilenamesPboardType")])
-                || !types.isDisjoint(with: NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) })
-                || pathURL(board.string(forType: .string) ?? "") != nil
+            !bitmapTypes(on: board).isEmpty
+                || PasteboardFiles.urls(on: board, limit: 1, matching: isImageFile).first != nil
+                || pathURL(board.string(forType: .string) ?? "").map(isImageFile) == true
+                || promiseReceivers(on: board).contains { receiver in
+                    receiver.fileTypes.contains { UTType($0)?.conforms(to: .image) == true }
+                }
+        }
+
+        private static func bitmapTypes(on board: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+            (board.types ?? []).filter { UTType($0.rawValue)?.conforms(to: .image) == true }
+        }
+
+        private static func promiseReceivers(on board: NSPasteboard) -> [NSFilePromiseReceiver] {
+            board.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? []
+        }
+
+        private static func isImageFile(_ url: URL) -> Bool {
+            guard local(url),
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentTypeKey]),
+                values.isRegularFile == true
+            else { return false }
+            return values.contentType?.conforms(to: .image) == true
+        }
+
+        private static let imageReferenceExpression: NSRegularExpression? = {
+            let identifiers = CGImageSourceCopyTypeIdentifiers() as? [String] ?? []
+            let extensions = identifiers.compactMap { UTType($0) }.flatMap { $0.tags[.filenameExtension] ?? [] }
+                .map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
+            let pattern = #"(?:file://(?:localhost)?/|~/|(?<![\p{L}\p{N}:/])/)[^\r\n]*?\.(?:"#
+                + extensions + #")(?=$|[\s"'<>,;!?)\]])"#
+            return try? NSRegularExpression(pattern: "(?=(" + pattern + "))", options: .caseInsensitive)
+        }()
+
+        static func imageReferences(in text: String) -> (text: String, urls: [URL]) {
+            guard let expression = imageReferenceExpression else { return (text, []) }
+            let source = text as NSString
+            let matches = expression.matches(in: text, range: NSRange(location: 0, length: source.length))
+            var references: [(range: NSRange, url: URL)] = []
+            for match in matches {
+                let range = match.range(at: 1)
+                guard range.location >= references.last.map({ NSMaxRange($0.range) }) ?? 0,
+                    let url = pathURL(source.substring(with: range)), isImageFile(url)
+                else { continue }
+                references.append((range, url))
+            }
+            var cleaned = text
+            for reference in references.reversed() {
+                guard let range = Range(reference.range, in: cleaned) else { continue }
+                cleaned.removeSubrange(range)
+            }
+            return (cleaned, references.map(\.url))
+        }
+
+        static func readFiles(_ urls: [URL]) async throws -> RewriteConversationMessage.Screenshot {
+            let image = await fileImage(Array(urls.prefix(32)))
+            try Task.checkCancellation()
+            guard let image else { throw Failure.unreadable }
+            return image
         }
 
         static func read(from board: NSPasteboard, promiseRoot: URL) async throws
@@ -185,7 +242,7 @@ extension QuickActionRunner {
             let count = board.changeCount
             var urls = PasteboardFiles.urls(on: board).prefix(32).filter { local($0) }
             if let url = pathURL(board.string(forType: .string) ?? "") { urls.append(url) }
-            let receivers = board.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver] ?? []
+            let receivers = promiseReceivers(on: board)
             let image: RewriteConversationMessage.Screenshot?
             if let file = await fileImage(urls) {
                 image = file
@@ -194,7 +251,7 @@ extension QuickActionRunner {
             } else {
                 guard board.changeCount == count else { throw Failure.clipboardChanged }
                 var bitmap: RewriteConversationMessage.Screenshot?
-                for type in [NSPasteboard.PasteboardType.png, .tiff] {
+                for type in bitmapTypes(on: board) {
                     guard let data = board.data(forType: type) else { continue }
                     bitmap = await bitmapImage([data])
                     if bitmap != nil { break }
@@ -335,10 +392,11 @@ extension QuickActionRunner {
             let rtfd = try rich.data(from: NSRange(location: 0, length: rich.length), documentAttributes: [
                 .documentType: NSAttributedString.DocumentType.rtfd
             ])
+            let imageLabel = htmlText(String(localized: "Screenshot"))
             let html = "<html><head><meta charset=\"utf-8\"></head><body>" + htmlText(before)
                 + "<img src=\"data:image/png;base64,\(image.png.base64EncodedString())\" "
                 + "width=\"\(image.width)\" height=\"\(image.height)\" "
-                + "style=\"width:\(image.width)px;height:\(image.height)px;max-width:100%;\" alt=\"Screenshot\">"
+                + "style=\"width:\(image.width)px;height:\(image.height)px;max-width:100%;\" alt=\"\(imageLabel)\">"
                 + htmlText(after) + "</body></html>"
             let item = NSPasteboardItem()
             guard item.setData(rtfd, forType: .rtfd), item.setString(html, forType: .html),

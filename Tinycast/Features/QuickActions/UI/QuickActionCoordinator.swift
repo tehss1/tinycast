@@ -113,16 +113,34 @@ final class QuickActionCoordinator {
     @ObservationIgnored private var screenshotRead: Task<Void, Never>?
     @ObservationIgnored private var screenshotReadID = UUID()
 
-    func pasteComposerScreenshot(into state: QuickActionPanelState) -> Bool {
-        guard state.action == .rewrite, state.isViewingActive, state.accessory == nil,
-            QuickActionRunner.ScreenshotReader.hasCandidate(on: .general)
+    func pasteComposerScreenshot(into state: QuickActionPanelState, from board: NSPasteboard) -> Bool {
+        guard state === activeComposer, state.action == .rewrite, state.isViewingActive,
+            QuickActionRunner.ScreenshotReader.hasCandidate(on: board)
         else { return false }
         guard !state.isRunning else { return true }
-        attachClipboardScreenshot(to: state)
+        attachClipboardScreenshot(to: state, from: board)
         return true
     }
 
-    func attachClipboardScreenshot(to state: QuickActionPanelState) {
+    func pasteComposerImageFiles(_ urls: [URL], into state: QuickActionPanelState) -> Bool {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return false }
+        attachScreenshot(to: state) { try await QuickActionRunner.ScreenshotReader.readFiles(urls) }
+        return true
+    }
+
+    func attachClipboardScreenshot(to state: QuickActionPanelState, from board: NSPasteboard = .general) {
+        let count = board.changeCount
+        attachScreenshot(to: state) {
+            guard board.changeCount == count else { throw QuickActionRunner.ScreenshotReader.Failure.clipboardChanged }
+            return try await QuickActionRunner.ScreenshotReader.read(from: board, promiseRoot: AppPaths.caches())
+        }
+    }
+
+    private func attachScreenshot(
+        to state: QuickActionPanelState,
+        read: @escaping @MainActor () async throws -> RewriteConversationMessage.Screenshot,
+        onAttached: (@MainActor () -> Void)? = nil
+    ) {
         guard state === activeComposer, !state.isRunning, state.isViewingActive else { return }
         screenshotRead?.cancel()
         let id = UUID()
@@ -131,8 +149,7 @@ final class QuickActionCoordinator {
         screenshotRead = Task { [weak self] in
             guard let self else { return }
             do {
-                let image = try await QuickActionRunner.ScreenshotReader.read(
-                    from: .general, promiseRoot: AppPaths.caches())
+                let image = try await read()
                 guard !Task.isCancelled, screenshotReadID == id, activeComposer === state else { return }
                 state.setScreenshot(image)
                 saveHistory(state)
@@ -145,6 +162,7 @@ final class QuickActionCoordinator {
             guard screenshotReadID == id else { return }
             state.isAttachingScreenshot = false
             screenshotRead = nil
+            if state.screenshotIssue == nil { onAttached?() }
         }
     }
 
@@ -787,7 +805,7 @@ final class QuickActionCoordinator {
             let issue = screenshot == nil ? textTarget?.preparationFailure?.message : nil
             let fallback = screenshot == nil
                 ? "\(action.title) couldn't \(verb) the draft. Draft copied."
-                : "Couldn't paste the screenshot draft. Reopen Composer to retry; clipboard preserved."
+                : String(localized: "Couldn't paste the screenshot draft. Reopen Composer to retry; clipboard preserved.")
             self?.core.showMessage(issue
                 ?? fallback, tone: .danger)
         }
@@ -896,6 +914,20 @@ final class QuickActionCoordinator {
     private func refine(
         _ state: QuickActionPanelState, target: Target
     ) {
+        guard !state.isAttachingScreenshot else { return }
+        let references = QuickActionRunner.ScreenshotReader.imageReferences(in: state.refinementInstruction)
+        if !references.urls.isEmpty {
+            state.refinementInstruction = references.text
+            attachScreenshot(to: state, read: {
+                try await QuickActionRunner.ScreenshotReader.readFiles(references.urls)
+            }, onAttached: { [weak self, weak state] in
+                guard let self, let state, state.refinementInstruction == references.text,
+                    state.isViewingActive, activeComposer === state
+                else { return }
+                refine(state, target: target)
+            })
+            return
+        }
         track(state, target: target)
         if state.needsInitialRequest, state.originalIsWritingInstruction {
             guard state.beginInitialRewrite() != nil else { return }

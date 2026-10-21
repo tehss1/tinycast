@@ -26,7 +26,8 @@ struct QuickActionResultView: View {
     @State private var retainedRewriteHeight: CGFloat = 0
     @State private var followsTranscriptTail = true
     @State private var transcriptScrollTask: Task<Void, Never>?
-    @FocusState private var refinementFocused: Bool
+    @State private var refinementFocused = false
+    @State private var requestIsComposing = false
 
     private static let transcriptTail = "quick-action-transcript-tail"
     private static let deliberateScroll: CGFloat = 2
@@ -539,33 +540,134 @@ struct QuickActionResultView: View {
 
     private var refinementControls: some View {
         HStack(spacing: metrics.spacing.md) {
-            TextField(
-                state.isAwaitingInstruction
-                    ? "Describe what you want this email to say, or press Return…"
-                    : "Describe another change…",
-                text: $state.refinementInstruction,
-                axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(metrics.typography.rowTitle)
-                .lineLimit(1...3)
+            RequestField(
+                text: $state.refinementInstruction, focused: $refinementFocused, composing: $requestIsComposing,
+                label: state.isAwaitingInstruction
+                    ? String(localized: "Email writing instructions") : String(localized: "Refinement instructions"),
+                onPaste: { coordinator.pasteComposerScreenshot(into: state, from: $0) },
+                onPasteFiles: { coordinator.pasteComposerImageFiles($0, into: state) },
+                onSubmit: onRefine)
+                .overlay(alignment: .leading) {
+                    if state.refinementInstruction.isEmpty, !requestIsComposing {
+                        Text(state.isAwaitingInstruction
+                            ? String(localized: "Describe what you want this email to say, or press Return…")
+                            : String(localized: "Describe another change…"))
+                            .font(metrics.typography.rowTitle)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .padding(.horizontal, metrics.spacing.lg)
                 .frame(minHeight: metrics.size.barButtonHeight)
                 .background(
                     RoundedRectangle(
                         cornerRadius: metrics.radius.menu, style: .continuous
                     ).fill(Theme.Colors.controlSurface))
-                .focused($refinementFocused)
-                .onSubmit(onRefine)
                 .disabled(state.isRunning)
-                .accessibilityLabel(
-                    state.isAwaitingInstruction
-                        ? "Email writing instructions" : "Refinement instructions")
             if state.isRunning {
                 Button("Stop", action: onStop)
             } else {
                 Button(state.needsInitialRequest && !state.isAwaitingInstruction ? "Retry" : "Send",
                     action: onRefine)
                     .disabled(!state.canRefine)
+            }
+        }
+    }
+
+    private struct RequestField: NSViewRepresentable {
+        @Binding var text: String
+        @Binding var focused: Bool
+        @Binding var composing: Bool
+        let label: String
+        let onPaste: (NSPasteboard) -> Bool
+        let onPasteFiles: ([URL]) -> Bool
+        let onSubmit: () -> Void
+        @Environment(\.metrics) private var metrics
+        @Environment(\.isEnabled) private var isEnabled
+
+        func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+        func makeNSView(context: Context) -> NSScrollView {
+            let editor = QuickActionPanel.RequestEditor(usingTextLayoutManager: true)
+            editor.delegate = context.coordinator
+            editor.isRichText = false
+            editor.importsGraphics = false
+            editor.allowsUndo = true
+            editor.drawsBackground = false
+            editor.isVerticallyResizable = true
+            editor.isHorizontallyResizable = false
+            editor.autoresizingMask = [.width]
+            editor.textContainer?.widthTracksTextView = true
+            editor.textContainer?.lineFragmentPadding = 0
+            editor.textContainerInset = .zero
+            editor.onFocus = { [weak coordinator = context.coordinator] focused in
+                guard let coordinator, coordinator.input.focused != focused else { return }
+                coordinator.input.focused = focused
+            }
+            editor.onComposition = { [weak coordinator = context.coordinator] composing in
+                guard let coordinator, coordinator.input.composing != composing else { return }
+                coordinator.input.composing = composing
+            }
+            let scroll = NSScrollView()
+            scroll.drawsBackground = false
+            scroll.documentView = editor
+            return scroll
+        }
+
+        func updateNSView(_ scroll: NSScrollView, context: Context) {
+            context.coordinator.input = self
+            guard let editor = scroll.documentView as? QuickActionPanel.RequestEditor else { return }
+            editor.font = metrics.typography.textNSFont(.body)
+            editor.textColor = NSColor(Theme.Colors.textPrimary)
+            editor.insertionPointColor = NSColor(Theme.Colors.textPrimary)
+            editor.isEditable = isEnabled
+            editor.isSelectable = isEnabled
+            editor.onPasteScreenshot = onPaste
+            editor.onPasteImageFiles = onPasteFiles
+            editor.setAccessibilityLabel(label)
+            if editor.string != text, !editor.hasMarkedText() {
+                editor.string = text
+                editor.undoManager?.removeAllActions()
+                editor.setSelectedRange(NSRange(location: text.utf16.count, length: 0))
+            }
+            editor.wantsFocus = focused
+            editor.updateFocus()
+        }
+
+        func sizeThatFits(_ proposal: ProposedViewSize, nsView scroll: NSScrollView, context: Context) -> CGSize? {
+            guard let width = proposal.width, width > 0,
+                let editor = scroll.documentView as? NSTextView, let font = editor.font
+            else { return nil }
+            editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
+            let line = ceil(font.ascender - font.descender + font.leading)
+            var height = line
+            if let layout = editor.textLayoutManager {
+                layout.enumerateTextLayoutFragments(
+                    from: layout.documentRange.endLocation, options: [.reverse, .ensuresLayout]
+                ) { fragment in
+                    height = max(height, ceil(fragment.layoutFragmentFrame.maxY))
+                    return false
+                }
+            }
+            editor.setFrameSize(NSSize(width: width, height: height))
+            return CGSize(width: width, height: min(line * 3, height))
+        }
+
+        @MainActor
+        final class Coordinator: NSObject, NSTextViewDelegate {
+            var input: RequestField
+            init(_ input: RequestField) { self.input = input }
+
+            func textDidChange(_ notification: Notification) {
+                guard let editor = notification.object as? NSTextView else { return }
+                input.text = editor.string
+                editor.invalidateIntrinsicContentSize()
+            }
+
+            func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+                guard selector == #selector(NSResponder.insertNewline(_:)), !textView.hasMarkedText() else { return false }
+                input.onSubmit()
+                return true
             }
         }
     }
