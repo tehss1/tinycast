@@ -144,10 +144,9 @@ selectable Markdown renderer with AI Chat.
   skips the animation while preserving the delay. The panel retains its largest height and its
   top-left anchor while the footer re-measures, leaving the reclaimed space to the transcript.
   Inline transcript thumbnails keep their size.
-  A screenshot on the clipboard at opening attaches automatically only when clipboard capture
-  observed that exact change count within the last two minutes. That window covers capture then
-  compose, without treating an old clipboard as today's request. Missing, future or older copy times
-  require the one-click **Attach clipboard screenshot** control. No timestamp is guessed at startup.
+  A clipboard screenshot attaches only when pasted into the request editor with ⌘V, Edit → Paste
+  or contextual Paste, or when the **Attach clipboard screenshot** control is clicked. Opening
+  Composer offers the Attach control without attaching the clipboard image.
 - **Screenshot placement is data, never draft markup.** The model emits one
   `<<<COMPOSER_SCREENSHOT_7E12C8>>>` marker at the inline position. The first marker supplies a UTF-16
   text offset, all markers are removed, and an omitted marker means the end. Streaming hides partial
@@ -596,10 +595,11 @@ providers.
 
 ### Manual sweep
 
-- With CleanShot, copy a screenshot, open Composer at an Outlook caret and confirm a recent capture
-  attaches with a real preview. Repeat after two minutes, with clipboard capture off and after app
-  startup: each should require the attachment chip. Paste a new capture into the request field with
-  ⌘V, including with text already typed. Confirm the image replaces the attachment and no path appears.
+- With CleanShot, copy a screenshot and open Composer at an Outlook caret. Confirm the image stays
+  unattached until the **Attach clipboard screenshot** control is clicked or the image is pasted
+  into the request field. Repeat with clipboard capture off and after app startup. Paste a new capture
+  with ⌘V, including with text already typed. Confirm a real preview appears, the image replaces any
+  existing attachment and no path appears.
   Repeat with a Finder image file and a CleanShot file promise; confirm failure is visible if the
   promise cannot be fulfilled. Remove an attachment while a read is pending and confirm it stays gone.
 - Ask Claude or Codex to describe a visible detail, then move the screenshot above the steps. Confirm

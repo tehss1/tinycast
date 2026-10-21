@@ -17,12 +17,6 @@ final class ClipboardManager {
     private var timer: Timer?
     private var sessionTokens: [NotificationToken] = []
     private var lastChangeCount = 0
-    private var observedCopy: (changeCount: Int, date: Date)?
-
-    func copiedAt(changeCount: Int) -> Date? {
-        observedCopy.flatMap { $0.changeCount == changeCount ? $0.date : nil }
-    }
-
     private var isCapturing = false
     private var isCapturePaused = false
 
@@ -152,8 +146,6 @@ final class ClipboardManager {
         // The pasteboard carries no source, so attribute it to the frontmost app.
         let sourceBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         if let sourceBundleID, settings.clipboardDisabledApps.contains(sourceBundleID) { return }
-
-        observedCopy = (pb.changeCount, Date())
 
         // Ahead of the text branch: Finder puts the file's *name* on `.string` beside its URL.
         if let paths = Self.fileURLs(on: pb) {
