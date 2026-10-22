@@ -145,8 +145,8 @@ selectable Markdown renderer with AI Chat.
   top-left anchor while the footer re-measures, leaving the reclaimed space to the transcript.
   Inline transcript thumbnails keep their size.
   A clipboard screenshot attaches only when pasted into the request editor with ⌘V, Edit → Paste
-  or contextual Paste, or when the **Attach clipboard screenshot** control is clicked. Opening
-  Composer offers the Attach control without attaching the clipboard image.
+  or contextual Paste, regardless of the image's age. Opening Composer leaves clipboard images
+  unattached. Replace and Remove remain available on an existing attachment.
 - **Screenshot placement is data, never draft markup.** The model emits one
   `<<<COMPOSER_SCREENSHOT_7E12C8>>>` marker at the inline position. The first marker supplies a UTF-16
   text offset, all markers are removed, and an omitted marker means the end. Streaming hides partial
@@ -223,6 +223,8 @@ selectable Markdown renderer with AI Chat.
   New emails without quoted history match only by the native Outlook editor identity.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
+  Sidebar subjects hide repeated leading Re, Fw and Fwd prefixes for display only; stored subjects
+  and conversation matching keep the full subject.
   The sidebar can display and copy an older draft, but only the active Composer conversation
   can refine, change its audience or replace the current target. Right-clicking a sidebar row,
   or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
@@ -596,8 +598,8 @@ providers.
 ### Manual sweep
 
 - With CleanShot, copy a screenshot and open Composer at an Outlook caret. Confirm the image stays
-  unattached until the **Attach clipboard screenshot** control is clicked or the image is pasted
-  into the request field. Repeat with clipboard capture off and after app startup. Paste a new capture
+  unattached until pasted into the request field. Repeat with clipboard capture off and after app
+  startup. Paste an older image with ⌘V and confirm it attaches. Paste a new capture
   with ⌘V, including with text already typed. Confirm a real preview appears, the image replaces any
   existing attachment and no path appears.
   Repeat with a Finder image file and a CleanShot file promise; confirm failure is visible if the

@@ -70,7 +70,6 @@ final class QuickActionPanelState {
     var screenshot: RewriteConversationMessage.Screenshot?
     private(set) var screenshotRevision = UUID()
     var screenshotAttached = false
-    var offersClipboardScreenshot = false
     var isAttachingScreenshot = false
     var screenshotIssue: String?
     var supportsScreenshotDelivery = true

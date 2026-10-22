@@ -472,17 +472,6 @@ struct QuickActionResultView: View {
                     onReplace: { coordinator.attachClipboardScreenshot(to: state) },
                     onRemove: { coordinator.removeComposerScreenshot(from: state) })
                     .id(state.screenshotRevision)
-            } else if state.offersClipboardScreenshot {
-                Button {
-                    coordinator.attachClipboardScreenshot(to: state)
-                } label: {
-                    Label {
-                        Text("Attach clipboard screenshot")
-                    } icon: {
-                        SymbolImage(name: "photo", size: metrics.size.chatAttachmentGlyph)
-                    }
-                }
-                .disabled(state.isRunning || state.isAttachingScreenshot)
             }
             if state.isAttachingScreenshot {
                 HStack(spacing: metrics.spacing.sm) {

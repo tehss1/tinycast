@@ -87,6 +87,33 @@ struct ComposerTests {
             "history resume and dedup preserve attachment metadata")
     }
 
+    static func historySubjectDisplay() throws {
+        let cases = [
+            ("Re: Mention - 340618/Z", "Mention - 340618/Z"),
+            ("RE: Re: FW: x", "x"),
+            ("fWd : Fw: re\t: \tSubject", "Subject"),
+            ("Re: 😀 Résumé", "😀 Résumé"),
+            ("Subject Re: x", "Subject Re: x"),
+            ("Re:x", "Re:x"),
+            ("Reply: x", "Reply: x"),
+            ("Re: ", "Re: "),
+            ("RE: Fwd: \t", "RE: Fwd: \t"),
+            ("Plain subject", "Plain subject"),
+            ("", "")
+        ]
+        for (subject, expected) in cases {
+            expect(RewriteHistoryRecord.displaySubject(subject) == expected, "subject display: \(subject)")
+        }
+        let now = Date(timeIntervalSince1970: 1000)
+        let record = RewriteHistoryRecord(id: UUID(), createdAt: now, updatedAt: now,
+            subject: "RE: Re: FW: x", recipient: nil, original: "Body", messages: [])
+        let before = try JSONEncoder().encode(record)
+        _ = RewriteHistoryRecord.displaySubject(record.subject ?? "")
+        let decoded = try JSONDecoder().decode(RewriteHistoryRecord.self, from: before)
+        expect(decoded == record && record.subject == "RE: Re: FW: x" && record.title == record.subject,
+            "display cleanup preserves the full stored subject and shared title")
+    }
+
     static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         if condition() { passes += 1 } else {
             failures += 1
@@ -95,6 +122,7 @@ struct ComposerTests {
     }
 
     static func main() throws {
+        try historySubjectDisplay()
         try replacementBoundaries()
         repeatedDeliveryKeepsSignatureSpacing()
         insertedParagraphSurvivesReplace()

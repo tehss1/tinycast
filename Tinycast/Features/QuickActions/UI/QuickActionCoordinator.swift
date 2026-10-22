@@ -176,11 +176,6 @@ final class QuickActionCoordinator {
         saveHistory(state)
     }
 
-    private func prepareClipboardScreenshot(for state: QuickActionPanelState, target: Target) {
-        state.supportsScreenshotDelivery = target.note == nil
-        state.offersClipboardScreenshot = QuickActionRunner.ScreenshotReader.hasCandidate(on: .general)
-    }
-
     var usesOutlookContext: Bool { store.settings.usesOutlookContextForRewrite }
 
     func detectedComposerAudience(for state: QuickActionPanelState) -> ComposerAudience {
@@ -596,7 +591,7 @@ final class QuickActionCoordinator {
             if previousComposer?.historyID == record.id {
                 state.screenshot = previousComposer?.screenshot
             }
-            prepareClipboardScreenshot(for: state, target: target)
+            state.supportsScreenshotDelivery = target.note == nil
             let rewritesSelection = state.resumeSource(
                 resumeTarget, text: capture.target.draft, anchor: capture.target.anchor)
             present(state, target: target)
@@ -617,7 +612,7 @@ final class QuickActionCoordinator {
             targetLanguage: targetLanguage,
             awaitsWritingInstruction: input == .insertionPoint)
         if action == .rewrite {
-            prepareClipboardScreenshot(for: state, target: target)
+            state.supportsScreenshotDelivery = target.note == nil
         }
         state.draftAnchor = capture?.target.anchor
         if readsOutlook, OutlookComposeContextReader.isOutlook(target.app), capture == nil {
