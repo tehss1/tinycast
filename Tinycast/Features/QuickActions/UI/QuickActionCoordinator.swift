@@ -176,9 +176,23 @@ final class QuickActionCoordinator {
         saveHistory(state)
     }
 
-    private func prepareClipboardScreenshot(for state: QuickActionPanelState, target: Target) {
+    private func prepareClipboardScreenshot(for state: QuickActionPanelState, target: Target) async {
         state.supportsScreenshotDelivery = target.note == nil
-        state.offersClipboardScreenshot = QuickActionRunner.ScreenshotReader.hasCandidate(on: .general)
+        guard QuickActionRunner.ScreenshotReader.hasCandidate(on: .general) else { return }
+        guard !state.hasSavedHistory,
+            RewriteConversationMessage.Screenshot.isRecent(
+                copiedAt: core.clipboardManager.copiedAt(changeCount: NSPasteboard.general.changeCount), now: Date())
+        else { return }
+        do {
+            let image = try await QuickActionRunner.ScreenshotReader.read(from: .general, promiseRoot: AppPaths.caches())
+            try Task.checkCancellation()
+            state.setScreenshot(image)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            state.screenshotIssue = error.localizedDescription
+        }
     }
 
     var usesOutlookContext: Bool { store.settings.usesOutlookContextForRewrite }
@@ -596,7 +610,8 @@ final class QuickActionCoordinator {
             if previousComposer?.historyID == record.id {
                 state.screenshot = previousComposer?.screenshot
             }
-            prepareClipboardScreenshot(for: state, target: target)
+            await prepareClipboardScreenshot(for: state, target: target)
+            guard !Task.isCancelled else { return }
             let rewritesSelection = state.resumeSource(
                 resumeTarget, text: capture.target.draft, anchor: capture.target.anchor)
             present(state, target: target)
@@ -617,7 +632,8 @@ final class QuickActionCoordinator {
             targetLanguage: targetLanguage,
             awaitsWritingInstruction: input == .insertionPoint)
         if action == .rewrite {
-            prepareClipboardScreenshot(for: state, target: target)
+            await prepareClipboardScreenshot(for: state, target: target)
+            guard !Task.isCancelled else { return }
         }
         state.draftAnchor = capture?.target.anchor
         if readsOutlook, OutlookComposeContextReader.isOutlook(target.app), capture == nil {

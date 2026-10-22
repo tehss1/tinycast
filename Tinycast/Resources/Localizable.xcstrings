@@ -24514,58 +24514,6 @@
         }
       }
     },
-    "Attach clipboard screenshot" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bildschirmfoto aus der Zwischenablage anhängen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Adjuntar captura del portapapeles"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Joindre la capture d’écran du presse-papiers"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クリップボードのスクリーンショットを添付"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "클립보드 스크린샷 첨부"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anexar captura da área de transferência"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Прикрепить снимок из буфера обмена"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "附加剪贴板截图"
-          }
-        }
-      }
-    },
     "Attach files, search the web, choose tools" : {
       "localizations" : {
         "de" : {

@@ -51,6 +51,13 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
         return compact.isEmpty ? "Untitled email" : String(compact.prefix(72))
     }
 
+    static func displaySubject(_ subject: String) -> String {
+        let stripped = subject.replacingOccurrences(
+            of: #"^(?:(?:re|fwd?)\s*:\s+)+"#, with: "",
+            options: [.regularExpression, .caseInsensitive])
+        return stripped.isEmpty ? subject : stripped
+    }
+
     var preview: String {
         guard let text = latestDraft else { return "" }
         return String(text.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(96))

@@ -144,9 +144,11 @@ selectable Markdown renderer with AI Chat.
   skips the animation while preserving the delay. The panel retains its largest height and its
   top-left anchor while the footer re-measures, leaving the reclaimed space to the transcript.
   Inline transcript thumbnails keep their size.
-  A clipboard screenshot attaches only when pasted into the request editor with ⌘V, Edit → Paste
-  or contextual Paste, or when the **Attach clipboard screenshot** control is clicked. Opening
-  Composer offers the Attach control without attaching the clipboard image.
+  Opening a new Composer conversation attaches a clipboard image only when clipboard capture observed
+  its copy less than two minutes ago. Older or undated images stay unattached. Pasting into the request
+  editor with ⌘V, Edit → Paste or contextual Paste attaches an image regardless of age. Replace on an
+  existing attachment also accepts any clipboard image. Saved conversations retain their attachment
+  state without automatically attaching another clipboard image.
 - **Screenshot placement is data, never draft markup.** The model emits one
   `<<<COMPOSER_SCREENSHOT_7E12C8>>>` marker at the inline position. The first marker supplies a UTF-16
   text offset, all markers are removed, and an omitted marker means the end. Streaming hides partial
@@ -223,6 +225,8 @@ selectable Markdown renderer with AI Chat.
   New emails without quoted history match only by the native Outlook editor identity.
   Recreating that editor, including restarting Outlook, may prevent an automatic match.
   Matching text alone in another app never restores an Outlook conversation.
+  Sidebar subjects hide repeated leading Re, Fw and Fwd prefixes for display only; stored subjects
+  and conversation matching keep the full subject.
   The sidebar can display and copy an older draft, but only the active Composer conversation
   can refine, change its audience or replace the current target. Right-clicking a sidebar row,
   or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
@@ -595,9 +599,10 @@ providers.
 
 ### Manual sweep
 
-- With CleanShot, copy a screenshot and open Composer at an Outlook caret. Confirm the image stays
-  unattached until the **Attach clipboard screenshot** control is clicked or the image is pasted
-  into the request field. Repeat with clipboard capture off and after app startup. Paste a new capture
+- With clipboard capture enabled, copy a CleanShot screenshot and open a new Composer conversation
+  at an Outlook caret within two minutes. Confirm it attaches automatically. Repeat after two minutes,
+  with clipboard capture off and after app startup; confirm the image stays unattached until pasted.
+  Paste an older or undated image with ⌘V and confirm it attaches. Paste a new capture
   with ⌘V, including with text already typed. Confirm a real preview appears, the image replaces any
   existing attachment and no path appears.
   Repeat with a Finder image file and a CleanShot file promise; confirm failure is visible if the

@@ -72,7 +72,7 @@ struct QuickActionHistorySidebar: View {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: metrics.spacing.xxs) {
                     HStack(spacing: metrics.spacing.sm) {
-                        Text(record.title)
+                        Text(displayTitle)
                             .font(metrics.typography.rowTitle)
                             .lineLimit(1)
                         Spacer(minLength: 0)
@@ -99,6 +99,11 @@ struct QuickActionHistorySidebar: View {
             .onRightClick(perform: onActions)
             .accessibilityAction(named: "Delete Conversation", onDelete)
             .onHover { hovered = $0 }
+        }
+
+        private var displayTitle: String {
+            guard let subject = record.subject, !subject.isEmpty else { return record.title }
+            return RewriteHistoryRecord.displaySubject(subject)
         }
 
         private var timestamp: some View {
