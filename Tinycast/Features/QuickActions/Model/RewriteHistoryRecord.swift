@@ -16,6 +16,7 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
     /// Optional so history written before caret-first Rewrite still decodes.
     let originalIsWritingInstruction: Bool?
     var draftAnchor: ComposerDraftAnchor?
+    var screenshotAttached: Bool?
     var audienceOverride: ComposerAudience?
 
     init(
@@ -24,7 +25,7 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
         editorIdentity: String? = nil, original: String,
         messages: [RewriteConversationMessage], pendingInstruction: String? = nil,
         originalIsWritingInstruction: Bool? = nil, draftAnchor: ComposerDraftAnchor? = nil,
-        audienceOverride: ComposerAudience? = nil
+        audienceOverride: ComposerAudience? = nil, screenshotAttached: Bool? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -39,6 +40,7 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
         self.pendingInstruction = pendingInstruction
         self.originalIsWritingInstruction = originalIsWritingInstruction
         self.draftAnchor = draftAnchor
+        self.screenshotAttached = screenshotAttached
         self.audienceOverride = audienceOverride
     }
 

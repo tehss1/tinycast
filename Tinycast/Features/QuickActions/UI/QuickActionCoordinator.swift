@@ -99,6 +99,88 @@ final class QuickActionCoordinator {
         composerEfforts.first { $0.id == composerModel?.effort }?.title ?? "Default reasoning"
     }
 
+    var composerSeesScreenshots: Bool {
+        switch composerModel {
+        case .claude?, .codex?: return true
+        case .appleIntelligence?, .grok?, .cursor?, nil: return false
+        case .openCode(let model, _)?:
+            return core.installedAI.status(for: .openCode).models.contains { $0.id == model && $0.acceptsImages }
+        case .api(let connection, let model, _)?:
+            return core.aiSettings.connection(id: connection)?.capabilities(for: model).images == true
+        }
+    }
+
+    @ObservationIgnored private var screenshotRead: Task<Void, Never>?
+    @ObservationIgnored private var screenshotReadID = UUID()
+
+    func pasteComposerScreenshot(into state: QuickActionPanelState, from board: NSPasteboard) -> Bool {
+        guard state === activeComposer, state.action == .rewrite, state.isViewingActive,
+            QuickActionRunner.ScreenshotReader.hasCandidate(on: board)
+        else { return false }
+        guard !state.isRunning else { return true }
+        attachClipboardScreenshot(to: state, from: board)
+        return true
+    }
+
+    func pasteComposerImageFiles(_ urls: [URL], into state: QuickActionPanelState) -> Bool {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return false }
+        attachScreenshot(to: state) { try await QuickActionRunner.ScreenshotReader.readFiles(urls) }
+        return true
+    }
+
+    func attachClipboardScreenshot(to state: QuickActionPanelState, from board: NSPasteboard = .general) {
+        let count = board.changeCount
+        attachScreenshot(to: state) {
+            guard board.changeCount == count else { throw QuickActionRunner.ScreenshotReader.Failure.clipboardChanged }
+            return try await QuickActionRunner.ScreenshotReader.read(from: board, promiseRoot: AppPaths.caches())
+        }
+    }
+
+    private func attachScreenshot(
+        to state: QuickActionPanelState,
+        read: @escaping @MainActor () async throws -> RewriteConversationMessage.Screenshot,
+        onAttached: (@MainActor () -> Void)? = nil
+    ) {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return }
+        screenshotRead?.cancel()
+        let id = UUID()
+        screenshotReadID = id
+        state.isAttachingScreenshot = true
+        screenshotRead = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let image = try await read()
+                guard !Task.isCancelled, screenshotReadID == id, activeComposer === state else { return }
+                state.setScreenshot(image)
+                saveHistory(state)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, screenshotReadID == id, activeComposer === state else { return }
+                state.screenshotIssue = error.localizedDescription
+            }
+            guard screenshotReadID == id else { return }
+            state.isAttachingScreenshot = false
+            screenshotRead = nil
+            if state.screenshotIssue == nil { onAttached?() }
+        }
+    }
+
+    func removeComposerScreenshot(from state: QuickActionPanelState) {
+        guard state === activeComposer, !state.isRunning, state.isViewingActive else { return }
+        screenshotReadID = UUID()
+        screenshotRead?.cancel()
+        screenshotRead = nil
+        state.isAttachingScreenshot = false
+        state.setScreenshot(nil)
+        saveHistory(state)
+    }
+
+    private func prepareClipboardScreenshot(for state: QuickActionPanelState, target: Target) {
+        state.supportsScreenshotDelivery = target.note == nil
+        state.offersClipboardScreenshot = QuickActionRunner.ScreenshotReader.hasCandidate(on: .general)
+    }
+
     var usesOutlookContext: Bool { store.settings.usesOutlookContextForRewrite }
 
     func detectedComposerAudience(for state: QuickActionPanelState) -> ComposerAudience {
@@ -421,6 +503,10 @@ final class QuickActionCoordinator {
     }
 
     private func forgetComposer() {
+        screenshotReadID = UUID()
+        screenshotRead?.cancel()
+        screenshotRead = nil
+        activeComposer?.isAttachingScreenshot = false
         activeComposer = nil
         composerApp = nil
     }
@@ -442,6 +528,7 @@ final class QuickActionCoordinator {
 
     private func begin(_ action: QuickAction, target invoked: Target) async {
         var target = invoked
+        let previousComposer = action == .rewrite ? activeComposer : nil
         let input: QuickActionRunner.Input
         do {
             if let noteSelection = target.note {
@@ -506,6 +593,10 @@ final class QuickActionCoordinator {
                 restoring: record, context: context, targetLanguage: targetLanguage,
                 insertsAtCaret: resumeTarget == .insertionPoint
                     || (resumeTarget == .unavailable && input == .insertionPoint))
+            if previousComposer?.historyID == record.id {
+                state.screenshot = previousComposer?.screenshot
+            }
+            prepareClipboardScreenshot(for: state, target: target)
             let rewritesSelection = state.resumeSource(
                 resumeTarget, text: capture.target.draft, anchor: capture.target.anchor)
             present(state, target: target)
@@ -525,6 +616,9 @@ final class QuickActionCoordinator {
             action: action, original: selection, context: context,
             targetLanguage: targetLanguage,
             awaitsWritingInstruction: input == .insertionPoint)
+        if action == .rewrite {
+            prepareClipboardScreenshot(for: state, target: target)
+        }
         state.draftAnchor = capture?.target.anchor
         if readsOutlook, OutlookComposeContextReader.isOutlook(target.app), capture == nil {
             state.replacementIssue =
@@ -583,7 +677,8 @@ final class QuickActionCoordinator {
             deliver(
                 state.output, replacing: state.original, to: target, action: state.action,
                 textTarget: target.text,
-                insertsAtCaret: state.insertsAtCaret)
+                insertsAtCaret: state.insertsAtCaret,
+                screenshot: state.screenshot, screenshotOffset: state.screenshotOffset)
         } catch is CancellationError {
             return
         } catch let error as TextTranslator.Failure where error.needsDownload {
@@ -638,6 +733,7 @@ final class QuickActionCoordinator {
             context: state.context,
             selectionIsWritingInstruction: state.originalIsWritingInstruction,
             audience: state.action == .rewrite ? composerAudience(for: state) : nil,
+            screenshot: composerSeesScreenshots ? state.screenshot : nil, hasScreenshot: state.screenshotAttached,
             onDelta: { delta in
                 guard streaming, requestGeneration == self.generation, state.isRunning
                 else { return }
@@ -649,14 +745,19 @@ final class QuickActionCoordinator {
     private func deliver(
         _ text: String, replacing selection: String, to target: Target, action: QuickAction,
         textTarget: ComposerTextTarget? = nil, insertsAtCaret: Bool = false,
+        screenshot: RewriteConversationMessage.Screenshot? = nil, screenshotOffset: Int? = nil,
         onDelivered delivered: @escaping @MainActor () -> Void = {}
     ) {
         // A note floats over the frontmost app, so Outlook behind it is not where the text lands.
         let toOutlook = target.note == nil && OutlookComposeContextReader.isOutlook(target.app)
-        let deliveredText = QuickActionOutput.preparedForDelivery(
-            text, action: action, toOutlook: toOutlook,
+        let marked = screenshot == nil ? text : RewriteConversationMessage.Screenshot.marked(text, offset: screenshotOffset)
+        let formatted = QuickActionOutput.preparedForDelivery(
+            marked, action: action, toOutlook: toOutlook,
             insertsAtCaret: insertsAtCaret,
             boundaries: textTarget?.textBoundaries, replacing: insertsAtCaret ? "" : selection)
+        let parsed = screenshot == nil ? (text: formatted, offset: formatted.utf16.count)
+            : RewriteConversationMessage.Screenshot.split(formatted)
+        let deliveredText = parsed.text
         if let note = target.note {
             guard core.notesCoordinator.editorInput == note.document,
                 note.editor.window?.isVisible == true,
@@ -674,23 +775,32 @@ final class QuickActionCoordinator {
         let verb = insertsAtCaret ? "insert" : "replace"
         let excludesEdges = toOutlook && !insertsAtCaret
             && !QuickActionOutput.carriesEdges(of: selection, in: deliveredText)
-        injector.replaceSelection(
-            with: deliveredText, in: target.app,
-            prepareTarget: {
-                textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
-            },
-            onDelivered: { [weak self] in
-                delivered()
-                self?.core.showMessage("\(action.title) applied")
-            },
-            onFailed: { [weak self] in
-                textTarget?.restoreSelection(in: target.app)
-                Paster.copyPlainText(deliveredText)
-                self?.core.showMessage(
-                    textTarget?.preparationFailure?.message
-                        ?? "\(action.title) couldn't \(verb) the draft. Draft copied.",
-                    tone: .danger)
-            })
+        let prepare: @MainActor () -> Bool = {
+            textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
+        }
+        let success: @MainActor () -> Void = { [weak self] in
+            delivered()
+            self?.core.showMessage("\(action.title) applied")
+        }
+        let failure: @MainActor () -> Void = { [weak self] in
+            textTarget?.restoreSelection(in: target.app)
+            if screenshot == nil { Paster.copyPlainText(deliveredText) }
+            let issue = screenshot == nil ? textTarget?.preparationFailure?.message : nil
+            let fallback = screenshot == nil
+                ? "\(action.title) couldn't \(verb) the draft. Draft copied."
+                : String(localized: "Couldn't paste the screenshot draft. Reopen Composer to retry; clipboard preserved.")
+            self?.core.showMessage(issue
+                ?? fallback, tone: .danger)
+        }
+        if let screenshot {
+            injector.replaceSelection(with: {
+                try await QuickActionRunner.ScreenshotDelivery.item(
+                    text: deliveredText, offset: parsed.offset, image: screenshot)
+            }, in: target.app, prepareTarget: prepare, onDelivered: success, onFailed: failure)
+        } else {
+            injector.replaceSelection(with: deliveredText, in: target.app, prepareTarget: prepare,
+                onDelivered: success, onFailed: failure)
+        }
     }
 
     /// A failure the reader cannot see is a hotkey that silently did nothing.
@@ -734,6 +844,7 @@ final class QuickActionCoordinator {
                     text, replacing: state.original, to: target, action: state.action,
                     textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret,
+                    screenshot: state.screenshot, screenshotOffset: state.screenshotOffset,
                     onDelivered: { [weak self] in
                         guard let self else { return }
                         if state === activeComposer { forgetComposer() }
@@ -786,6 +897,20 @@ final class QuickActionCoordinator {
     private func refine(
         _ state: QuickActionPanelState, target: Target
     ) {
+        guard !state.isAttachingScreenshot else { return }
+        let references = QuickActionRunner.ScreenshotReader.imageReferences(in: state.refinementInstruction)
+        if !references.urls.isEmpty {
+            state.refinementInstruction = references.text
+            attachScreenshot(to: state, read: {
+                try await QuickActionRunner.ScreenshotReader.readFiles(references.urls)
+            }, onAttached: { [weak self, weak state] in
+                guard let self, let state, state.refinementInstruction == references.text,
+                    state.isViewingActive, activeComposer === state
+                else { return }
+                refine(state, target: target)
+            })
+            return
+        }
         track(state, target: target)
         if state.needsInitialRequest, state.originalIsWritingInstruction {
             guard state.beginInitialRewrite() != nil else { return }
@@ -821,6 +946,7 @@ final class QuickActionCoordinator {
                     for: BuiltInQuickAction.rewrite),
                 originalIsWritingInstruction: state.originalIsWritingInstruction,
                 audience: composerAudience(for: state),
+                screenshot: composerSeesScreenshots ? state.screenshot : nil, hasScreenshot: state.screenshotAttached,
                 onDelta: {
                     guard requestGeneration == self.generation, state.isRunning else { return }
                     state.append($0)

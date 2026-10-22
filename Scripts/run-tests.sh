@@ -787,6 +787,19 @@ run quick-action-test      Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/QuickActions/Service/RewriteHistoryStore.swift \
                            Tinycast/Platform/NotificationToken.swift \
                            Tinycast/Features/QuickActions/Settings/QuickActionSettingsStore.swift
+run composer-screenshot-test Tinycast/Features/Settings/AppSettingsKey.swift \
+                           Tinycast/Features/AI/Model/AIConnection.swift \
+                           Tinycast/Features/AI/Model/AppleIntelligence.swift \
+                           Tinycast/Features/AI/Model/ChatGPTSubscription.swift \
+                           Tinycast/Features/AI/Model/InstalledAI.swift \
+                           Tinycast/Features/AI/Model/AIRequest.swift \
+                           Tinycast/Features/AI/Model/AITool.swift \
+                           Tinycast/Features/AI/Model/JSONValue.swift \
+                           Tinycast/Features/AI/Service/AIProvider.swift \
+                           Tinycast/Features/QuickActions/Model/*.swift \
+                           Tinycast/Features/QuickActions/Service/QuickActionRunner.swift \
+                           Tinycast/Features/QuickActions/UI/QuickActionPanel.swift \
+                           Tinycast/Platform/PasteboardFiles.swift
 run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \
                            Tinycast/Features/AI/Model/AITool.swift \
                            Tinycast/Features/AI/Model/AIRequest.swift \

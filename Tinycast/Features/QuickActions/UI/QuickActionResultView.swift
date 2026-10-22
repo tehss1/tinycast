@@ -26,7 +26,8 @@ struct QuickActionResultView: View {
     @State private var retainedRewriteHeight: CGFloat = 0
     @State private var followsTranscriptTail = true
     @State private var transcriptScrollTask: Task<Void, Never>?
-    @FocusState private var refinementFocused: Bool
+    @State private var refinementFocused = false
+    @State private var requestIsComposing = false
 
     private static let transcriptTail = "quick-action-transcript-tail"
     private static let deliberateScroll: CGFloat = 2
@@ -345,7 +346,8 @@ struct QuickActionResultView: View {
         let messages = displayedConversation
         return VStack(alignment: .leading, spacing: metrics.spacing.xl) {
             ForEach(messages) { message in
-                ConversationRow(message: message)
+                ConversationRow(message: message,
+                    screenshot: isViewingActive ? state.screenshot : nil)
             }
             if messages.isEmpty {
                 switch phase {
@@ -438,7 +440,10 @@ struct QuickActionResultView: View {
                     .font(metrics.typography.rowTrailing)
                     .foregroundStyle(Theme.Colors.textSecondary)
             }
-            if state.action == .rewrite, isViewingActive { refinementControls }
+            if state.action == .rewrite, isViewingActive {
+                screenshotControls
+                refinementControls
+            }
             HStack(spacing: metrics.spacing.md) {
                 if state.action == .rewrite, isViewingActive {
                     ComposerModelControls(state: state)
@@ -459,29 +464,162 @@ struct QuickActionResultView: View {
         .padding(.vertical, metrics.spacing.xl)
     }
 
+    private var screenshotControls: some View {
+        VStack(alignment: .leading, spacing: metrics.spacing.sm) {
+            if state.screenshotAttached {
+                ScreenshotAttachmentRow(
+                    state: state, seesScreenshots: coordinator.composerSeesScreenshots,
+                    onReplace: { coordinator.attachClipboardScreenshot(to: state) },
+                    onRemove: { coordinator.removeComposerScreenshot(from: state) })
+                    .id(state.screenshotRevision)
+            } else if state.offersClipboardScreenshot {
+                Button {
+                    coordinator.attachClipboardScreenshot(to: state)
+                } label: {
+                    Label {
+                        Text("Attach clipboard screenshot")
+                    } icon: {
+                        SymbolImage(name: "photo", size: metrics.size.chatAttachmentGlyph)
+                    }
+                }
+                .disabled(state.isRunning || state.isAttachingScreenshot)
+            }
+            if state.isAttachingScreenshot {
+                HStack(spacing: metrics.spacing.sm) {
+                    ProgressView().controlSize(.small)
+                    Text("Attaching screenshot…")
+                }
+            }
+            if let issue = state.screenshotIssue {
+                Text(issue).foregroundStyle(Theme.Colors.destructive)
+            }
+        }
+        .font(metrics.typography.rowTrailing)
+    }
+
+    private struct ScreenshotAttachmentRow: View {
+        @Environment(\.metrics) private var metrics
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        let state: QuickActionPanelState
+        let seesScreenshots: Bool
+        let onReplace: () -> Void
+        let onRemove: () -> Void
+        @State private var expanded = true
+        @State private var hovered = false
+        @State private var collapseRequest = UUID()
+
+        var body: some View {
+            HStack(spacing: metrics.spacing.md) {
+                if state.screenshot != nil {
+                    Button(action: expand) {
+                        ScreenshotPreview(screenshot: state.screenshot,
+                            maximumSide: expanded ? metrics.size.chatImageThumb : metrics.size.chatAttachmentThumb)
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { inside in
+                        hovered = inside
+                        if inside {
+                            expand()
+                        } else {
+                            collapseRequest = UUID()
+                        }
+                    }
+                } else {
+                    ScreenshotPreview(screenshot: nil)
+                }
+                VStack(alignment: .leading, spacing: metrics.spacing.xs) {
+                    Text("Screenshot attached")
+                    if state.screenshot == nil {
+                        Text("Reattach or remove it. Images aren't kept in history.")
+                    } else if !state.supportsScreenshotDelivery {
+                        Text("Notes accept text only. Remove the screenshot to replace text.")
+                    }
+                    if state.screenshot != nil, !seesScreenshots {
+                        Text("Delivery only. This model can't see the screenshot.")
+                    }
+                }
+                .font(metrics.typography.rowTrailing)
+                .foregroundStyle(Theme.Colors.textSecondary)
+                Spacer(minLength: 0)
+                Button("Replace", action: onReplace)
+                Button("Remove", action: onRemove)
+            }
+            .disabled(state.isRunning)
+            .task(id: collapseRequest) {
+                guard expanded, !hovered, state.screenshot != nil else { return }
+                let request = collapseRequest
+                do {
+                    try await Task.sleep(for: .seconds(Theme.Duration.screenshotCollapse))
+                } catch { return }
+                guard !Task.isCancelled, request == collapseRequest, !hovered else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: Theme.Duration.chatFooter)) {
+                    expanded = false
+                }
+            }
+        }
+
+        private func expand() {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: Theme.Duration.chatFooter)) {
+                expanded = true
+            }
+            collapseRequest = UUID()
+        }
+    }
+
+    private struct ScreenshotPreview: View {
+        @Environment(\.metrics) private var metrics
+        let screenshot: RewriteConversationMessage.Screenshot?
+        var maximumSide: CGFloat?
+        @State private var image: NSImage?
+
+        var body: some View {
+            Group {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit()
+                        .frame(maxWidth: maximumSide ?? metrics.size.chatImageThumb,
+                            maxHeight: maximumSide ?? metrics.size.chatImageThumb)
+                        .clipShape(RoundedRectangle(cornerRadius: metrics.radius.thumbnail))
+                        .accessibilityLabel("Attached screenshot")
+                } else {
+                    Label {
+                        Text("Screenshot (not stored)")
+                    } icon: {
+                        SymbolImage(name: "photo", size: metrics.size.chatAttachmentGlyph)
+                    }
+                        .font(metrics.typography.rowTrailing)
+                        .foregroundStyle(Theme.Colors.textSecondary)
+                }
+            }
+            .task(id: screenshot?.png) { image = screenshot.flatMap { NSImage(data: $0.png) } }
+        }
+    }
+
     private var refinementControls: some View {
         HStack(spacing: metrics.spacing.md) {
-            TextField(
-                state.isAwaitingInstruction
-                    ? "Describe what you want this email to say, or press Return…"
-                    : "Describe another change…",
-                text: $state.refinementInstruction,
-                axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(metrics.typography.rowTitle)
-                .lineLimit(1...3)
+            RequestField(
+                text: $state.refinementInstruction, focused: $refinementFocused, composing: $requestIsComposing,
+                label: state.isAwaitingInstruction
+                    ? String(localized: "Email writing instructions") : String(localized: "Refinement instructions"),
+                onPaste: { coordinator.pasteComposerScreenshot(into: state, from: $0) },
+                onPasteFiles: { coordinator.pasteComposerImageFiles($0, into: state) },
+                onSubmit: onRefine)
+                .overlay(alignment: .leading) {
+                    if state.refinementInstruction.isEmpty, !requestIsComposing {
+                        Text(state.isAwaitingInstruction
+                            ? String(localized: "Describe what you want this email to say, or press Return…")
+                            : String(localized: "Describe another change…"))
+                            .font(metrics.typography.rowTitle)
+                            .foregroundStyle(Theme.Colors.textSecondary)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .padding(.horizontal, metrics.spacing.lg)
                 .frame(minHeight: metrics.size.barButtonHeight)
                 .background(
                     RoundedRectangle(
                         cornerRadius: metrics.radius.menu, style: .continuous
                     ).fill(Theme.Colors.controlSurface))
-                .focused($refinementFocused)
-                .onSubmit(onRefine)
                 .disabled(state.isRunning)
-                .accessibilityLabel(
-                    state.isAwaitingInstruction
-                        ? "Email writing instructions" : "Refinement instructions")
             if state.isRunning {
                 Button("Stop", action: onStop)
             } else {
@@ -492,9 +630,108 @@ struct QuickActionResultView: View {
         }
     }
 
+    private struct RequestField: NSViewRepresentable {
+        @Binding var text: String
+        @Binding var focused: Bool
+        @Binding var composing: Bool
+        let label: String
+        let onPaste: (NSPasteboard) -> Bool
+        let onPasteFiles: ([URL]) -> Bool
+        let onSubmit: () -> Void
+        @Environment(\.metrics) private var metrics
+        @Environment(\.isEnabled) private var isEnabled
+
+        func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+        func makeNSView(context: Context) -> NSScrollView {
+            let editor = QuickActionPanel.RequestEditor(usingTextLayoutManager: true)
+            editor.delegate = context.coordinator
+            editor.isRichText = false
+            editor.importsGraphics = false
+            editor.allowsUndo = true
+            editor.drawsBackground = false
+            editor.isVerticallyResizable = true
+            editor.isHorizontallyResizable = false
+            editor.autoresizingMask = [.width]
+            editor.textContainer?.widthTracksTextView = true
+            editor.textContainer?.lineFragmentPadding = 0
+            editor.textContainerInset = .zero
+            editor.onFocus = { [weak coordinator = context.coordinator] focused in
+                guard let coordinator, coordinator.input.focused != focused else { return }
+                coordinator.input.focused = focused
+            }
+            editor.onComposition = { [weak coordinator = context.coordinator] composing in
+                guard let coordinator, coordinator.input.composing != composing else { return }
+                coordinator.input.composing = composing
+            }
+            let scroll = NSScrollView()
+            scroll.drawsBackground = false
+            scroll.documentView = editor
+            return scroll
+        }
+
+        func updateNSView(_ scroll: NSScrollView, context: Context) {
+            context.coordinator.input = self
+            guard let editor = scroll.documentView as? QuickActionPanel.RequestEditor else { return }
+            editor.font = metrics.typography.textNSFont(.body)
+            editor.textColor = NSColor(Theme.Colors.textPrimary)
+            editor.insertionPointColor = NSColor(Theme.Colors.textPrimary)
+            editor.isEditable = isEnabled
+            editor.isSelectable = isEnabled
+            editor.onPasteScreenshot = onPaste
+            editor.onPasteImageFiles = onPasteFiles
+            editor.setAccessibilityLabel(label)
+            if editor.string != text, !editor.hasMarkedText() {
+                editor.string = text
+                editor.undoManager?.removeAllActions()
+                editor.setSelectedRange(NSRange(location: text.utf16.count, length: 0))
+            }
+            editor.wantsFocus = focused
+            editor.updateFocus()
+        }
+
+        func sizeThatFits(_ proposal: ProposedViewSize, nsView scroll: NSScrollView, context: Context) -> CGSize? {
+            guard let width = proposal.width, width > 0,
+                let editor = scroll.documentView as? NSTextView, let font = editor.font
+            else { return nil }
+            editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
+            let line = ceil(font.ascender - font.descender + font.leading)
+            var height = line
+            if let layout = editor.textLayoutManager {
+                layout.enumerateTextLayoutFragments(
+                    from: layout.documentRange.endLocation, options: [.reverse, .ensuresLayout]
+                ) { fragment in
+                    height = max(height, ceil(fragment.layoutFragmentFrame.maxY))
+                    return false
+                }
+            }
+            editor.setFrameSize(NSSize(width: width, height: height))
+            return CGSize(width: width, height: min(line * 3, height))
+        }
+
+        @MainActor
+        final class Coordinator: NSObject, NSTextViewDelegate {
+            var input: RequestField
+            init(_ input: RequestField) { self.input = input }
+
+            func textDidChange(_ notification: Notification) {
+                guard let editor = notification.object as? NSTextView else { return }
+                input.text = editor.string
+                editor.invalidateIntrinsicContentSize()
+            }
+
+            func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+                guard selector == #selector(NSResponder.insertNewline(_:)), !textView.hasMarkedText() else { return false }
+                input.onSubmit()
+                return true
+            }
+        }
+    }
+
     private struct ConversationRow: View {
         @Environment(\.metrics) private var metrics
         let message: RewriteConversationMessage
+        var screenshot: RewriteConversationMessage.Screenshot?
 
         var body: some View {
             HStack {
@@ -524,7 +761,16 @@ struct QuickActionResultView: View {
                 .padding(.horizontal, metrics.spacing.sm)
                 .padding(.vertical, metrics.spacing.md)
             } else {
-                Text(message.text)
+                VStack(alignment: .leading, spacing: metrics.spacing.sm) {
+                    let parts = RewriteConversationMessage.Screenshot.parts(message.text, offset: message.screenshotOffset)
+                    if message.screenshotOffset != nil {
+                        Text(parts.before)
+                        ScreenshotPreview(screenshot: screenshot)
+                        Text(parts.after)
+                    } else {
+                        Text(message.text)
+                    }
+                }
                     .font(metrics.typography.rowTitle)
                     .lineSpacing(metrics.spacing.xs)
                     .foregroundStyle(

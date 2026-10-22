@@ -319,6 +319,7 @@ enum Theme {
         static let menuChevron: TimeInterval = 0.34
         static let copyFeedback: TimeInterval = 1.2
         static let chatFooter: TimeInterval = 0.12
+        static let screenshotCollapse: TimeInterval = 3
         static let settingsReveal: TimeInterval = 0.28
         static let settingsFlash: TimeInterval = 2.0
         static let settingsFlashOut: TimeInterval = 0.6
