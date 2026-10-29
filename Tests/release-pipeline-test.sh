@@ -53,3 +53,43 @@ coordinator=Tinycast/Features/QuickActions/UI/QuickActionCoordinator.swift
 sed '/history.loadOnFirstUse()/d' "$root/$coordinator" > "$scratch/repo/$coordinator"
 if "$scratch/repo/Scripts/check-composer-retention.sh" > "$scratch/ownership.log" 2>&1; then exit 1; fi
 echo "Release metadata and Composer deletion/ownership regression fixtures passed."
+
+# Exercise only the post-publish block, with both OS commands replaced by fixtures.
+python3 - "$root" "$scratch" <<'PYTEST'
+from pathlib import Path
+import sys
+root, scratch = map(Path, sys.argv[1:])
+source = (root / "Scripts/release-local.sh").read_text()
+start = source.index('    # A notification never launches')
+end = source.index('    step "Cleaning up"', start)
+assert source.rindex('gh release create', 0, start) < start
+assert source.rindex('if $DRY_RUN; then', 0, start) < source.rindex('exit 0', 0, start)
+assert 'Nothing to' in source or 'nothing' in source.lower()
+block = source[start:end].replace('/usr/bin/swift', 'mock_swift')
+(scratch / 'notify.sh').write_text(block)
+PYTEST
+step() { :; }
+pgrep() { return "${mock_running:-0}"; }
+mock_swift() { echo trigger >> "$scratch/events"; return "${mock_failure:-0}"; }
+echo publish > "$scratch/events"
+source "$scratch/notify.sh"
+test "$(cat "$scratch/events")" = $'publish\ntrigger'
+mock_failure=1
+source "$scratch/notify.sh"
+mock_running=1
+before="$(wc -l < "$scratch/events")"
+source "$scratch/notify.sh"
+test "$(wc -l < "$scratch/events")" = "$before"
+# No dry-run or no-change branch may reach publication or the notification block.
+python3 - "$root/Scripts/release-local.sh" <<'PYTEST'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+main = source[source.index('main() {'):]
+publish = main.index('    gh release create')
+notify = main.index('    # A notification never launches')
+assert main.index('        echo "✓ Dry run complete"\n        exit 0') < publish < notify
+# Existing no-change exit precedes the build and publication.
+assert main.index('exit 0') < main.index('step "Building the signed Release app"')
+PYTEST
+echo "Release notification fixtures passed."

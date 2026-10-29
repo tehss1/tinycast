@@ -28,6 +28,10 @@ final class UpdateCoordinator {
         activation: core.activationPolicy)
     @ObservationIgnored private var installTask: Task<Void, Never>?
 
+    @ObservationIgnored private var releaseObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var releaseTask: Task<Void, Never>?
+    @ObservationIgnored private var lastReleaseAttempt: Date?
+
     init(store: UpdateCheckStore, core: AppCore) {
         self.store = store
         self.core = core
@@ -39,9 +43,17 @@ final class UpdateCoordinator {
     /// A local build has no release stream, so it does not advertise the command either.
     func applyEnabled() {
         core.appIndex.setCommandsVisible([.checkForUpdates], store.channel.updatesItself)
+        guard releaseObserver == nil else { return }
+        releaseObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name(ReleaseUpdatePolicy.notificationName), object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.releasePublished() }
+        }
     }
 
     func applyAutomaticChecking() {
+        if !core.settings.automaticallyCheckForUpdates { releaseTask?.cancel() }
         if core.settings.automaticallyCheckForUpdates {
             store.start()
         } else {
@@ -62,6 +74,7 @@ final class UpdateCoordinator {
 
     /// The manual action: always opens the window and always asks GitHub.
     func checkForUpdates() {
+        guard releaseTask == nil else { return }
         guard store.channel.updatesItself else {
             stage = .localBuild
             present()
@@ -95,7 +108,7 @@ final class UpdateCoordinator {
 
     /// The automatic path: `false` answers that it withheld the prompt, so the store re-offers it.
     func presentIfAvailable(_ release: AvailableRelease) -> Bool {
-        guard core.settings.automaticallyCheckForUpdates else { return false }
+        guard core.settings.automaticallyCheckForUpdates, releaseTask == nil else { return false }
         switch stage {
         // Already in hand: re-offering would throw away a download or the relaunch it earned.
         case .installing, .readyToRelaunch:
@@ -111,6 +124,7 @@ final class UpdateCoordinator {
     // MARK: - Actions
 
     func install() {
+        guard releaseTask == nil else { return }
         guard let release = pendingRelease else { return }
         // Re-asked at the moment of the click, never read from a flag that could have gone stale.
         if let blocker = UpdateReadiness.evaluate(core.currentActivity) {
@@ -124,6 +138,7 @@ final class UpdateCoordinator {
             Task { @MainActor in self?.report(phase, for: release) }
         }
         installTask = Task { [weak self] in
+            defer { self?.installTask = nil }
             do {
                 try await installer.install(release, onProgress: onProgress)
                 self?.stage = .readyToRelaunch
@@ -162,6 +177,62 @@ final class UpdateCoordinator {
     }
 
     // MARK: - Private
+
+    private func releasePublished() {
+        guard ReleaseUpdatePolicy.accepts(
+            repository: ReleaseFeed.repository, channel: store.channel,
+            bundlePath: Bundle.main.bundleURL.path,
+            enabled: core.settings.automaticallyCheckForUpdates,
+            inFlight: releaseTask != nil || installTask != nil || stage == .readyToRelaunch,
+            now: Date(), lastAttempt: lastReleaseAttempt
+        ) else { return }
+        lastReleaseAttempt = Date()
+        releaseTask = Task { [weak self] in
+            guard let self else { return }
+            defer { releaseTask = nil }
+            do {
+                while store.isChecking {
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+                try Task.checkCancellation()
+                guard await store.check() == .answered, let release = store.update else { return }
+                try await waitForIdle(release)
+                try await installer.install(release, onProgress: { _ in }, canReplace: { [weak self] in
+                    guard let self, core.settings.automaticallyCheckForUpdates else {
+                        throw CancellationError()
+                    }
+                    return canInstallRelease(release)
+                })
+                while true {
+                    try await waitForIdle(release)
+                    let committed = await core.relaunchInBackgroundIfIdle { [weak self] in
+                        guard let self, core.settings.automaticallyCheckForUpdates else { return false }
+                        return canInstallRelease(release)
+                    }
+                    if committed { break }
+                }
+            } catch {
+                NSLog("Tinycast release update did not complete: %@", String(describing: error))
+            }
+        }
+    }
+
+    private func canInstallRelease(_ release: AvailableRelease) -> Bool {
+        ReleaseUpdatePolicy.canInstall(
+            running: store.runningVersion, candidate: release.version, activity: core.currentActivity,
+            quickActionBusy: core.quickActionCoordinator.isBusyForUpdate
+                || core.dictationCoordinator.isBusyForUpdate,
+            hasVisibleWindows: NSApp.windows.contains { $0.isVisible })
+    }
+
+    private func waitForIdle(_ release: AvailableRelease) async throws {
+        while true {
+            try Task.checkCancellation()
+            guard core.settings.automaticallyCheckForUpdates else { throw CancellationError() }
+            if canInstallRelease(release) { return }
+            try await Task.sleep(for: .seconds(2))
+        }
+    }
 
     private func report(_ phase: UpdateInstaller.Phase, for release: AvailableRelease) {
         guard case .installing = stage else { return }

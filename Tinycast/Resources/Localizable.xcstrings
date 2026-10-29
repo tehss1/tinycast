@@ -69679,6 +69679,64 @@
         }
       }
     },
+    "Local releases install automatically when Tinycast is idle." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lokale Versionen werden automatisch installiert, wenn Tinycast nicht verwendet wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local releases install automatically when Tinycast is idle."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las versiones locales se instalan automáticamente cuando Tinycast está inactivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les versions locales s’installent automatiquement lorsque Tinycast est inactif."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tinycastが待機中のとき、ローカルリリースを自動的にインストールします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tinycast가 유휴 상태일 때 로컬 릴리스를 자동으로 설치합니다."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As versões locais são instaladas automaticamente quando o Tinycast está inativo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Локальные выпуски устанавливаются автоматически, когда Tinycast не используется."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tinycast 空闲时会自动安装本地发布的版本。"
+          }
+        }
+      }
+    },
     "Lock Screen" : {
       "localizations" : {
         "de" : {

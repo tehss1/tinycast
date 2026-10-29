@@ -35,7 +35,8 @@ struct UpdateInstaller: Sendable {
     let token: String?
 
     func install(
-        _ release: AvailableRelease, onProgress: @escaping @Sendable (Phase) -> Void
+        _ release: AvailableRelease, onProgress: @escaping @Sendable (Phase) -> Void,
+        canReplace: @escaping @MainActor @Sendable () throws -> Bool = { true }
     ) async throws {
         try Task.checkCancellation()
         try? FileManager.default.createDirectory(
@@ -58,13 +59,22 @@ struct UpdateInstaller: Sendable {
         onProgress(.verifying)
         try verify(staged, is: release)
 
-        try Task.checkCancellation()
-        onProgress(.replacing)
-        do {
-            _ = try FileManager.default.replaceItemAt(
-                bundleURL, withItemAt: staged, options: .usingNewMetadataOnly)
-        } catch {
-            throw UpdateFailure.replaceFailed(error.localizedDescription)
+        while true {
+            try Task.checkCancellation()
+            let replaced = try await MainActor.run {
+                try Task.checkCancellation()
+                guard try canReplace() else { return false }
+                onProgress(.replacing)
+                do {
+                    _ = try FileManager.default.replaceItemAt(
+                        bundleURL, withItemAt: staged, options: .usingNewMetadataOnly)
+                } catch {
+                    throw UpdateFailure.replaceFailed(error.localizedDescription)
+                }
+                return true
+            }
+            if replaced { break }
+            try await Task.sleep(for: .seconds(2))
         }
         try? FileManager.default.removeItem(at: archive)
         try? FileManager.default.removeItem(at: expanded)

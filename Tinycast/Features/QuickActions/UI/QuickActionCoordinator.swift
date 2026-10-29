@@ -483,6 +483,11 @@ final class QuickActionCoordinator {
         forgetComposer()
     }
 
+    var isBusyForUpdate: Bool {
+        running != nil || activeComposer?.isRunning == true || pendingSave != nil
+            || screenshotRead != nil
+    }
+
     private func stopComposer() {
         guard activeComposer?.isRunning == true else { return }
         halt()
@@ -865,6 +870,7 @@ final class QuickActionCoordinator {
         }
         guard id == state.historyID else { return }
         pendingSave?.cancel()
+        pendingSave = nil
         forgetComposer()
         halt()
         panels.dismiss(preservingDraft: false)
@@ -975,6 +981,7 @@ final class QuickActionCoordinator {
 
     private func savePendingInstruction(_ state: QuickActionPanelState) {
         pendingSave?.cancel()
+        pendingSave = nil
         guard state.action == .rewrite else { return }
         guard !state.isRunning else { return }
         let instruction = state.refinementInstruction.isEmpty

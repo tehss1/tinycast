@@ -253,6 +253,7 @@ final class AppCore {
     /// Resolved once by AppKit, so it is what this process shows until it relaunches.
     private let launchLocalization = Bundle.main.preferredLocalizations.first
     private var relaunchRequested = false
+    private var relaunchInBackground = false
 
     private init() {
         let launcherRanking = LauncherRankingStore()
@@ -575,6 +576,23 @@ final class AppCore {
         }
     }
 
+    func relaunchInBackgroundIfIdle(whenReady: @escaping @MainActor () -> Bool) async -> Bool {
+        await withCheckedContinuation { continuation in
+            RunLoop.main.perform(inModes: [.common]) {
+                MainActor.assumeIsolated {
+                    guard !self.relaunchRequested, whenReady() else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    self.relaunchRequested = true
+                    self.relaunchInBackground = true
+                    continuation.resume(returning: true)
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+    }
+
     func prepareForTermination() {
         if settings.dictationEnabled { dictationCoordinator.prepareForTermination() }
         settingsFile?.flush()
@@ -594,7 +612,9 @@ final class AppCore {
         mcpOAuth.stop()
         mcp.stop()
         installedAI.stop()
-        if relaunchRequested { RelaunchRunner.relaunchAfterExit(Bundle.main.bundleURL) }
+        if relaunchRequested {
+            RelaunchRunner.relaunchAfterExit(Bundle.main.bundleURL, inBackground: relaunchInBackground)
+        }
     }
 
     /// Only the tool whose own path or variables changed is checked again; the rest keep running.

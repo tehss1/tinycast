@@ -16,7 +16,55 @@ struct UpdatesTests {
         }
     }
 
+    static func guardsReleaseTriggers() {
+        let now = Date(timeIntervalSince1970: 1000)
+        func accepts(
+            repository: String = "tehss1/tinycast", channel: ReleaseChannel = .stable,
+            path: String = "/Applications/Tinycast.app", enabled: Bool = true,
+            inFlight: Bool = false, lastAttempt: Date? = nil
+        ) -> Bool {
+            ReleaseUpdatePolicy.accepts(
+                repository: repository, channel: channel, bundlePath: path, enabled: enabled,
+                inFlight: inFlight, now: now, lastAttempt: lastAttempt)
+        }
+        expect(accepts(), "fork installed release accepts trigger")
+        expect(!accepts(repository: "abue-ammar/tinycast"), "upstream ignores trigger")
+        expect(!accepts(channel: .development), "Dev ignores trigger")
+        expect(!accepts(channel: .beta), "beta ignores trigger")
+        expect(!accepts(path: "/tmp/Tinycast.app"), "other copies ignore trigger")
+        expect(!accepts(enabled: false), "opt out ignores trigger")
+        expect(!accepts(inFlight: true), "duplicate trigger ignored")
+        expect(!accepts(lastAttempt: now), "burst throttled")
+        expect(accepts(lastAttempt: now.addingTimeInterval(-60)), "later check allowed")
+        func canInstall(
+            running: AppVersion? = AppVersion("0.12.1-composer.23"),
+            candidate: AppVersion? = AppVersion("0.12.1-composer.24"),
+            activity: UpdateActivity = UpdateActivity(), busy: Bool = false, visible: Bool = false
+        ) -> Bool {
+            ReleaseUpdatePolicy.canInstall(
+                running: running, candidate: candidate, activity: activity,
+                quickActionBusy: busy, hasVisibleWindows: visible)
+        }
+        expect(canInstall(), "newer release while idle")
+        expect(!canInstall(running: nil), "unknown running version refused")
+        expect(!canInstall(candidate: nil), "unknown candidate refused")
+        expect(!canInstall(candidate: AppVersion("0.12.1-composer.23")), "equal refused")
+        expect(!canInstall(candidate: AppVersion("0.12.1-composer.22")), "older refused")
+        expect(!canInstall(busy: true), "generation delivery and pending save defer")
+        expect(!canInstall(visible: true), "Composer Quick Action and other windows defer")
+        let activities = [
+            UpdateActivity(isExpandingSnippet: true), UpdateActivity(isRunningExtension: true),
+            UpdateActivity(isUninstalling: true), UpdateActivity(isRecordingHotKey: true),
+            UpdateActivity(isShowingDialog: true), UpdateActivity(isPaletteVisible: true)
+        ]
+        for activity in activities {
+            expect(!canInstall(activity: activity), "every tracked interruption defers")
+        }
+        expect(canInstall(), "closing panels and completing work permits install")
+    }
+
     static func main() {
+        guardsReleaseTriggers()
         parsesVersions()
         ordersVersions()
         roundTripsVersionsThroughJSON()

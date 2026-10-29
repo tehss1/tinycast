@@ -134,6 +134,36 @@ always works independently of this preference, including while automatic checkin
 **Later means skip.** It records the version, so that release stops asking; a newer one still asks.
 Check for Updates ignores the record and always offers whatever is newer than what is running.
 
+## Local release notification
+
+After publication, `Scripts/release-local.sh` checks `pgrep -x Tinycast` and posts the payload-free
+`com.tinycast.app.release-published` distributed notification. It never opens or installs an app.
+A missing process is logged; notification failure warns without failing publication. Dry runs and
+nothing-to-do exits precede this block. Delivery has no acknowledgement, so this log cannot prove
+that an older installed build received or acted on the notification.
+
+`ReleaseUpdatePolicy` accepts the signal only for stable `tehss1/tinycast` builds running at
+`/Applications/Tinycast.app`, with Automatically check for updates enabled (the existing default).
+That setting also owns this fork's unattended local-release installation; its caption explains it.
+There is no separate automatic-install preference. Other repositories, channels and app paths ignore
+the signal. Requests are coalesced while work is in flight and throttled to once per minute.
+The notification supplies no URL, version, path or verification override. Another app can request
+only the same feed check and normal verified update; it cannot select arbitrary software.
+
+The coordinator requires a successful fresh feed response and a strictly newer parsed version.
+It waits while any `UpdateReadiness` blocker is present, Quick Actions has running work, generation,
+screenshot attachment or a pending history save, dictation is active, or any Tinycast window is
+visible. This includes Composer and Quick Action panels. Idle state is checked every two seconds,
+again on the main actor immediately before replacement, and again before requesting relaunch.
+Download, extraction, quarantine, bundle, version, repository and signature verification all use
+`UpdateInstaller`; no checks are bypassed. Failures are logged and leave the published release intact.
+Disabling automatic checks cancels pending unattended work. After replacement, relaunch waits for
+idle state and uses the usual termination cleanup, then `open -g` to return in the background.
+
+The installed `v0.12.1-composer.23` has no notification receiver. One manual update to a build
+containing this receiver is required before subsequent local releases can update it unattended.
+The expected Keychain history-access prompt after self-signed updates is unchanged.
+
 ## Installing
 
 One route, whatever the install came from:
