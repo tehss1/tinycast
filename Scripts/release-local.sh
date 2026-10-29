@@ -46,14 +46,18 @@ with_network_retry() {
         "${second_delay:-}" =~ ^[0-9]+$ && -z "$extra" ]] ||
         die "Invalid network timeout or retry delays"
     for attempt in 1 2 3; do
-        if GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" \
+        GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" \
             GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-30}" \
-            perl -MPOSIX=setpgid -e '
+            perl -MPOSIX=setpgid,WNOHANG -e '
                 use strict;
                 use warnings;
                 use File::Temp qw(tempfile);
+                use Time::HiRes qw(time sleep);
                 my ($output) = tempfile(TMPDIR => 1, UNLINK => 1);
                 my $seconds = shift @ARGV;
+                my $owner = shift @ARGV;
+                my $parent = getppid();
+                my $cancel_file = shift @ARGV;
                 my $pid = fork();
                 defined $pid or die "fork: $!";
                 if (!$pid) {
@@ -67,24 +71,37 @@ with_network_retry() {
                     kill "KILL", -$pid;
                     waitpid($pid, 0);
                 };
-                $SIG{ALRM} = sub { $stop->(); exit 124; };
+                $SIG{HUP} = sub { $stop->(); exit 129; };
                 $SIG{INT} = sub { $stop->(); exit 130; };
                 $SIG{TERM} = sub { $stop->(); exit 143; };
-                alarm $seconds;
-                waitpid($pid, 0);
-                my $status = $?;
-                alarm 0;
+                my $deadline = time() + $seconds;
+                my $status;
+                while (1) {
+                    if (-s $cancel_file) { $stop->(); exit 143; }
+                    if (getppid() != $parent || !kill(0, $owner)) {
+                        $stop->(); exit 143;
+                    }
+                    my $done = waitpid($pid, WNOHANG);
+                    if ($done == $pid) { $status = $?; last; }
+                    if (time() >= $deadline) { $stop->(); exit 124; }
+                    sleep 0.05;
+                }
                 kill "KILL", -$pid;
                 if ($status == 0) {
                     seek($output, 0, 0) or die "seek: $!";
                     while (read($output, my $buffer, 65536)) { print $buffer; }
                 }
                 exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
-            ' "$timeout" "$@"; then
+            ' "$timeout" "$$" "$CANCEL_FILE" "$@" &
+        NETWORK_PID=$!
+        if wait "$NETWORK_PID"; then
+            NETWORK_PID=""
             return 0
         else
             status=$?
         fi
+        NETWORK_PID=""
+        case "$status" in 129|130|143) return "$status" ;; esac
         # ls-remote exit 2 means no matching ref, not an unavailable server.
         if [ "$1" = git ] && [ "${2:-}" = ls-remote ] &&
             [ "$status" -ne 128 ] && [ "$status" -ne 124 ]; then
@@ -97,6 +114,16 @@ with_network_retry() {
             "$1" "${2:-}" "$status" "$((attempt + 1))" "$delay" >&2
         sleep "$delay"
     done
+}
+
+cancel_network() {
+    local status="$1"
+    trap '' INT TERM HUP
+    if [ -n "${NETWORK_PID:-}" ]; then
+        kill -TERM "$NETWORK_PID" 2>/dev/null || true
+        wait "$NETWORK_PID" 2>/dev/null || true
+    fi
+    exit "$status"
 }
 
 # The whole log is in the scratch dir, which goes away; print what a reader needs first.
@@ -166,6 +193,9 @@ main() {
     local repo
     repo="$(pwd -P)"
     trap finish EXIT
+    trap 'cancel_network 129' HUP
+    trap 'cancel_network 130' INT
+    trap 'cancel_network 143' TERM
 
     step "Checking the checkout"
     if [ -n "$(git status --porcelain --untracked-files=no)" ] || [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
@@ -406,21 +436,52 @@ main() {
     git switch --quiet main
     git merge --quiet --ff-only "$sha" || echo "Local main has diverged; it was not fast-forwarded."
     git branch --quiet -D "$SYNC_BRANCH"
+    local cleanup_ok=true delete_remote=false release_url known_url
+    known_url="https://github.com/${FORK_REPO}/releases/tag/${release_tag}"
+    if ! release_url="$(with_network_retry gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url)"; then
+        echo "Warning: release published; URL lookup failed; using the known release URL." >&2
+        cleanup_ok=false
+    fi
     if with_network_retry git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null; then
-        with_network_retry git fetch --quiet origin "$SYNC_BRANCH"
-        if git merge-base --is-ancestor FETCH_HEAD "$sha"; then
-            git push --quiet origin --delete "$SYNC_BRANCH"
+        if with_network_retry git fetch --quiet origin "$SYNC_BRANCH"; then
+            if git merge-base --is-ancestor FETCH_HEAD "$sha"; then
+                delete_remote=true
+            fi
+        else
+            echo "Warning: release published; cleanup fetch failed; keeping remote sync branch." >&2
+            cleanup_ok=false
         fi
     else
         remote_status=$?
-        [ "$remote_status" -eq 2 ] || return "$remote_status"
+        if [ "$remote_status" -ne 2 ]; then
+            echo "Warning: release published; cleanup ref lookup failed; keeping remote sync branch." >&2
+            cleanup_ok=false
+        fi
+    fi
+    if $cleanup_ok; then
+        if $delete_remote; then git push --quiet origin --delete "$SYNC_BRANCH"; fi
+    else
+        release_url="$known_url"
     fi
     START_BRANCH="main"
-    local release_url
-    release_url="$(with_network_retry gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url)"
     echo "✓ Released: $release_url"
 }
 
 # Parsed whole before it runs, so switching branches under the script cannot change it mid-run.
-main "$@"
+CANCEL_FILE="$(mktemp "${TMPDIR:-/tmp}/tinycast-release-cancel.XXXXXXXX")"
+trap 'rm -f "$CANCEL_FILE"' EXIT
+MAIN_PID=""
+cancel_main() {
+    trap '' INT TERM HUP
+    echo cancel > "$CANCEL_FILE"
+    if [ -n "$MAIN_PID" ]; then
+        kill -TERM "$MAIN_PID" 2>/dev/null || true
+        wait "$MAIN_PID" 2>/dev/null || true
+    fi
+    exit 1
+}
+trap cancel_main INT TERM HUP
+(main "$@"; exit) &
+MAIN_PID=$!
+wait "$MAIN_PID"
 exit

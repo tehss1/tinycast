@@ -74,6 +74,7 @@ command="${0##*/}"
 key="$command $1"
 if [ "$command" = gh ]; then key="$key ${2:-}"; fi
 if [ "$command $1" = 'git ls-remote' ]; then key="$key $3"; fi
+if [ "$command $1" = 'git fetch' ] && [[ "$*" = *automation/upstream-sync* ]]; then key='git fetch cleanup'; fi
 if [ "$command $1" = 'git push' ] && [[ "$*" = *--delete* ]]; then key='git push delete'; fi
 printf '%s\n' "$key" >> "$FIXTURE/calls"
 if [ "$key" = "$TARGET" ]; then
@@ -89,6 +90,8 @@ if [ "$key" = "$TARGET" ]; then
             fi ;;
 
         always) exit 128 ;;
+        cancel) kill -TERM "$PPID"; sleep 1; exit 143 ;;
+        status) exit "$CANCEL_STATUS" ;;
         hang)
             echo "$$" >> "$FIXTURE/pids"
             perl -e '$SIG{TERM}="IGNORE"; sleep 60' &
@@ -142,10 +145,16 @@ run_network_fixture() {
     local status=0
     PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET="$target" MODE="$mode" \
         TINYCAST_NETWORK_TIMEOUT=1 TINYCAST_NETWORK_RETRY_DELAYS='0 0' \
-        "$fixture/Scripts/release-local.sh" > "$fixture/log" 2>&1 || status=$?
+        "$fixture/Scripts/release-local.sh" > "$fixture/log" 2> "$fixture/stderr" || status=$?
+    cat "$fixture/stderr" >> "$fixture/log"
     if [ "$status" -ne "$expected" ]; then cat "$fixture/log"; exit 1; fi
     if [ -n "$failure_step" ]; then
         grep -q "✗ Failed during: $failure_step" "$fixture/log"
+    elif [ "$mode" = always ] && [ "$expected" -eq 0 ]; then
+        grep -q 'Warning: release published' "$fixture/stderr"
+        if grep -q '✗ Failed during:' "$fixture/log"; then exit 1; fi
+        grep -q '✓ Released: https://github.com/tehss1/tinycast/releases/tag/v0.11.19-composer.13' "$fixture/log"
+        if grep -q '^git push delete$' "$fixture/calls"; then exit 1; fi
     else
         grep -q '✓ Released: https://example.invalid/release' "$fixture/log"
     fi
@@ -163,10 +172,10 @@ run_network_fixture 'gh release list' always 1 'Finding the latest official rele
 test "$(cat "$fixture/count")" = 3
 run_network_fixture 'git ls-remote --tags' always 1 'Computing release metadata'
 test "$(cat "$fixture/count")" = 3
-run_network_fixture 'git ls-remote --heads' always 1 'Cleaning up'
-test "$(cat "$fixture/count")" = 3
-run_network_fixture 'gh release view' always 1 'Cleaning up'
-test "$(cat "$fixture/count")" = 3
+for target in 'git ls-remote --heads' 'git fetch cleanup' 'gh release view'; do
+    run_network_fixture "$target" always 0
+    test "$(cat "$fixture/count")" = 3
+done
 for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     started=$SECONDS
     if [ "$target" = 'git fetch' ]; then failure_step='Checking the checkout'
@@ -182,6 +191,7 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
 done
 run_network_fixture 'git ls-remote --heads' missing 0
 test "$(cat "$fixture/count")" = 1
+if grep -q '^git push delete$' "$fixture/calls"; then exit 1; fi
 test "$(grep -c '^git ls-remote --tags$' "$fixture/calls")" = 1
 if grep -q 'Network retry:' "$fixture/log"; then cat "$fixture/log"; exit 1; fi
 for target in 'git push' 'gh release create' 'git push delete'; do
@@ -193,5 +203,51 @@ for target in 'git push' 'gh release create' 'git push delete'; do
     run_network_fixture "$target" always 1 "$failure_step"
     test "$(cat "$fixture/count")" = 1
     if grep -q 'Network retry:' "$fixture/log"; then cat "$fixture/log"; exit 1; fi
+done
+for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
+    if [ "$target" = 'git fetch' ]; then failure_step='Checking the checkout'
+    else failure_step='Finding the latest official release'; fi
+    run_network_fixture "$target" cancel 1 "$failure_step"
+    test "$(cat "$fixture/count")" = 1
+    if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
+    for CANCEL_STATUS in 129 130 143; do
+        export CANCEL_STATUS
+        run_network_fixture "$target" status 1 "$failure_step"
+        test "$(cat "$fixture/count")" = 1
+        if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
+    done
+done
+
+# Signal only the owning bash, including while it waits on a command substitution.
+for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
+    for signal in TERM HUP INT; do
+        rm -f "$fixture/count" "$fixture/calls" "$fixture/pids"
+        # Perl resets INT inherited as ignored by asynchronous shell jobs.
+        PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET="$target" MODE=hang \
+            TINYCAST_NETWORK_TIMEOUT=30 TINYCAST_NETWORK_RETRY_DELAYS='0 0' \
+            perl -e '$SIG{INT}="DEFAULT"; exec @ARGV' /bin/bash \
+            "$fixture/Scripts/release-local.sh" > "$fixture/log" 2>&1 &
+        owner=$!
+        for ((i=0; i<100; i++)); do
+            if [ -f "$fixture/pids" ] && [ "$(wc -l < "$fixture/pids")" -ge 2 ]; then break; fi
+            sleep 0.05
+        done
+        test -s "$fixture/pids"
+        wrapper="$(ps -o ppid= -p "$(head -n1 "$fixture/pids")" | tr -d ' ')"
+        kill -"$signal" "$owner"
+        for ((i=0; i<40; i++)); do
+            alive=false
+            for pid in "$owner" "$wrapper" $(cat "$fixture/pids"); do
+                if kill -0 "$pid" 2>/dev/null; then alive=true; fi
+            done
+            $alive || break
+            sleep 0.05
+        done
+        if $alive; then cat "$fixture/log"; echo "Cancellation left a process alive ($signal, $target)"; exit 1; fi
+        wait "$owner" && exit 1
+        test "$(cat "$fixture/count")" = 1
+        if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
+        grep -q '✗ Failed during:' "$fixture/log"
+    done
 done
 echo 'Release network retry, timeout cleanup and single-attempt publication fixtures passed.'

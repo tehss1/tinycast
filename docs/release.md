@@ -107,6 +107,13 @@ The local script retries its `git fetch`, `git ls-remote`, latest-release API an
 reads up to three times, capped at 120 seconds each with waits of 15 then 45 seconds
 (`TINYCAST_NETWORK_TIMEOUT` and `TINYCAST_NETWORK_RETRY_DELAYS="15 45"` override these for fixtures).
 Pushes and release creation run once, and a missing remote ref is never retried.
+Cancellation statuses for HUP, INT and TERM return without retrying. An outer Bash wait forwards
+cancellation to the active attempt, including reads inside command substitutions; the supervisor
+kills the command group and reaps its child before shutdown. After publication, a failed cleanup
+ref lookup, cleanup fetch or release URL lookup warns and leaves the remote sync branch in place.
+The script still exits successfully and prints the known release tag URL.
+The command group has no foreground terminal access; unattended runs use gh's stored token and
+git's osxkeychain helper.
 
 This fork defaults local builds to `tehss1/tinycast`. The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow
