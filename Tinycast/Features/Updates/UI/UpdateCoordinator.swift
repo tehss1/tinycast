@@ -35,9 +35,30 @@ final class UpdateCoordinator {
     @ObservationIgnored private var manualRequestID = UUID()
     @ObservationIgnored private var manualRequestInFlight = false
 
-    init(store: UpdateCheckStore, core: AppCore) {
+    typealias Install = @MainActor (
+        AvailableRelease, @escaping @Sendable (UpdateInstaller.Phase) -> Void,
+        @escaping @MainActor @Sendable () throws -> Bool,
+        @escaping @MainActor @Sendable () -> Void
+    ) async throws -> Void
+    typealias ScheduleRelaunch = @MainActor (@escaping @MainActor () -> Bool) async -> Bool
+
+    @ObservationIgnored private let installOverride: Install?
+    @ObservationIgnored private let scheduleRelaunch: ScheduleRelaunch
+    @ObservationIgnored private let idleOverride: (@MainActor () -> Bool)?
+    @ObservationIgnored private let presentOverride: (@MainActor () -> Void)?
+    @ObservationIgnored private var unattendedID: UUID?
+
+    init(store: UpdateCheckStore, core: AppCore, install: Install? = nil,
+         scheduleRelaunch: ScheduleRelaunch? = nil,
+         isIdle: (@MainActor () -> Bool)? = nil, present: (@MainActor () -> Void)? = nil) {
         self.store = store
         self.core = core
+        installOverride = install
+        self.scheduleRelaunch = scheduleRelaunch ?? { [unowned core] ready in
+            await core.relaunchInBackgroundIfIdle(whenReady: ready)
+        }
+        idleOverride = isIdle
+        presentOverride = present
     }
 
     var channel: ReleaseChannel { store.channel }
@@ -56,7 +77,10 @@ final class UpdateCoordinator {
     }
 
     func applyAutomaticChecking() {
-        if !core.settings.automaticallyCheckForUpdates { releaseTask?.cancel() }
+        if !core.settings.automaticallyCheckForUpdates {
+            unattendedID = nil
+            releaseTask?.cancel()
+        }
         if core.settings.automaticallyCheckForUpdates {
             store.start()
         } else {
@@ -152,7 +176,7 @@ final class UpdateCoordinator {
             return
         }
         stage = .installing(release, .downloading(received: 0, expected: release.assetSize))
-        let installer = self.installer
+        let install = self.performInstall
         // Hoisted: nesting the hop inside the task body would re-capture its weak `self`.
         let onProgress: @Sendable (UpdateInstaller.Phase) -> Void = { [weak self] phase in
             Task { @MainActor in self?.report(phase, for: release) }
@@ -160,7 +184,7 @@ final class UpdateCoordinator {
         installTask = Task { [weak self] in
             defer { self?.installTask = nil }
             do {
-                try await installer.install(release, onProgress: onProgress, didReplace: { [weak self] in
+                try await install(release, onProgress, { true }, { [weak self] in
                     self?.recordReplacement(release)
                 })
                 self?.stage = .readyToRelaunch
@@ -200,6 +224,7 @@ final class UpdateCoordinator {
     // MARK: - Private
 
     private func takeManualOwnership(_ action: @escaping @MainActor (UpdateCoordinator) -> Void) {
+        unattendedID = nil
         manualRequestInFlight = true
         manualRequestID = UUID()
         let requestID = manualRequestID
@@ -218,16 +243,18 @@ final class UpdateCoordinator {
         stage = .readyToRelaunch
     }
 
-    private func releasePublished() {
+    func releasePublished(bundlePath: String = Bundle.main.bundleURL.path) {
         guard ReleaseUpdatePolicy.accepts(
             repository: ReleaseFeed.repository, channel: store.channel,
-            bundlePath: Bundle.main.bundleURL.path,
+            bundlePath: bundlePath,
             enabled: core.settings.automaticallyCheckForUpdates,
             inFlight: releaseTask != nil || installTask != nil || installation.readyToRelaunch
                 || manualRequestInFlight,
             now: Date(), lastAttempt: lastReleaseAttempt
         ) else { return }
         lastReleaseAttempt = Date()
+        let operationID = UUID()
+        unattendedID = operationID
         releaseTask = Task { [weak self] in
             guard let self else { return }
             defer { releaseTask = nil }
@@ -238,18 +265,19 @@ final class UpdateCoordinator {
                 try Task.checkCancellation()
                 guard await store.check() == .answered, let release = store.update else { return }
                 try await waitForIdle(release)
-                try await installer.install(release, onProgress: { _ in }, canReplace: { [weak self] in
-                    guard let self, core.settings.automaticallyCheckForUpdates else {
+                try await performInstall(release, { _ in }, { [weak self] in
+                    guard let self, unattendedID == operationID, !manualRequestInFlight,
+                        core.settings.automaticallyCheckForUpdates else {
                         throw CancellationError()
                     }
                     return canInstallRelease(release)
-                }, didReplace: { [weak self] in
+                }, { [weak self] in
                     self?.recordReplacement(release)
                 })
                 while true {
                     try await waitForIdle(release)
-                    let committed = await core.relaunchInBackgroundIfIdle { [weak self] in
-                        guard let self, !Task.isCancelled,
+                    let committed = await scheduleRelaunch { [weak self] in
+                        guard let self, unattendedID == operationID, !manualRequestInFlight,
                             core.settings.automaticallyCheckForUpdates else { return false }
                         return canInstallRelease(release)
                     }
@@ -264,9 +292,10 @@ final class UpdateCoordinator {
     }
 
     private func canInstallRelease(_ release: AvailableRelease) -> Bool {
-        ReleaseUpdatePolicy.canInstall(
+        if let idleOverride { return idleOverride() }
+        return ReleaseUpdatePolicy.canInstall(
             running: store.runningVersion, candidate: release.version, activity: core.currentActivity,
-            quickActionBusy: core.quickActionCoordinator.hasUnrestorableState
+            quickActionBusy: core.quickActionCoordinator.blocksUnattendedUpdate
                 || core.dictationCoordinator.isBusyForUpdate,
             hasVisibleWindows: UpdateWindowKind.blocksUpdate(
                 NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }.map(\.updateWindowKind)))
@@ -295,6 +324,19 @@ final class UpdateCoordinator {
         }
     }
 
+    private func performInstall(
+        _ release: AvailableRelease, _ progress: @escaping @Sendable (UpdateInstaller.Phase) -> Void,
+        _ canReplace: @escaping @MainActor @Sendable () throws -> Bool,
+        _ didReplace: @escaping @MainActor @Sendable () -> Void
+    ) async throws {
+        if let installOverride {
+            try await installOverride(release, progress, canReplace, didReplace)
+        } else {
+            try await installer.install(release, onProgress: progress,
+                                        canReplace: canReplace, didReplace: didReplace)
+        }
+    }
+
     private var installer: UpdateInstaller {
         UpdateInstaller(
             bundleURL: Bundle.main.bundleURL,
@@ -303,6 +345,7 @@ final class UpdateCoordinator {
     }
 
     private func present() {
+        if let presentOverride { presentOverride(); return }
         window.show {
             UpdateWindowView()
                 .environment(self)

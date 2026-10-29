@@ -154,10 +154,15 @@ The coordinator requires a successful fresh feed response and a strictly newer p
 It waits while any `UpdateReadiness` blocker is present, Quick Actions has running work, generation,
 screenshot attachment or a pending history save, dictation is active, or any work window is
 visible or minimized. Explicit work-window markers include Composer and Quick Action panels; status-item hosts
-and passive HUDs do not block. Retained Composer sessions also block until the draft is finished
-or discarded, because history cannot restore image bytes, live source targets or full captured
-context. Idle state is checked every two seconds,
-again on the main actor immediately before replacement, and again before requesting relaunch.
+and passive HUDs do not block. After you dismiss Composer, Tinycast can update once that draft is saved in Recent drafts; it waits while a screenshot is attached or a draft is unsaved.
+The current draft must match its successfully saved history record. Failed saves, pending saves,
+screenshot reads, generation and delivery also block. Reopening from Recent drafts restores the
+saved text, conversation, pending instruction, draft anchor and audience override. It recaptures
+fresh Outlook context and delivery targets; history does not preserve screenshot bytes, the full
+captured email thread, live targets or the session's language selection.
+Idle state is checked every two seconds, again on the main actor immediately before replacement,
+and again inside the final run-loop callback before termination. That callback validates the
+unattended operation's identity and rejects manual ownership, including a pending manual request.
 Download, extraction, quarantine, bundle, version, repository and signature verification all use
 `UpdateInstaller`; no checks are bypassed. Failures are logged and leave the published release intact.
 Disabling automatic checks cancels pending unattended work. After replacement, relaunch waits for

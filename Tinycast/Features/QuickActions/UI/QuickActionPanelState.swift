@@ -470,6 +470,15 @@ final class QuickActionPanelState {
         }
     }
 
+    @ObservationIgnored var lastHistorySaveFailed = false
+
+    func blocksUnattendedUpdate(savedRecord: RewriteHistoryRecord?, pendingWork: Bool = false) -> Bool {
+        guard !pendingWork, !isRunning, !isAttachingScreenshot, screenshot == nil,
+            !screenshotAttached, !lastHistorySaveFailed, let savedRecord,
+            historyRecord(now: savedRecord.updatedAt) == savedRecord else { return true }
+        return false
+    }
+
     func historyRecord(now: Date = Date()) -> RewriteHistoryRecord? {
         guard action == .rewrite else { return nil }
         return RewriteHistoryRecord(

@@ -26,6 +26,30 @@ struct ComposerTests {
         expect(Screenshot.parts("😀Text", offset: 1).before.isEmpty, "invalid surrogate offset clamps safely")
         expect(Screenshot.parts("Hi", offset: -20).before.isEmpty, "negative offset clamps")
         expect(Screenshot.parts("Hi", offset: 100).after.isEmpty, "oversized offset clamps")
+        let savedState = QuickActionPanelState(action: .rewrite, original: "Notes",
+            targetLanguage: .init(identifier: "en"), awaitsWritingInstruction: true)
+        let savedRecord = savedState.historyRecord()!
+        expect(!savedState.blocksUnattendedUpdate(savedRecord: savedRecord),
+            "saved dismissed text draft permits update")
+        savedState.setScreenshot(.init(png: Data([1]), pixelWidth: 1, pixelHeight: 1, width: 1, height: 1))
+        expect(savedState.blocksUnattendedUpdate(savedRecord: savedState.historyRecord()),
+            "idle saved draft with screenshot blocks update")
+        savedState.setScreenshot(nil)
+        expect(!savedState.blocksUnattendedUpdate(savedRecord: savedRecord),
+            "removing screenshot returns saved draft to idle")
+        expect(savedState.blocksUnattendedUpdate(savedRecord: savedRecord, pendingWork: true),
+            "pending save blocks update")
+        savedState.refinementInstruction = "unsaved edit"
+        expect(savedState.blocksUnattendedUpdate(savedRecord: savedRecord), "edit after save blocks")
+        savedState.refinementInstruction = ""
+        savedState.lastHistorySaveFailed = true
+        expect(savedState.blocksUnattendedUpdate(savedRecord: savedRecord), "failed save blocks")
+        savedState.lastHistorySaveFailed = false
+        expect(savedState.blocksUnattendedUpdate(savedRecord: nil), "missing history blocks")
+        let historyOnly = QuickActionPanelState(restoring: savedRecord, context: nil,
+            targetLanguage: .init(identifier: "en"), insertsAtCaret: true)
+        expect(historyOnly.original == savedState.original && historyOnly.context == nil,
+            "history alone restores draft without retained session or live context")
         let now = Date(timeIntervalSince1970: 1000)
         let retina = Screenshot.fittedSize(pixelWidth: 2560, pixelHeight: 1600, dpi: 144)
         expect(retina?.width == 640 && retina?.height == 400, "fits CSS width preserving aspect")
@@ -40,15 +64,8 @@ struct ComposerTests {
         expect(huge?.width == 640 && huge?.height == 640, "fit arithmetic cannot overflow on finite dimensions")
         let state = QuickActionPanelState(action: .rewrite, original: "Notes", targetLanguage: .init(identifier: "en"))
         state.setScreenshot(.init(png: Data([1, 2, 3]), pixelWidth: 2, pixelHeight: 2, width: 2, height: 2))
-        var retainedComposer: QuickActionPanelState? = state
-        expect(retainedComposer?.screenshot != nil
-            && ComposerUpdateRetention.hasUnrestorableState(retainsSession: retainedComposer != nil),
-            "dismissed Composer retains screenshot bytes and blocks unattended update")
-        retainedComposer = nil
-        expect(!ComposerUpdateRetention.hasUnrestorableState(retainsSession: retainedComposer != nil),
-            "finished or discarded Composer permits unattended update")
-        expect(ComposerUpdateRetention.hasUnrestorableState(retainsSession: true),
-            "text-only retained sessions also protect live targets and unsaved context")
+        expect(state.blocksUnattendedUpdate(savedRecord: state.historyRecord()),
+            "attached screenshot blocks even with a saved record")
         let attachedRevision = state.screenshotRevision
         state.setScreenshot(state.screenshot)
         expect(state.screenshotRevision != attachedRevision, "replacing with the same image resets the preview")
@@ -91,6 +108,23 @@ struct ComposerTests {
             editorIdentity: context.documentIdentity, original: "Notes", messages: [], screenshotAttached: true)
         saved.messages = [.init(role: .assistant, text: "Draft", state: .complete, screenshotOffset: 2)]
         expect(store.save(saved), "screenshot metadata saves through encrypted history")
+        var textOnly = saved
+        textOnly.screenshotAttached = false
+        textOnly.pendingInstruction = "Make it shorter"
+        textOnly.audienceOverride = .externalRecipients
+        expect(store.save(textOnly), "text-only draft saves")
+        let reopenedStore = RewriteHistoryStore(directory: directory, key: { historyKey }, now: { now })
+        reopenedStore.load()
+        let freshContext = QuickActionContext(recipient: "one@example.com", subject: "Screenshot",
+            recentThread: "Fresh Outlook thread", documentIdentity: "screenshot-editor")
+        let fromDisk = reopenedStore.records.first!
+        let fromHistory = QuickActionPanelState(restoring: fromDisk, context: freshContext,
+            targetLanguage: .init(identifier: "en"), insertsAtCaret: true)
+        expect(fromHistory.output == "Draft" && fromHistory.refinementInstruction == "Make it shorter"
+            && fromHistory.audienceOverride == .externalRecipients
+            && fromHistory.context?.recentThread == "Fresh Outlook thread",
+            "history alone restores text and instruction while adopting fresh Outlook context")
+        expect(store.save(saved), "restore screenshot fixture")
         let resumed = store.resumableRecord(selection: "", context: context)
         expect(resumed?.screenshotAttached == true && resumed?.messages.last?.screenshotOffset == 2,
             "history resume and dedup preserve attachment metadata")

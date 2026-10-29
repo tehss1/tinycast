@@ -698,6 +698,18 @@ run settings-history-test  Tinycast/Features/Settings/SettingsTab.swift \
                            $L/SearchRelevance.swift
 run updates-test           Tinycast/Features/Updates/Model/*.swift \
                            Tinycast/Features/Updates/Service/BundleSignature.swift
+run update-coordinator-test Tinycast/Features/Updates/Model/*.swift \
+                           Tinycast/Features/Updates/Service/UpdateCheckStore.swift \
+                           Tinycast/Features/Updates/Service/UpdateInstaller.swift \
+                           Tinycast/Features/Updates/Service/UpdateDownloader.swift \
+                           Tinycast/Features/Updates/Service/UpdateFailure.swift \
+                           Tinycast/Features/Updates/Service/BundleSignature.swift \
+                           Tinycast/Features/Updates/Service/Quarantine.swift \
+                           Tinycast/Features/Updates/Service/ToolRunner.swift \
+                           Tinycast/Features/Updates/UI/UpdateCoordinator.swift \
+                           Tinycast/Features/Updates/UI/UpdateWorkWindow.swift \
+                           Tinycast/Platform/AppPaths.swift \
+                           Tests/update-coordinator-stubs.swift
 run rewrite-history-key-test Tinycast/Platform/KeychainSecretStore.swift \
                              Tinycast/Features/QuickActions/Service/RewriteHistoryKey.swift
 run update-installer-test  Tinycast/Features/Updates/Model/*.swift \
