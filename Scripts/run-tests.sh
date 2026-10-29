@@ -7,6 +7,10 @@ set -uo pipefail
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 cd "$(dirname "$0")/.." || exit 1
 
+if [ "${1:-}" = release-pipeline-test ]; then
+    exec ./Tests/release-pipeline-test.sh
+fi
+
 BIN="${TMPDIR:-/tmp}/tinycast-harness"
 mkdir -p "$BIN"
 
