@@ -2,7 +2,19 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/tinycast-release-test.XXXXXXXX")"
-trap 'rm -rf "$scratch"' EXIT
+owner=""
+cleanup() {
+    trap '' INT TERM HUP
+    if [ -n "$owner" ]; then
+        kill -TERM "$owner" 2>/dev/null || true
+        wait "$owner" 2>/dev/null || true
+    fi
+    rm -rf "$scratch"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cd "$scratch"
 export GITHUB_RUN_NUMBER=12 BASE_VERSION=0.11.19 CHANNEL=stable GITHUB_REPOSITORY=tehss1/tinycast
 "$root/Scripts/release-metadata.sh" "$scratch/fork"
@@ -92,6 +104,13 @@ if [ "$key" = "$TARGET" ]; then
         always) exit 128 ;;
         cancel) kill -TERM "$PPID"; sleep 1; exit 143 ;;
         status) exit "$CANCEL_STATUS" ;;
+        graceful)
+            test ! -e "$FIXTURE/lock"
+            trap 'rm -f "$FIXTURE/lock"; echo cleaned >> "$FIXTURE/cleaned"; exit 143' TERM
+            touch "$FIXTURE/lock"
+            echo "$$" >> "$FIXTURE/pids"
+            while :; do sleep 0.05; done
+            ;;
         hang)
             echo "$$" >> "$FIXTURE/pids"
             perl -e '$SIG{TERM}="IGNORE"; sleep 60' &
@@ -218,6 +237,30 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     done
 done
 
+# A retry must see the lock removed by the preceding attempts TERM trap.
+run_network_fixture 'git fetch' graceful 1 'Checking the checkout'
+test "$(cat "$fixture/count")" = 3
+test "$(wc -l < "$fixture/cleaned" | tr -d ' ')" = 3
+test ! -e "$fixture/lock"
+rm -f "$fixture/cleaned" "$fixture/pids"
+PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET='git fetch' MODE=graceful \
+    TINYCAST_NETWORK_TIMEOUT=30 \
+    /bin/bash "$fixture/Scripts/release-local.sh" > "$fixture/log" 2>&1 &
+owner=$!
+for ((i=0; i<100; i++)); do
+    [ ! -e "$fixture/lock" ] || break
+    sleep 0.05
+done
+test -e "$fixture/lock"
+kill -TERM "$owner"
+wait "$owner" && exit 1
+owner=""
+test ! -e "$fixture/lock"
+test "$(wc -l < "$fixture/cleaned" | tr -d ' ')" = 1
+while read -r pid; do
+    if kill -0 "$pid" 2>/dev/null; then echo "Graceful child survived: $pid"; exit 1; fi
+done < "$fixture/pids"
+
 # Signal only the owning bash while it waits on an owned network command.
 for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     for signal in TERM HUP INT; do
@@ -235,7 +278,7 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
         test -s "$fixture/pids"
         wrapper="$(ps -o ppid= -p "$(head -n1 "$fixture/pids")" | tr -d ' ')"
         kill -"$signal" "$owner"
-        for ((i=0; i<40; i++)); do
+        for ((i=0; i<100; i++)); do
             alive=false
             for pid in "$owner" "$wrapper" $(cat "$fixture/pids"); do
                 if kill -0 "$pid" 2>/dev/null; then alive=true; fi
@@ -245,6 +288,7 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
         done
         if $alive; then cat "$fixture/log"; echo "Cancellation left a process alive ($signal, $target)"; exit 1; fi
         wait "$owner" && exit 1
+        owner=""
         test "$(cat "$fixture/count")" = 1
         if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
         grep -q '✗ Failed during:' "$fixture/log"
@@ -289,10 +333,15 @@ for phase in capture backoff tests build; do
         else
             ps -o ppid= -p "$(head -n1 "$fixture/pids")" >> "$fixture/pids"
         fi
+        if [ -n "${TINYCAST_TEST_CANCEL_PROBE:-}" ]; then
+            printf '%s\n' "$owner" $(cat "$fixture/pids") > "$TINYCAST_TEST_CANCEL_PROBE"
+            wait "$owner"
+            exit 1
+        fi
         started=$SECONDS
         if [ "$signal" = INT ]; then kill -INT -- "-$owner"
         else kill -TERM "$owner"; fi
-        for ((i=0; i<60; i++)); do
+        for ((i=0; i<100; i++)); do
             alive=false
             for pid in "$owner" $(cat "$fixture/pids"); do
                 if kill -0 "$pid" 2>/dev/null; then alive=true; fi
@@ -302,6 +351,7 @@ for phase in capture backoff tests build; do
         done
         if $alive; then cat "$fixture/log"; echo "Cancellation left a process alive ($signal, $phase)"; exit 1; fi
         wait "$owner" && exit 1
+        owner=""
         test "$((SECONDS - started))" -lt 5
         grep -q '✗ Failed during:' "$fixture/log"
         if [ "$phase" = tests ]; then
@@ -312,3 +362,26 @@ for phase in capture backoff tests build; do
     done
 done
 echo 'Release network retry, timeout cleanup and single-attempt publication fixtures passed.'
+
+# Cancel a suite owning a separate-session fixture, as the release supervisor does.
+if [ -z "${TINYCAST_TEST_CANCEL_PROBE:-}" ]; then
+    mkdir "$scratch/cancel-tmp"
+    TMPDIR="$scratch/cancel-tmp" TINYCAST_TEST_CANCEL_PROBE="$scratch/probe-pids" \
+        perl -MPOSIX=setpgid -e 'setpgid(0,0); exec @ARGV' \
+        /bin/bash "$root/Tests/release-pipeline-test.sh" > "$scratch/probe.log" 2>&1 &
+    owner=$!
+    for ((i=0; i<2000; i++)); do
+        [ ! -s "$scratch/probe-pids" ] || break
+        if ! kill -0 "$owner" 2>/dev/null; then cat "$scratch/probe.log"; exit 1; fi
+        sleep 0.05
+    done
+    test -s "$scratch/probe-pids"
+    kill -TERM -- "-$owner"
+    wait "$owner" && exit 1
+    owner=""
+    while read -r pid; do
+        if kill -0 "$pid" 2>/dev/null; then echo "Cancelled suite child survived: $pid"; exit 1; fi
+    done < "$scratch/probe-pids"
+    test -z "$(find "$scratch/cancel-tmp" -name 'tinycast-release-test.*' -o -name 'tinycast-network.*')"
+    echo 'Suite cancellation removed temporary files and reaped separate-session children.'
+fi

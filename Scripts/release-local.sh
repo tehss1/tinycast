@@ -37,7 +37,7 @@ die() {
     exit 1
 }
 
-# Wait in bash so a signal can stop the owned command group immediately.
+# Wait in bash so a signal can terminate and reap the owned command group.
 run_interruptible() {
     local timeout="$1" output="$2" status=0
     shift 2
@@ -64,24 +64,38 @@ run_interruptible() {
         }
         setpgid($pid, $pid);
         my $stop = sub {
-            kill "KILL", -$pid;
-            waitpid($pid, 0);
+            my $discard = shift;
+            $SIG{HUP} = $SIG{INT} = $SIG{TERM} = "IGNORE";
+            kill "TERM", -$pid;
+            my $until = time() + 3;
+            my $reaped = 0;
+            while (1) {
+                if (!$reaped) {
+                    my $done = waitpid($pid, WNOHANG);
+                    $reaped = 1 if $done == $pid || $done == -1;
+                }
+                last if !kill(0, -$pid) || time() >= $until;
+                sleep 0.05;
+            }
+            kill "KILL", -$pid if kill(0, -$pid);
+            waitpid($pid, 0) unless $reaped;
+            unlink $path if $discard && $seconds && length $path;
         };
-        $SIG{HUP} = sub { $stop->(); exit 129; };
-        $SIG{INT} = sub { $stop->(); exit 130; };
-        $SIG{TERM} = sub { $stop->(); exit 143; };
+        $SIG{HUP} = sub { $stop->(1); exit 129; };
+        $SIG{INT} = sub { $stop->(1); exit 130; };
+        $SIG{TERM} = sub { $stop->(1); exit 143; };
         my $deadline = time() + $seconds;
         my $status;
         while (1) {
             if (getppid() != $parent || !kill(0, $owner)) {
-                $stop->(); exit 143;
+                $stop->(1); exit 143;
             }
             my $done = waitpid($pid, WNOHANG);
             if ($done == $pid) { $status = $?; last; }
-            if ($seconds && time() >= $deadline) { $stop->(); exit 124; }
+            if ($seconds && time() >= $deadline) { $stop->(1); exit 124; }
             sleep 0.05;
         }
-        kill "KILL", -$pid;
+        $stop->() if kill(0, -$pid);
         exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
     ' "$output" "$timeout" "$$" "$@" &
     NETWORK_PID=$!
@@ -163,6 +177,7 @@ show_log() {
 
 finish() {
     local status=$?
+    [ -z "${NETWORK_FILE:-}" ] || rm -f "$NETWORK_FILE"
     if [ -n "$SCRATCH" ]; then
         git worktree remove --force "$SCRATCH/baseline" 2>/dev/null || true
         rm -rf "$SCRATCH"
