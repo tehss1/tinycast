@@ -218,7 +218,7 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     done
 done
 
-# Signal only the owning bash, including while it waits on a command substitution.
+# Signal only the owning bash while it waits on an owned network command.
 for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     for signal in TERM HUP INT; do
         rm -f "$fixture/count" "$fixture/calls" "$fixture/pids"
@@ -248,6 +248,67 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
         test "$(cat "$fixture/count")" = 1
         if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
         grep -q '✗ Failed during:' "$fixture/log"
+    done
+done
+# Use a separate session to exercise Ctrl-C without signalling the test runner.
+for phase in capture backoff tests build; do
+    for signal in INT TERM; do
+        rm -f "$fixture/count" "$fixture/calls" "$fixture/pids"
+        target='gh api repos/abue-ammar/tinycast/releases/latest'
+        mode=hang
+        case "$phase" in
+            backoff) mode=always ;;
+            tests)
+                target='network-command slow'
+                printf '#!/bin/bash\nexec "$FIXTURE/bin/network-command" slow\n' > "$fixture/Scripts/run-tests.sh"
+                ;;
+            build)
+                target='network-command build'
+                cp "$fixture/bin/xcodebuild" "$fixture/bin/xcodebuild-original"
+                printf '#!/bin/bash\nif [ "$1" = -version ]; then echo Xcode; exit; fi\nexec "$FIXTURE/bin/network-command" "$@"\n' > "$fixture/bin/xcodebuild"
+                ;;
+        esac
+        PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET="$target" MODE="$mode" \
+            TINYCAST_NETWORK_TIMEOUT=30 TINYCAST_NETWORK_RETRY_DELAYS='30 30' \
+            perl -MPOSIX=setsid -e 'setsid() >= 0 or die $!; $SIG{INT}="DEFAULT"; exec @ARGV' \
+            /bin/bash "$fixture/Scripts/release-local.sh" > "$fixture/log" 2>&1 &
+        owner=$!
+        ready=false
+        for ((i=0; i<100; i++)); do
+            if [ "$phase" = backoff ]; then
+                if grep -q 'attempt 2/3 in 30s' "$fixture/log"; then ready=true; break; fi
+            elif [ -f "$fixture/pids" ] && [ "$(wc -l < "$fixture/pids")" -ge 2 ]; then
+                ready=true; break
+            fi
+            sleep 0.05
+        done
+        if ! $ready; then cat "$fixture/log"; echo "Cancellation fixture not ready ($phase)"; exit 1; fi
+        sleep 0.1
+        if [ "$phase" = backoff ]; then
+            ps -axo pid=,ppid= | awk -v owner="$owner" '$2 == owner {print $1}' > "$fixture/pids"
+        else
+            ps -o ppid= -p "$(head -n1 "$fixture/pids")" >> "$fixture/pids"
+        fi
+        started=$SECONDS
+        if [ "$signal" = INT ]; then kill -INT -- "-$owner"
+        else kill -TERM "$owner"; fi
+        for ((i=0; i<60; i++)); do
+            alive=false
+            for pid in "$owner" $(cat "$fixture/pids"); do
+                if kill -0 "$pid" 2>/dev/null; then alive=true; fi
+            done
+            $alive || break
+            sleep 0.05
+        done
+        if $alive; then cat "$fixture/log"; echo "Cancellation left a process alive ($signal, $phase)"; exit 1; fi
+        wait "$owner" && exit 1
+        test "$((SECONDS - started))" -lt 5
+        grep -q '✗ Failed during:' "$fixture/log"
+        if [ "$phase" = tests ]; then
+            printf '#!/bin/bash\nexit 0\n' > "$fixture/Scripts/run-tests.sh"
+        elif [ "$phase" = build ]; then
+            mv "$fixture/bin/xcodebuild-original" "$fixture/bin/xcodebuild"
+        fi
     done
 done
 echo 'Release network retry, timeout cleanup and single-attempt publication fixtures passed.'

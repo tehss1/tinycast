@@ -37,82 +37,107 @@ die() {
     exit 1
 }
 
+# Wait in bash so a signal can stop the owned command group immediately.
+run_interruptible() {
+    local timeout="$1" output="$2" status=0
+    shift 2
+    perl -MPOSIX=setpgid,WNOHANG -e '
+        use strict;
+        use warnings;
+        use Time::HiRes qw(time sleep);
+        my $path = shift @ARGV;
+        my $output;
+        if (length $path) { open $output, ">", $path or die "output: $!"; }
+        my $seconds = shift @ARGV;
+        my $owner = shift @ARGV;
+        my $parent = getppid();
+        my $pid = fork();
+        defined $pid or die "fork: $!";
+        if (!$pid) {
+            setpgid(0, 0) == 0 or die "setpgid: $!";
+            if ($output) {
+                open STDOUT, ">&", $output or die "stdout: $!";
+                if (!$seconds) { open STDERR, ">&", $output or die "stderr: $!"; }
+            }
+            exec @ARGV;
+            die "exec: $!";
+        }
+        setpgid($pid, $pid);
+        my $stop = sub {
+            kill "KILL", -$pid;
+            waitpid($pid, 0);
+        };
+        $SIG{HUP} = sub { $stop->(); exit 129; };
+        $SIG{INT} = sub { $stop->(); exit 130; };
+        $SIG{TERM} = sub { $stop->(); exit 143; };
+        my $deadline = time() + $seconds;
+        my $status;
+        while (1) {
+            if (getppid() != $parent || !kill(0, $owner)) {
+                $stop->(); exit 143;
+            }
+            my $done = waitpid($pid, WNOHANG);
+            if ($done == $pid) { $status = $?; last; }
+            if ($seconds && time() >= $deadline) { $stop->(); exit 124; }
+            sleep 0.05;
+        }
+        kill "KILL", -$pid;
+        exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
+    ' "$output" "$timeout" "$$" "$@" &
+    NETWORK_PID=$!
+    wait_interruptible || status=$?
+    return "$status"
+}
+
+wait_interruptible() {
+    local status=0
+    trap 'cancel_network 129' HUP
+    trap 'cancel_network 130' INT
+    trap 'cancel_network 143' TERM
+    wait "$NETWORK_PID" || status=$?
+    NETWORK_PID=""
+    trap - INT TERM HUP
+    return "$status"
+}
+
 # Each attempt owns a process group so git transport helpers cannot outlive its deadline.
 with_network_retry() {
+    NETWORK_OUTPUT=""
     local attempt status delay timeout="${TINYCAST_NETWORK_TIMEOUT:-120}"
     local delays="${TINYCAST_NETWORK_RETRY_DELAYS:-15 45}" first_delay second_delay extra
     read -r first_delay second_delay extra <<< "$delays"
     [[ "$timeout" =~ ^[1-9][0-9]*$ && "${first_delay:-}" =~ ^[0-9]+$ &&
         "${second_delay:-}" =~ ^[0-9]+$ && -z "$extra" ]] ||
         die "Invalid network timeout or retry delays"
+    NETWORK_FILE="$(mktemp "${TMPDIR:-/tmp}/tinycast-network.XXXXXXXX")"
     for attempt in 1 2 3; do
-        GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" \
+        if GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" \
             GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-30}" \
-            perl -MPOSIX=setpgid,WNOHANG -e '
-                use strict;
-                use warnings;
-                use File::Temp qw(tempfile);
-                use Time::HiRes qw(time sleep);
-                my ($output) = tempfile(TMPDIR => 1, UNLINK => 1);
-                my $seconds = shift @ARGV;
-                my $owner = shift @ARGV;
-                my $parent = getppid();
-                my $cancel_file = shift @ARGV;
-                my $pid = fork();
-                defined $pid or die "fork: $!";
-                if (!$pid) {
-                    setpgid(0, 0) == 0 or die "setpgid: $!";
-                    open STDOUT, ">&", $output or die "stdout: $!";
-                    exec @ARGV;
-                    die "exec: $!";
-                }
-                setpgid($pid, $pid);
-                my $stop = sub {
-                    kill "KILL", -$pid;
-                    waitpid($pid, 0);
-                };
-                $SIG{HUP} = sub { $stop->(); exit 129; };
-                $SIG{INT} = sub { $stop->(); exit 130; };
-                $SIG{TERM} = sub { $stop->(); exit 143; };
-                my $deadline = time() + $seconds;
-                my $status;
-                while (1) {
-                    if (-s $cancel_file) { $stop->(); exit 143; }
-                    if (getppid() != $parent || !kill(0, $owner)) {
-                        $stop->(); exit 143;
-                    }
-                    my $done = waitpid($pid, WNOHANG);
-                    if ($done == $pid) { $status = $?; last; }
-                    if (time() >= $deadline) { $stop->(); exit 124; }
-                    sleep 0.05;
-                }
-                kill "KILL", -$pid;
-                if ($status == 0) {
-                    seek($output, 0, 0) or die "seek: $!";
-                    while (read($output, my $buffer, 65536)) { print $buffer; }
-                }
-                exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
-            ' "$timeout" "$$" "$CANCEL_FILE" "$@" &
-        NETWORK_PID=$!
-        if wait "$NETWORK_PID"; then
-            NETWORK_PID=""
+            run_interruptible "$timeout" "$NETWORK_FILE" "$@"; then
+            NETWORK_OUTPUT="$(cat "$NETWORK_FILE")"
+            rm -f "$NETWORK_FILE"
             return 0
         else
             status=$?
         fi
-        NETWORK_PID=""
-        case "$status" in 129|130|143) return "$status" ;; esac
+        case "$status" in 129|130|143) rm -f "$NETWORK_FILE"; return "$status" ;; esac
         # ls-remote exit 2 means no matching ref, not an unavailable server.
         if [ "$1" = git ] && [ "${2:-}" = ls-remote ] &&
             [ "$status" -ne 128 ] && [ "$status" -ne 124 ]; then
+            rm -f "$NETWORK_FILE"
             return "$status"
         fi
-        [ "$attempt" -lt 3 ] || return "$status"
+        if [ "$attempt" -eq 3 ]; then
+            rm -f "$NETWORK_FILE"
+            return "$status"
+        fi
         delay="$first_delay"
         [ "$attempt" -eq 1 ] || delay="$second_delay"
         printf 'Network retry: %s %s failed (%s); attempt %s/3 in %ss\n' \
             "$1" "${2:-}" "$status" "$((attempt + 1))" "$delay" >&2
-        sleep "$delay"
+        sleep "$delay" &
+        NETWORK_PID=$!
+        wait_interruptible
     done
 }
 
@@ -123,6 +148,7 @@ cancel_network() {
         kill -TERM "$NETWORK_PID" 2>/dev/null || true
         wait "$NETWORK_PID" 2>/dev/null || true
     fi
+    [ -z "${NETWORK_FILE:-}" ] || rm -f "$NETWORK_FILE"
     exit "$status"
 }
 
@@ -169,15 +195,15 @@ select_xcode() {
 # Prints warnings without line numbers or the checkout path, so two trees compare line for line.
 debug_build_warnings() {
     local tree="$1" derived="$2" log="$3"
-    if ! (cd "$tree" && xcodebuild build -project Tinycast.xcodeproj -scheme Tinycast \
-        -configuration Debug -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO) > "$log" 2>&1; then
+    if ! run_interruptible 0 "$log" xcodebuild build -project "$tree/Tinycast.xcodeproj" -scheme Tinycast \
+        -configuration Debug -derivedDataPath "$derived" CODE_SIGNING_ALLOWED=NO; then
         show_log "$log"
         return 1
     fi
-    { grep -E 'warning:' "$log" | grep -Ev "$APP_INTENTS_NOTICE" || true; } |
+    BUILD_WARNINGS="$({ grep -E 'warning:' "$log" | grep -Ev "$APP_INTENTS_NOTICE" || true; } |
         sed -E -e "s|${tree}/||g" -e "s|${derived}/||g" -e 's|(:[0-9]+){1,2}: warning:|: warning:|' \
             -e 's|^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+ ||' -e 's|\[[0-9]+:[0-9]+\]||' |
-        sort -u
+        sort -u)"
 }
 
 main() {
@@ -193,9 +219,6 @@ main() {
     local repo
     repo="$(pwd -P)"
     trap finish EXIT
-    trap 'cancel_network 129' HUP
-    trap 'cancel_network 130' INT
-    trap 'cancel_network 143' TERM
 
     step "Checking the checkout"
     if [ -n "$(git status --porcelain --untracked-files=no)" ] || [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
@@ -213,15 +236,18 @@ main() {
     # Releases, not `main`: the fork only ever ships code the official project has published.
     step "Finding the latest official release"
     local tag
-    tag="$(with_network_retry gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
+    with_network_retry gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name
+    tag="$NETWORK_OUTPUT"
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Unexpected official release tag '$tag'"
     with_network_retry git fetch --quiet --no-tags "https://github.com/${UPSTREAM_REPO}.git" \
         "refs/tags/${tag}:refs/upstream/${tag}"
     # Drafts still claim their number, but only a published release counts as shipped.
     local releases published released=false merged=true
-    releases="$(with_network_retry gh release list -R "$FORK_REPO" --limit 1000 --json tagName --jq '.[].tagName')"
-    published="$(with_network_retry gh release list -R "$FORK_REPO" --exclude-drafts --limit 1000 --json tagName \
-        --jq '.[].tagName')"
+    with_network_retry gh release list -R "$FORK_REPO" --limit 1000 --json tagName --jq '.[].tagName'
+    releases="$NETWORK_OUTPUT"
+    with_network_retry gh release list -R "$FORK_REPO" --exclude-drafts --limit 1000 --json tagName \
+        --jq '.[].tagName'
+    published="$NETWORK_OUTPUT"
     grep -q "^${tag}-composer\." <<< "$published" && released=true
     git merge-base --is-ancestor "refs/upstream/${tag}" origin/main && merged=true || merged=false
     echo "Official release: ${tag} (on main: ${merged}, Composer release exists: ${released})"
@@ -285,13 +311,13 @@ main() {
     echo "✓ Tinycast.xcodeproj matches project.yml"
 
     step "Checking Composer retention and release fixtures"
-    ./Tests/release-pipeline-test.sh
+    run_interruptible 0 "" ./Tests/release-pipeline-test.sh
 
     step "Running the test suite"
-    ./Scripts/run-tests.sh
+    run_interruptible 0 "" ./Scripts/run-tests.sh
 
     step "Linting"
-    ./Scripts/lint.sh
+    run_interruptible 0 "" ./Scripts/lint.sh
 
     step "Checking model imports"
     if grep -rln 'import AppKit\|import SwiftUI\|import Cocoa' Tinycast/Features/*/Model/; then
@@ -301,15 +327,17 @@ main() {
 
     step "Building Debug with no new warnings"
     local warnings baseline_warnings new_warnings
-    warnings="$(debug_build_warnings "$repo" "$SCRATCH/DerivedData-Debug" "$SCRATCH/debug.log")"
+    debug_build_warnings "$repo" "$SCRATCH/DerivedData-Debug" "$SCRATCH/debug.log"
+    warnings="$BUILD_WARNINGS"
     if [ "$(git rev-parse HEAD^{tree})" = "$(git rev-parse origin/main^{tree})" ]; then
         echo "Same tree as origin/main, so no warning can be new."
         baseline_warnings="$warnings"
     else
         echo "Building origin/main for the baseline warnings"
         git worktree add --quiet --detach "$SCRATCH/baseline" origin/main
-        baseline_warnings="$(debug_build_warnings "$SCRATCH/baseline" \
-            "$SCRATCH/DerivedData-Baseline" "$SCRATCH/baseline.log")"
+        debug_build_warnings "$SCRATCH/baseline" \
+            "$SCRATCH/DerivedData-Baseline" "$SCRATCH/baseline.log"
+        baseline_warnings="$BUILD_WARNINGS"
     fi
     new_warnings="$(comm -13 <(printf '%s\n' "$baseline_warnings") <(printf '%s\n' "$warnings") |
         sed '/^$/d')"
@@ -354,7 +382,7 @@ main() {
     local derived="$SCRATCH/DerivedData" app
     app="$SCRATCH/DerivedData/Build/Products/Release/${DISPLAY_NAME}.app"
     # ARCHS pinned to what this channel has always shipped (compat/README.md).
-    if ! xcodebuild -project Tinycast.xcodeproj -scheme Tinycast -configuration Release \
+    if ! run_interruptible 0 "$SCRATCH/release.log" xcodebuild -project Tinycast.xcodeproj -scheme Tinycast -configuration Release \
         -derivedDataPath "$derived" \
         ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
         CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$IDENTITY" \
@@ -362,7 +390,7 @@ main() {
         PRODUCT_NAME="$DISPLAY_NAME" TINYCAST_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
         TINYCAST_UPDATE_REPOSITORY="$FORK_REPO" \
         MARKETING_VERSION="$full_version" CURRENT_PROJECT_VERSION="$build_number" \
-        build > "$SCRATCH/release.log" 2>&1; then
+        build; then
         show_log "$SCRATCH/release.log"
         die "The Release build failed"
     fi
@@ -438,7 +466,9 @@ main() {
     git branch --quiet -D "$SYNC_BRANCH"
     local cleanup_ok=true delete_remote=false release_url known_url
     known_url="https://github.com/${FORK_REPO}/releases/tag/${release_tag}"
-    if ! release_url="$(with_network_retry gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url)"; then
+    if with_network_retry gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url; then
+        release_url="$NETWORK_OUTPUT"
+    else
         echo "Warning: release published; URL lookup failed; using the known release URL." >&2
         cleanup_ok=false
     fi
@@ -468,20 +498,5 @@ main() {
 }
 
 # Parsed whole before it runs, so switching branches under the script cannot change it mid-run.
-CANCEL_FILE="$(mktemp "${TMPDIR:-/tmp}/tinycast-release-cancel.XXXXXXXX")"
-trap 'rm -f "$CANCEL_FILE"' EXIT
-MAIN_PID=""
-cancel_main() {
-    trap '' INT TERM HUP
-    echo cancel > "$CANCEL_FILE"
-    if [ -n "$MAIN_PID" ]; then
-        kill -TERM "$MAIN_PID" 2>/dev/null || true
-        wait "$MAIN_PID" 2>/dev/null || true
-    fi
-    exit 1
-}
-trap cancel_main INT TERM HUP
-(main "$@"; exit) &
-MAIN_PID=$!
-wait "$MAIN_PID"
+main "$@"
 exit
