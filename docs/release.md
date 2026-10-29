@@ -103,6 +103,10 @@ warnings, a plain push to `main`, then the Release workflow's `build` job signed
 `automation/upstream-sync`; commit the resolution and rerun it from that branch. `--dry-run` builds,
 signs and packages without pushing or publishing, rebuilding `main` when there is nothing new.
 `--release-main` publishes `main`'s own changes when upstream has nothing new.
+The local script retries its `git fetch`, `git ls-remote`, latest-release API and `gh release list/view`
+reads up to three times, capped at 120 seconds each with waits of 15 then 45 seconds
+(`TINYCAST_NETWORK_TIMEOUT` and `TINYCAST_NETWORK_RETRY_DELAYS="15 45"` override these for fixtures).
+Pushes and release creation run once, and a missing remote ref is never retried.
 
 This fork defaults local builds to `tehss1/tinycast`. The release workflow stamps `github.repository` into `TinycastUpdateRepository` in the built app.
 The in-app updater then reads releases from the repository that built the app. The official workflow

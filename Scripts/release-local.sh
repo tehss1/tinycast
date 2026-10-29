@@ -37,6 +37,68 @@ die() {
     exit 1
 }
 
+# Each attempt owns a process group so git transport helpers cannot outlive its deadline.
+with_network_retry() {
+    local attempt status delay timeout="${TINYCAST_NETWORK_TIMEOUT:-120}"
+    local delays="${TINYCAST_NETWORK_RETRY_DELAYS:-15 45}" first_delay second_delay extra
+    read -r first_delay second_delay extra <<< "$delays"
+    [[ "$timeout" =~ ^[1-9][0-9]*$ && "${first_delay:-}" =~ ^[0-9]+$ &&
+        "${second_delay:-}" =~ ^[0-9]+$ && -z "$extra" ]] ||
+        die "Invalid network timeout or retry delays"
+    for attempt in 1 2 3; do
+        if GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" \
+            GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-30}" \
+            perl -MPOSIX=setpgid -e '
+                use strict;
+                use warnings;
+                use File::Temp qw(tempfile);
+                my ($output) = tempfile(TMPDIR => 1, UNLINK => 1);
+                my $seconds = shift @ARGV;
+                my $pid = fork();
+                defined $pid or die "fork: $!";
+                if (!$pid) {
+                    setpgid(0, 0) == 0 or die "setpgid: $!";
+                    open STDOUT, ">&", $output or die "stdout: $!";
+                    exec @ARGV;
+                    die "exec: $!";
+                }
+                setpgid($pid, $pid);
+                my $stop = sub {
+                    kill "KILL", -$pid;
+                    waitpid($pid, 0);
+                };
+                $SIG{ALRM} = sub { $stop->(); exit 124; };
+                $SIG{INT} = sub { $stop->(); exit 130; };
+                $SIG{TERM} = sub { $stop->(); exit 143; };
+                alarm $seconds;
+                waitpid($pid, 0);
+                my $status = $?;
+                alarm 0;
+                kill "KILL", -$pid;
+                if ($status == 0) {
+                    seek($output, 0, 0) or die "seek: $!";
+                    while (read($output, my $buffer, 65536)) { print $buffer; }
+                }
+                exit(($status & 127) ? 128 + ($status & 127) : $status >> 8);
+            ' "$timeout" "$@"; then
+            return 0
+        else
+            status=$?
+        fi
+        # ls-remote exit 2 means no matching ref, not an unavailable server.
+        if [ "$1" = git ] && [ "${2:-}" = ls-remote ] &&
+            [ "$status" -ne 128 ] && [ "$status" -ne 124 ]; then
+            return "$status"
+        fi
+        [ "$attempt" -lt 3 ] || return "$status"
+        delay="$first_delay"
+        [ "$attempt" -eq 1 ] || delay="$second_delay"
+        printf 'Network retry: %s %s failed (%s); attempt %s/3 in %ss\n' \
+            "$1" "${2:-}" "$status" "$((attempt + 1))" "$delay" >&2
+        sleep "$delay"
+    done
+}
+
 # The whole log is in the scratch dir, which goes away; print what a reader needs first.
 show_log() {
     local log="$1"
@@ -111,7 +173,7 @@ main() {
         die "The working tree has uncommitted changes or an unfinished merge"
     fi
     START_BRANCH="$(git branch --show-current)"
-    git fetch --quiet --tags origin
+    with_network_retry git fetch --quiet --tags origin
     select_xcode
     command -v xcodegen >/dev/null || die "xcodegen not found: brew install xcodegen"
     security find-identity -v -p codesigning | grep -q "\"$IDENTITY\"" ||
@@ -121,14 +183,14 @@ main() {
     # Releases, not `main`: the fork only ever ships code the official project has published.
     step "Finding the latest official release"
     local tag
-    tag="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
+    tag="$(with_network_retry gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Unexpected official release tag '$tag'"
-    git fetch --quiet --no-tags "https://github.com/${UPSTREAM_REPO}.git" \
+    with_network_retry git fetch --quiet --no-tags "https://github.com/${UPSTREAM_REPO}.git" \
         "refs/tags/${tag}:refs/upstream/${tag}"
     # Drafts still claim their number, but only a published release counts as shipped.
     local releases published released=false merged=true
-    releases="$(gh release list -R "$FORK_REPO" --limit 1000 --json tagName --jq '.[].tagName')"
-    published="$(gh release list -R "$FORK_REPO" --exclude-drafts --limit 1000 --json tagName \
+    releases="$(with_network_retry gh release list -R "$FORK_REPO" --limit 1000 --json tagName --jq '.[].tagName')"
+    published="$(with_network_retry gh release list -R "$FORK_REPO" --exclude-drafts --limit 1000 --json tagName \
         --jq '.[].tagName')"
     grep -q "^${tag}-composer\." <<< "$published" && released=true
     git merge-base --is-ancestor "refs/upstream/${tag}" origin/main && merged=true || merged=false
@@ -250,8 +312,11 @@ main() {
         [ "$(sed -n 's/^bundle_id=//p' "$meta")" = "$BUNDLE_ID" ] ||
         die "release-metadata.sh no longer describes the ${DISPLAY_NAME} stable channel"
     release_tag="v${full_version}"
-    if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null; then
+    if with_network_retry git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null; then
         die "Tag ${release_tag} already exists on origin"
+    else
+        local remote_status=$?
+        [ "$remote_status" -eq 2 ] || return "$remote_status"
     fi
     echo "Version ${full_version}, build ${build_number}, from ${sha}"
 
@@ -341,13 +406,19 @@ main() {
     git switch --quiet main
     git merge --quiet --ff-only "$sha" || echo "Local main has diverged; it was not fast-forwarded."
     git branch --quiet -D "$SYNC_BRANCH"
-    if git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null &&
-        git fetch --quiet origin "$SYNC_BRANCH" &&
-        git merge-base --is-ancestor FETCH_HEAD "$sha"; then
-        git push --quiet origin --delete "$SYNC_BRANCH"
+    if with_network_retry git ls-remote --exit-code --heads origin "$SYNC_BRANCH" >/dev/null; then
+        with_network_retry git fetch --quiet origin "$SYNC_BRANCH"
+        if git merge-base --is-ancestor FETCH_HEAD "$sha"; then
+            git push --quiet origin --delete "$SYNC_BRANCH"
+        fi
+    else
+        remote_status=$?
+        [ "$remote_status" -eq 2 ] || return "$remote_status"
     fi
     START_BRANCH="main"
-    echo "✓ Released: $(gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url)"
+    local release_url
+    release_url="$(with_network_retry gh release view "$release_tag" -R "$FORK_REPO" --json url --jq .url)"
+    echo "✓ Released: $release_url"
 }
 
 # Parsed whole before it runs, so switching branches under the script cannot change it mid-run.
