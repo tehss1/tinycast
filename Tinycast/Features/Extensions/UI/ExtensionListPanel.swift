@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// A picker's own window, so its glass samples the desktop exactly as the ⌘K menu's does.
-final class ExtensionListPanel: NSPanel {
+final class ExtensionListPanel: NSPanel, UpdateWorkWindow {
     weak var paletteState: PaletteState?
 
     /// Key stays with the palette: the control below keeps first responder and drives this list.

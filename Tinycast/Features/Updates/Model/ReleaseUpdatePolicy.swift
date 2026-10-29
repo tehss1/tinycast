@@ -20,3 +20,25 @@ enum ReleaseUpdatePolicy {
         return UpdateReadiness.evaluate(activity) == nil && !quickActionBusy && !hasVisibleWindows
     }
 }
+
+struct UpdateInstallationState {
+    private(set) var installedVersion: AppVersion?
+
+    var readyToRelaunch: Bool { installedVersion != nil }
+
+    mutating func didReplace(_ version: AppVersion) {
+        installedVersion = version
+    }
+
+    var needsInstallation: Bool {
+        !readyToRelaunch
+    }
+}
+
+@MainActor
+enum UpdateManualOwnership {
+    static func takeOver(from pending: Task<Void, Never>?) async {
+        pending?.cancel()
+        await pending?.value
+    }
+}

@@ -31,6 +31,9 @@ final class UpdateCoordinator {
     @ObservationIgnored private var releaseObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var releaseTask: Task<Void, Never>?
     @ObservationIgnored private var lastReleaseAttempt: Date?
+    private var installation = UpdateInstallationState()
+    @ObservationIgnored private var manualRequestID = UUID()
+    @ObservationIgnored private var manualRequestInFlight = false
 
     init(store: UpdateCheckStore, core: AppCore) {
         self.store = store
@@ -74,7 +77,15 @@ final class UpdateCoordinator {
 
     /// The manual action: always opens the window and always asks GitHub.
     func checkForUpdates() {
-        guard releaseTask == nil else { return }
+        takeManualOwnership { $0.checkManually() }
+    }
+
+    private func checkManually() {
+        if installation.readyToRelaunch {
+            stage = .readyToRelaunch
+            present()
+            return
+        }
         guard store.channel.updatesItself else {
             stage = .localBuild
             present()
@@ -124,8 +135,17 @@ final class UpdateCoordinator {
     // MARK: - Actions
 
     func install() {
-        guard releaseTask == nil else { return }
-        guard let release = pendingRelease else { return }
+        takeManualOwnership { $0.installManually() }
+    }
+
+    private func installManually() {
+        if installation.readyToRelaunch {
+            stage = .readyToRelaunch
+            present()
+            return
+        }
+        guard installTask == nil, let release = pendingRelease,
+            installation.needsInstallation else { return }
         // Re-asked at the moment of the click, never read from a flag that could have gone stale.
         if let blocker = UpdateReadiness.evaluate(core.currentActivity) {
             stage = .blocked(blocker, release)
@@ -140,7 +160,9 @@ final class UpdateCoordinator {
         installTask = Task { [weak self] in
             defer { self?.installTask = nil }
             do {
-                try await installer.install(release, onProgress: onProgress)
+                try await installer.install(release, onProgress: onProgress, didReplace: { [weak self] in
+                    self?.recordReplacement(release)
+                })
                 self?.stage = .readyToRelaunch
             } catch is CancellationError {
                 self?.stage = .available(release)
@@ -160,7 +182,6 @@ final class UpdateCoordinator {
 
     func cancelInstall() {
         installTask?.cancel()
-        installTask = nil
     }
 
     func retry() {
@@ -178,12 +199,32 @@ final class UpdateCoordinator {
 
     // MARK: - Private
 
+    private func takeManualOwnership(_ action: @escaping @MainActor (UpdateCoordinator) -> Void) {
+        manualRequestInFlight = true
+        manualRequestID = UUID()
+        let requestID = manualRequestID
+        let pending = releaseTask
+        pending?.cancel()
+        Task { [weak self] in
+            await UpdateManualOwnership.takeOver(from: pending)
+            guard let self, manualRequestID == requestID else { return }
+            manualRequestInFlight = false
+            action(self)
+        }
+    }
+
+    private func recordReplacement(_ release: AvailableRelease) {
+        installation.didReplace(release.version)
+        stage = .readyToRelaunch
+    }
+
     private func releasePublished() {
         guard ReleaseUpdatePolicy.accepts(
             repository: ReleaseFeed.repository, channel: store.channel,
             bundlePath: Bundle.main.bundleURL.path,
             enabled: core.settings.automaticallyCheckForUpdates,
-            inFlight: releaseTask != nil || installTask != nil || stage == .readyToRelaunch,
+            inFlight: releaseTask != nil || installTask != nil || installation.readyToRelaunch
+                || manualRequestInFlight,
             now: Date(), lastAttempt: lastReleaseAttempt
         ) else { return }
         lastReleaseAttempt = Date()
@@ -202,14 +243,19 @@ final class UpdateCoordinator {
                         throw CancellationError()
                     }
                     return canInstallRelease(release)
+                }, didReplace: { [weak self] in
+                    self?.recordReplacement(release)
                 })
                 while true {
                     try await waitForIdle(release)
                     let committed = await core.relaunchInBackgroundIfIdle { [weak self] in
-                        guard let self, core.settings.automaticallyCheckForUpdates else { return false }
+                        guard let self, !Task.isCancelled,
+                            core.settings.automaticallyCheckForUpdates else { return false }
                         return canInstallRelease(release)
                     }
                     if committed { break }
+                    try Task.checkCancellation()
+                    try await Task.sleep(for: .seconds(2))
                 }
             } catch {
                 NSLog("Tinycast release update did not complete: %@", String(describing: error))
@@ -220,9 +266,10 @@ final class UpdateCoordinator {
     private func canInstallRelease(_ release: AvailableRelease) -> Bool {
         ReleaseUpdatePolicy.canInstall(
             running: store.runningVersion, candidate: release.version, activity: core.currentActivity,
-            quickActionBusy: core.quickActionCoordinator.isBusyForUpdate
+            quickActionBusy: core.quickActionCoordinator.hasUnrestorableState
                 || core.dictationCoordinator.isBusyForUpdate,
-            hasVisibleWindows: NSApp.windows.contains { $0.isVisible })
+            hasVisibleWindows: UpdateWindowKind.blocksUpdate(
+                NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }.map(\.updateWindowKind)))
     }
 
     private func waitForIdle(_ release: AvailableRelease) async throws {

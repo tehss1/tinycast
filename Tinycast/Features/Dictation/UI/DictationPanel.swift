@@ -74,7 +74,7 @@ private struct DictationPanelView: View {
     }
 }
 
-private final class DictationPanel: NSPanel {
+private final class DictationPanel: NSPanel, UpdateWorkWindow {
     var onAccept: (() -> Void)?
     var onCancel: (() -> Void)?
 

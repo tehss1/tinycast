@@ -271,6 +271,8 @@ run palette-menu-click-test Tinycast/Platform/Appearance.swift \
                            Tinycast/Platform/WindowLevel.swift \
                            Tinycast/Platform/NotificationToken.swift \
                            Tinycast/DesignSystem/Interaction/KeyboardFocus.swift \
+                           Tinycast/Features/Updates/Model/UpdateWindowKind.swift \
+                           Tinycast/Features/Updates/UI/UpdateWorkWindow.swift \
                            Tinycast/Palette/PalettePanel.swift
 run form-input-test        Tinycast/Platform/Appearance.swift \
                            Tinycast/DesignSystem/Theme.swift \
@@ -798,6 +800,8 @@ run composer-screenshot-test Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/AI/Service/AIProvider.swift \
                            Tinycast/Features/QuickActions/Model/*.swift \
                            Tinycast/Features/QuickActions/Service/QuickActionRunner.swift \
+                           Tinycast/Features/Updates/Model/UpdateWindowKind.swift \
+                           Tinycast/Features/Updates/UI/UpdateWorkWindow.swift \
                            Tinycast/Features/QuickActions/UI/QuickActionPanel.swift \
                            Tinycast/Platform/PasteboardFiles.swift
 run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \

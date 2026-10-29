@@ -63,7 +63,38 @@ struct UpdatesTests {
         expect(canInstall(), "closing panels and completing work permits install")
     }
 
-    static func main() {
+    static func manualTakeover() async {
+        var ownerFinished = false
+        let pending = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(3600)) } catch {}
+            ownerFinished = true
+        }
+        await UpdateManualOwnership.takeOver(from: pending)
+        expect(pending.isCancelled && ownerFinished, "manual control cancels and awaits unattended owner")
+        var installation = UpdateInstallationState()
+        let version = AppVersion("0.12.1-composer.24")!
+        expect(installation.needsInstallation, "candidate initially needs download")
+        installation.didReplace(version)
+        expect(installation.readyToRelaunch && installation.installedVersion == version,
+            "replacement records candidate and pending relaunch immediately")
+        await UpdateManualOwnership.takeOver(from: nil)
+        expect(!installation.needsInstallation, "manual install adopts replacement without download")
+        expect(!ReleaseUpdatePolicy.accepts(repository: "tehss1/tinycast", channel: .stable,
+            bundlePath: "/Applications/Tinycast.app", enabled: true,
+            inFlight: installation.readyToRelaunch, now: Date(), lastAttempt: nil),
+            "second notification cannot reinstall installed candidate")
+        for kind in UpdateWindowKind.allCases {
+            expect(UpdateWindowKind.blocksUpdate([kind]) == (kind == .work),
+                "only explicit work windows block")
+        }
+        expect(!UpdateWindowKind.blocksUpdate([.statusItemHost, .passiveHUD]),
+            "status hosts and passive HUDs allow idle update")
+        expect(UpdateWindowKind.blocksUpdate([.statusItemHost, .work, .passiveHUD]),
+            "nonactivating work panel still blocks among passive windows")
+    }
+
+    static func main() async {
+        await manualTakeover()
         guardsReleaseTriggers()
         parsesVersions()
         ordersVersions()

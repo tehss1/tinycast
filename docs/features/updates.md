@@ -152,8 +152,11 @@ only the same feed check and normal verified update; it cannot select arbitrary 
 
 The coordinator requires a successful fresh feed response and a strictly newer parsed version.
 It waits while any `UpdateReadiness` blocker is present, Quick Actions has running work, generation,
-screenshot attachment or a pending history save, dictation is active, or any Tinycast window is
-visible. This includes Composer and Quick Action panels. Idle state is checked every two seconds,
+screenshot attachment or a pending history save, dictation is active, or any work window is
+visible or minimized. Explicit work-window markers include Composer and Quick Action panels; status-item hosts
+and passive HUDs do not block. Retained Composer sessions also block until the draft is finished
+or discarded, because history cannot restore image bytes, live source targets or full captured
+context. Idle state is checked every two seconds,
 again on the main actor immediately before replacement, and again before requesting relaunch.
 Download, extraction, quarantine, bundle, version, repository and signature verification all use
 `UpdateInstaller`; no checks are bypassed. Failures are logged and leave the published release intact.

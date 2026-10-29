@@ -40,6 +40,15 @@ struct ComposerTests {
         expect(huge?.width == 640 && huge?.height == 640, "fit arithmetic cannot overflow on finite dimensions")
         let state = QuickActionPanelState(action: .rewrite, original: "Notes", targetLanguage: .init(identifier: "en"))
         state.setScreenshot(.init(png: Data([1, 2, 3]), pixelWidth: 2, pixelHeight: 2, width: 2, height: 2))
+        var retainedComposer: QuickActionPanelState? = state
+        expect(retainedComposer?.screenshot != nil
+            && ComposerUpdateRetention.hasUnrestorableState(retainsSession: retainedComposer != nil),
+            "dismissed Composer retains screenshot bytes and blocks unattended update")
+        retainedComposer = nil
+        expect(!ComposerUpdateRetention.hasUnrestorableState(retainsSession: retainedComposer != nil),
+            "finished or discarded Composer permits unattended update")
+        expect(ComposerUpdateRetention.hasUnrestorableState(retainsSession: true),
+            "text-only retained sessions also protect live targets and unsaved context")
         let attachedRevision = state.screenshotRevision
         state.setScreenshot(state.screenshot)
         expect(state.screenshotRevision != attachedRevision, "replacing with the same image resets the preview")

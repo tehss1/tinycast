@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private final class AppWindow: NSWindow {
+private final class AppWindow: NSWindow, UpdateWorkWindow {
     var closesOnEscape = false
 
     override func cancelOperation(_ sender: Any?) {

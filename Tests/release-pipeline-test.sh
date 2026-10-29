@@ -54,6 +54,7 @@ sed '/history.loadOnFirstUse()/d' "$root/$coordinator" > "$scratch/repo/$coordin
 if "$scratch/repo/Scripts/check-composer-retention.sh" > "$scratch/ownership.log" 2>&1; then exit 1; fi
 echo "Release metadata and Composer deletion/ownership regression fixtures passed."
 
+# BEGIN PR 22: unattended release notification fixtures
 # Exercise only the post-publish block, with both OS commands replaced by fixtures.
 python3 - "$root" "$scratch" <<'PYTEST'
 from pathlib import Path
@@ -93,3 +94,5 @@ assert main.index('        echo "✓ Dry run complete"\n        exit 0') < publi
 assert main.index('exit 0') < main.index('step "Building the signed Release app"')
 PYTEST
 echo "Release notification fixtures passed."
+
+# END PR 22: unattended release notification fixtures

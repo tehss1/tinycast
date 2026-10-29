@@ -36,7 +36,8 @@ struct UpdateInstaller: Sendable {
 
     func install(
         _ release: AvailableRelease, onProgress: @escaping @Sendable (Phase) -> Void,
-        canReplace: @escaping @MainActor @Sendable () throws -> Bool = { true }
+        canReplace: @escaping @MainActor @Sendable () throws -> Bool = { true },
+        didReplace: @escaping @MainActor @Sendable () -> Void = {}
     ) async throws {
         try Task.checkCancellation()
         try? FileManager.default.createDirectory(
@@ -71,6 +72,7 @@ struct UpdateInstaller: Sendable {
                 } catch {
                     throw UpdateFailure.replaceFailed(error.localizedDescription)
                 }
+                didReplace()
                 return true
             }
             if replaced { break }

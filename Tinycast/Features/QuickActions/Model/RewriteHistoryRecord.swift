@@ -69,3 +69,10 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
         })?.text
     }
 }
+
+enum ComposerUpdateRetention {
+    static func hasUnrestorableState(retainsSession: Bool) -> Bool {
+        // History omits image bytes, live source targets and the full captured context.
+        retainsSession
+    }
+}

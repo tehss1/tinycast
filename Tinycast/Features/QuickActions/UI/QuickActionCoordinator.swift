@@ -483,9 +483,10 @@ final class QuickActionCoordinator {
         forgetComposer()
     }
 
-    var isBusyForUpdate: Bool {
+    var hasUnrestorableState: Bool {
         running != nil || activeComposer?.isRunning == true || pendingSave != nil
             || screenshotRead != nil
+            || ComposerUpdateRetention.hasUnrestorableState(retainsSession: activeComposer != nil)
     }
 
     private func stopComposer() {
