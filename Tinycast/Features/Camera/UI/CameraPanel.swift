@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// A camera surface's panel; keys go through `sendEvent`, so ↵ and Esc need no focused subview.
-final class CameraPanel: NSPanel {
+final class CameraPanel: NSPanel, UpdateWorkWindow {
     enum Action {
         case primary
         case cancel

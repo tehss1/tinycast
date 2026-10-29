@@ -114,6 +114,8 @@ final class DictationCoordinator {
         begin(target: InjectionTarget.current())
     }
 
+    var isBusyForUpdate: Bool { phase != .idle }
+
     var isEnabled: Bool { settings.dictationEnabled }
     var hasModel: Bool { models.isInstalled(settings.dictationModel) }
 

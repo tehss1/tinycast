@@ -475,6 +475,16 @@ main() {
     gh release create "$release_tag" "$dist/$dmg_file" "$dist/$zip_file" -R "$FORK_REPO" \
         --target "$sha" --title "${DISPLAY_NAME} ${full_version}" --notes-file "$SCRATCH/notes.md"
 
+    # A notification never launches the app; only its verified updater can act on it.
+    step "Notifying the running Tinycast updater"
+    if pgrep -x Tinycast >/dev/null; then
+        if ! run_interruptible 10 "" /usr/bin/swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(Notification.Name("com.tinycast.app.release-published"), object: nil, userInfo: nil, deliverImmediately: true)'; then
+            echo "Warning: updater notification failed; the release succeeded." >&2
+        fi
+    else
+        echo "Tinycast is not running; no update requested."
+    fi
+
     step "Cleaning up"
     git switch --quiet main
     git merge --quiet --ff-only "$sha" || echo "Local main has diverged; it was not fast-forwarded."

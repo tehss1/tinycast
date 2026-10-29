@@ -483,6 +483,16 @@ final class QuickActionCoordinator {
         forgetComposer()
     }
 
+    @ObservationIgnored private var pendingDeliveries = 0
+
+    var blocksUnattendedUpdate: Bool {
+        let pending = running != nil || pendingSave != nil || screenshotRead != nil
+            || pendingDeliveries > 0
+        guard let state = activeComposer else { return pending }
+        return state.blocksUnattendedUpdate(
+            savedRecord: history.records.first { $0.id == state.historyID }, pendingWork: pending)
+    }
+
     private func stopComposer() {
         guard activeComposer?.isRunning == true else { return }
         halt()
@@ -600,10 +610,9 @@ final class QuickActionCoordinator {
                 return
             }
             if let resumed = state.historyRecord(
-                now: state.conversation == record.messages ? record.updatedAt : Date()),
-                !history.save(resumed)
-            {
-                reportHistoryFailure()
+                now: state.conversation == record.messages ? record.updatedAt : Date()) {
+                state.lastHistorySaveFailed = !history.save(resumed)
+                if state.lastHistorySaveFailed { reportHistoryFailure() }
             }
             return
         }
@@ -773,11 +782,14 @@ final class QuickActionCoordinator {
         let prepare: @MainActor () -> Bool = {
             textTarget?.prepare(in: target.app, excludingSelectionEdges: excludesEdges) ?? true
         }
+        pendingDeliveries += 1
         let success: @MainActor () -> Void = { [weak self] in
+            self?.pendingDeliveries -= 1
             delivered()
             self?.core.showMessage("\(action.title) applied")
         }
         let failure: @MainActor () -> Void = { [weak self] in
+            self?.pendingDeliveries -= 1
             textTarget?.restoreSelection(in: target.app)
             if screenshot == nil { Paster.copyPlainText(deliveredText) }
             let issue = screenshot == nil ? textTarget?.preparationFailure?.message : nil
@@ -855,7 +867,8 @@ final class QuickActionCoordinator {
         state.draftAnchor = anchor
         let saved = history.records.first { $0.id == state.historyID }?.updatedAt
         guard let record = state.historyRecord(now: saved ?? Date()) else { return }
-        if !history.save(record) { reportHistoryFailure() }
+        state.lastHistorySaveFailed = !history.save(record)
+        if state.lastHistorySaveFailed { reportHistoryFailure() }
     }
 
     func deleteComposerConversation(_ id: UUID, from state: QuickActionPanelState) {
@@ -865,6 +878,7 @@ final class QuickActionCoordinator {
         }
         guard id == state.historyID else { return }
         pendingSave?.cancel()
+        pendingSave = nil
         forgetComposer()
         halt()
         panels.dismiss(preservingDraft: false)
@@ -962,7 +976,8 @@ final class QuickActionCoordinator {
         guard state.action == .rewrite,
             let record = state.historyRecord()
         else { return }
-        guard history.save(record) else { return reportHistoryFailure() }
+        state.lastHistorySaveFailed = !history.save(record)
+        guard !state.lastHistorySaveFailed else { return reportHistoryFailure() }
         state.hasSavedHistory = true
     }
 
@@ -975,6 +990,7 @@ final class QuickActionCoordinator {
 
     private func savePendingInstruction(_ state: QuickActionPanelState) {
         pendingSave?.cancel()
+        pendingSave = nil
         guard state.action == .rewrite else { return }
         guard !state.isRunning else { return }
         let instruction = state.refinementInstruction.isEmpty
@@ -988,6 +1004,7 @@ final class QuickActionCoordinator {
         } else {
             saved = true
         }
+        state.lastHistorySaveFailed = !saved
         if !saved { reportHistoryFailure() }
     }
 

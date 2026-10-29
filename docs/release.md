@@ -111,6 +111,9 @@ Cancellation statuses for HUP, INT and TERM return without retrying. Network rea
 current shell and return captured stdout through `NETWORK_OUTPUT`. Signal traps around Bash waits
 stop the active command group and reap the supervisor, including during retry backoff.
 Builds and test commands use the same interruptible wait without timeouts or retries.
+After publication, a running Tinycast receives one updater notification through the same supervisor,
+with a 10-second timeout and no retries. Failure or timeout warns and preserves release success;
+Ctrl-C or TERM cancels the active notification command group.
 After publication, a failed cleanup
 ref lookup, cleanup fetch or release URL lookup warns and leaves the remote sync branch in place.
 The script still exits successfully and prints the known release tag URL.

@@ -70,6 +70,9 @@ echo "Release metadata and Composer deletion/ownership regression fixtures passe
 fixture="$scratch/network"
 mkdir -p "$fixture/bin" "$fixture/Scripts" "$fixture/Tests"
 cp "$root/Scripts/release-local.sh" "$root/Scripts/release-metadata.sh" "$fixture/Scripts/"
+sed 's|/usr/bin/swift|swift|g' "$fixture/Scripts/release-local.sh" > "$fixture/script.tmp"
+mv "$fixture/script.tmp" "$fixture/Scripts/release-local.sh"
+printf '#!/bin/bash\nexit "${NOTIFY_RUNNING:-1}"\n' > "$fixture/bin/pgrep"
 for script in check-composer-retention.sh run-tests.sh lint.sh verify-signature.sh; do
     printf '#!/bin/bash\nexit 0\n' > "$fixture/Scripts/$script"
 done
@@ -89,6 +92,7 @@ if [ "$command $1" = 'git ls-remote' ]; then key="$key $3"; fi
 if [ "$command $1" = 'git fetch' ] && [[ "$*" = *automation/upstream-sync* ]]; then key='git fetch cleanup'; fi
 if [ "$command $1" = 'git push' ] && [[ "$*" = *--delete* ]]; then key='git push delete'; fi
 printf '%s\n' "$key" >> "$FIXTURE/calls"
+if [ "$key" = "swift -e" ] && [ "${NOTIFY_FAILURE:-0}" = 1 ]; then exit 1; fi
 if [ "$key" = "$TARGET" ]; then
     count=0
     [ ! -f "$FIXTURE/count" ] || read -r count < "$FIXTURE/count"
@@ -127,13 +131,15 @@ case "$command $1" in
     'gh api') echo v0.11.19 ;;
     'gh release')
         case "$2" in
-            list) echo v0.11.18-composer.12 ;;
+            list) if [ "$MODE" = released ]; then echo v0.11.19-composer.12
+                  else echo v0.11.18-composer.12; fi ;;
             view) echo https://example.invalid/release ;;
         esac ;;
 esac
 STUB
 ln -s network-command "$fixture/bin/git"
 ln -s network-command "$fixture/bin/gh"
+ln -s network-command "$fixture/bin/swift"
 cat > "$fixture/bin/xcodebuild" <<'STUB'
 #!/bin/bash
 if [ "$1" = -version ]; then echo 'Xcode fixture'; exit; fi
@@ -295,12 +301,14 @@ for target in 'git fetch' 'gh api repos/abue-ammar/tinycast/releases/latest'; do
     done
 done
 # Use a separate session to exercise Ctrl-C without signalling the test runner.
-for phase in capture backoff tests build; do
+for phase in capture backoff tests build notify; do
     for signal in INT TERM; do
         rm -f "$fixture/count" "$fixture/calls" "$fixture/pids"
         target='gh api repos/abue-ammar/tinycast/releases/latest'
         mode=hang
+        export NOTIFY_RUNNING=1
         case "$phase" in
+            notify) target="swift -e"; export NOTIFY_RUNNING=0 ;;
             backoff) mode=always ;;
             tests)
                 target='network-command slow'
@@ -361,6 +369,7 @@ for phase in capture backoff tests build; do
         fi
     done
 done
+unset NOTIFY_RUNNING
 echo 'Release network retry, timeout cleanup and single-attempt publication fixtures passed.'
 
 # Cancel a suite owning a separate-session fixture, as the release supervisor does.
@@ -385,3 +394,94 @@ if [ -z "${TINYCAST_TEST_CANCEL_PROBE:-}" ]; then
     test -z "$(find "$scratch/cancel-tmp" -name 'tinycast-release-test.*' -o -name 'tinycast-network.*')"
     echo 'Suite cancellation removed temporary files and reaped separate-session children.'
 fi
+
+# BEGIN PR 22: unattended release notification fixtures
+# Exercise only the post-publish block, with both OS commands replaced by fixtures.
+python3 - "$root" "$scratch" <<'PYTEST'
+from pathlib import Path
+import sys
+root, scratch = map(Path, sys.argv[1:])
+source = (root / "Scripts/release-local.sh").read_text()
+start = source.index('    # A notification never launches')
+end = source.index('    step "Cleaning up"', start)
+assert source.rindex('gh release create', 0, start) < start
+assert source.rindex('if $DRY_RUN; then', 0, start) < source.rindex('exit 0', 0, start)
+assert 'Nothing to' in source or 'nothing' in source.lower()
+helpers = source[source.index('run_interruptible() {'):source.index('# The whole log')]
+block = helpers + source[start:end].replace('/usr/bin/swift', str(scratch / 'notify-swift'))
+(scratch / 'notify.sh').write_text(block)
+PYTEST
+step() { :; }
+pgrep() { return "${mock_running:-0}"; }
+cat > "$scratch/notify-swift" <<'STUB'
+#!/bin/bash
+echo trigger >> "$NOTIFY_EVENTS"
+exit "${mock_failure:-0}"
+STUB
+chmod +x "$scratch/notify-swift"
+export NOTIFY_EVENTS="$scratch/events" mock_failure=0
+echo publish > "$scratch/events"
+source "$scratch/notify.sh"
+test "$(cat "$scratch/events")" = $'publish\ntrigger'
+mock_failure=1
+source "$scratch/notify.sh" 2> "$scratch/notify-warning"
+grep -q "Warning: updater notification failed" "$scratch/notify-warning"
+mock_running=1
+before="$(wc -l < "$scratch/events")"
+source "$scratch/notify.sh"
+test "$(wc -l < "$scratch/events")" = "$before"
+# No dry-run or no-change branch may reach publication or the notification block.
+python3 - "$root/Scripts/release-local.sh" <<'PYTEST'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+main = source[source.index('main() {'):]
+publish = main.index('    gh release create')
+notify = main.index('    # A notification never launches')
+assert main.index('        echo "✓ Dry run complete"\n        exit 0') < publish < notify
+# Existing no-change exit precedes the build and publication.
+assert main.index('exit 0') < main.index('step "Building the signed Release app"')
+PYTEST
+echo "Release notification fixtures passed."
+
+
+# Exercise the complete post-publication path, including warn-and-continue cleanup.
+export NOTIFY_RUNNING=0
+for mode in once always hang; do
+    rm -f "$fixture/count" "$fixture/calls" "$fixture/pids"
+    started=$SECONDS
+    PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET='swift -e' MODE="$mode" \
+        TINYCAST_NETWORK_TIMEOUT=1 TINYCAST_NETWORK_RETRY_DELAYS='0 0' \
+        /bin/bash "$fixture/Scripts/release-local.sh" > "$fixture/log" 2>&1
+    test "$(cat "$fixture/count")" = 1
+    grep -q 'Warning: updater notification failed' "$fixture/log"
+    grep -q '✓ Released:' "$fixture/log"
+    if grep -q 'Network retry:' "$fixture/log"; then exit 1; fi
+    python3 - "$fixture/calls" <<'PYTEST'
+from pathlib import Path
+import sys
+calls = Path(sys.argv[1]).read_text().splitlines()
+assert calls.index('gh release create') < calls.index('swift -e') < calls.index('gh release view')
+PYTEST
+    if [ "$mode" = hang ]; then
+        test "$((SECONDS - started))" -lt 16
+        while read -r pid; do
+            if kill -0 "$pid" 2>/dev/null; then echo "Notification child survived: $pid"; exit 1; fi
+        done < "$fixture/pids"
+    fi
+done
+for args in '--dry-run' ''; do
+    rm -f "$fixture/calls"
+    PATH="$fixture/bin:$PATH" FIXTURE="$fixture" TARGET=none MODE=released \
+        TINYCAST_NETWORK_TIMEOUT=1 TINYCAST_NETWORK_RETRY_DELAYS='0 0' \
+        /bin/bash "$fixture/Scripts/release-local.sh" $args > "$fixture/log" 2>&1
+    if grep -q '^swift -e$' "$fixture/calls"; then exit 1; fi
+done
+NOTIFY_FAILURE=1 run_network_fixture 'gh release view' always 0
+grep -q 'Warning: updater notification failed' "$fixture/log"
+run_network_fixture 'gh release create' always 1 'Publishing v'
+if grep -q '^swift -e$' "$fixture/calls"; then exit 1; fi
+unset NOTIFY_RUNNING
+echo 'Release notification timeout, publish ordering and cancellation fixtures passed.'
+
+# END PR 22: unattended release notification fixtures

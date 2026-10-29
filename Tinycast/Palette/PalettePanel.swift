@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-final class PalettePanel: NSPanel {
+final class PalettePanel: NSPanel, UpdateWorkWindow {
     enum HeaderFieldBoundary {
         case leading
         case trailing

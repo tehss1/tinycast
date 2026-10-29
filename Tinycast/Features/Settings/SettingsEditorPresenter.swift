@@ -101,7 +101,7 @@ final class SettingsEditorPresenter: NSObject {
         }
     }
 
-    private final class Panel: NSPanel {
+    private final class Panel: NSPanel, UpdateWorkWindow {
         var cancelHandler: (() -> Void)?
 
         init(content: NSView, cornerRadius: CGFloat) {
@@ -145,7 +145,7 @@ final class SettingsEditorPresenter: NSObject {
         }
     }
 
-    private final class BlockingPanel: NSPanel {
+    private final class BlockingPanel: NSPanel, UpdateWorkWindow {
         private weak var target: NSWindow?
 
         init(target: NSWindow, cornerRadius: CGFloat) {

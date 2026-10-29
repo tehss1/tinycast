@@ -35,7 +35,11 @@ struct GeneralSettingsView: View {
                 }
                 Toggle(isOn: $settings.automaticallyCheckForUpdates) {
                     SettingsRowTitle(.generalGeneral, "Automatically check for updates")
-                    Text("You can still check for updates manually.")
+                    if ReleaseFeed.repository == "tehss1/tinycast" {
+                        Text("Local releases install automatically when Tinycast is idle.")
+                    } else {
+                        Text("You can still check for updates manually.")
+                    }
                 }
                 if ReleaseFeed.repository != ReleaseFeed.officialRepository {
                     UpdateTokenRow()

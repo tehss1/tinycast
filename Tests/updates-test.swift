@@ -16,7 +16,86 @@ struct UpdatesTests {
         }
     }
 
-    static func main() {
+    static func guardsReleaseTriggers() {
+        let now = Date(timeIntervalSince1970: 1000)
+        func accepts(
+            repository: String = "tehss1/tinycast", channel: ReleaseChannel = .stable,
+            path: String = "/Applications/Tinycast.app", enabled: Bool = true,
+            inFlight: Bool = false, lastAttempt: Date? = nil
+        ) -> Bool {
+            ReleaseUpdatePolicy.accepts(
+                repository: repository, channel: channel, bundlePath: path, enabled: enabled,
+                inFlight: inFlight, now: now, lastAttempt: lastAttempt)
+        }
+        expect(accepts(), "fork installed release accepts trigger")
+        expect(!accepts(repository: "abue-ammar/tinycast"), "upstream ignores trigger")
+        expect(!accepts(channel: .development), "Dev ignores trigger")
+        expect(!accepts(channel: .beta), "beta ignores trigger")
+        expect(!accepts(path: "/tmp/Tinycast.app"), "other copies ignore trigger")
+        expect(!accepts(enabled: false), "opt out ignores trigger")
+        expect(!accepts(inFlight: true), "duplicate trigger ignored")
+        expect(!accepts(lastAttempt: now), "burst throttled")
+        expect(accepts(lastAttempt: now.addingTimeInterval(-60)), "later check allowed")
+        func canInstall(
+            running: AppVersion? = AppVersion("0.12.1-composer.23"),
+            candidate: AppVersion? = AppVersion("0.12.1-composer.24"),
+            activity: UpdateActivity = UpdateActivity(), busy: Bool = false, visible: Bool = false
+        ) -> Bool {
+            ReleaseUpdatePolicy.canInstall(
+                running: running, candidate: candidate, activity: activity,
+                quickActionBusy: busy, hasVisibleWindows: visible)
+        }
+        expect(canInstall(), "newer release while idle")
+        expect(!canInstall(running: nil), "unknown running version refused")
+        expect(!canInstall(candidate: nil), "unknown candidate refused")
+        expect(!canInstall(candidate: AppVersion("0.12.1-composer.23")), "equal refused")
+        expect(!canInstall(candidate: AppVersion("0.12.1-composer.22")), "older refused")
+        expect(!canInstall(busy: true), "generation delivery and pending save defer")
+        expect(!canInstall(visible: true), "Composer Quick Action and other windows defer")
+        let activities = [
+            UpdateActivity(isExpandingSnippet: true), UpdateActivity(isRunningExtension: true),
+            UpdateActivity(isUninstalling: true), UpdateActivity(isRecordingHotKey: true),
+            UpdateActivity(isShowingDialog: true), UpdateActivity(isPaletteVisible: true)
+        ]
+        for activity in activities {
+            expect(!canInstall(activity: activity), "every tracked interruption defers")
+        }
+        expect(canInstall(), "closing panels and completing work permits install")
+    }
+
+    static func manualTakeover() async {
+        var ownerFinished = false
+        let pending = Task { @MainActor in
+            do { try await Task.sleep(for: .seconds(3600)) } catch {}
+            ownerFinished = true
+        }
+        await UpdateManualOwnership.takeOver(from: pending)
+        expect(pending.isCancelled && ownerFinished, "manual control cancels and awaits unattended owner")
+        var installation = UpdateInstallationState()
+        let version = AppVersion("0.12.1-composer.24")!
+        expect(installation.needsInstallation, "candidate initially needs download")
+        installation.didReplace(version)
+        expect(installation.readyToRelaunch && installation.installedVersion == version,
+            "replacement records candidate and pending relaunch immediately")
+        await UpdateManualOwnership.takeOver(from: nil)
+        expect(!installation.needsInstallation, "manual install adopts replacement without download")
+        expect(!ReleaseUpdatePolicy.accepts(repository: "tehss1/tinycast", channel: .stable,
+            bundlePath: "/Applications/Tinycast.app", enabled: true,
+            inFlight: installation.readyToRelaunch, now: Date(), lastAttempt: nil),
+            "second notification cannot reinstall installed candidate")
+        for kind in UpdateWindowKind.allCases {
+            expect(UpdateWindowKind.blocksUpdate([kind]) == (kind == .work),
+                "only explicit work windows block")
+        }
+        expect(!UpdateWindowKind.blocksUpdate([.statusItemHost, .passiveHUD]),
+            "status hosts and passive HUDs allow idle update")
+        expect(UpdateWindowKind.blocksUpdate([.statusItemHost, .work, .passiveHUD]),
+            "nonactivating work panel still blocks among passive windows")
+    }
+
+    static func main() async {
+        await manualTakeover()
+        guardsReleaseTriggers()
         parsesVersions()
         ordersVersions()
         roundTripsVersionsThroughJSON()
