@@ -85,13 +85,15 @@ the supported range. Floating and maximized windows do nothing. Detection allows
 edge drift, including custom sizes. The mover infers the ratio from the current divider rather
 than requiring a prior split command.
 
-For adjustments, `WindowMover` searches `WindowInventory` for every resizable standard window on
-the same display, aligned to the opposite edge and adjacent within 12 points of the configured gap,
-so windows stacked behind the visible one follow the divider too. Each fills the remainder after the focused window accepts its requested frame within two points.
-The ratio persists only after that readback. Application minimum sizes can still refuse a neighbour
-resize, so exact tiling depends on both applications accepting their slots. Restore records both
-windows through the normal `WindowActionMemory` path. Explicit placement commands move only the
-focused window. Geometry and detection live in `WindowPlacementEngine.Split` and are checked by
+For adjustments, `WindowMover` searches `WindowInventory` for every resizable standard window on the
+same display, aligned to the opposite edge and adjacent within 12 points of the configured gap, so
+windows stacked behind the visible one follow the divider too. After the write, the mover reads the
+focused window back. An application minimum width can stop it short of the step, so the divider is
+wherever it actually landed: each neighbour fills from one gap past that edge to the far canvas edge
+(`Split.fill`), and the persisted ratio is the landed divider snapped to tenths. A neighbour's own
+minimum width can still refuse its slot. Restore records both windows through the normal
+`WindowActionMemory` path. Explicit placement commands move only the focused window. Geometry and
+detection live in `WindowPlacementEngine.Split` and are checked by
 `Tests/window-command-test.swift`.
 
 ## Coordinate space

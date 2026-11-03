@@ -139,6 +139,18 @@ struct WindowCommandTests {
         expect(nextRight.minX - nextLeft.maxX == 10, "neighbour fills remainder")
         expect(nextLeft.width - left.width == canvas.width * 0.1, "ten percent canvas step")
         expect(Split.ratio(of: right, side: .right, canvas: canvas, gap: 10) == 0.4, "infer right ratio")
+        // A right window whose app stops it short of a 30% step: the left neighbour meets it exactly.
+        let stopped = CGRect(x: canvas.maxX - 500, y: canvas.minY, width: 500, height: canvas.height)
+        let filled = Split.fill(opposite: stopped, side: .right, canvas: canvas, gap: 10)
+        expectRect(filled, CGRect(x: canvas.minX, y: canvas.minY, width: canvas.width - 510, height: canvas.height),
+                   "neighbour fills to a short-stopped edge")
+        expect(stopped.minX - filled.maxX == 10, "short-stopped split keeps one gap")
+        let leftStopped = CGRect(x: canvas.minX, y: canvas.minY, width: 500, height: canvas.height)
+        let rightFilled = Split.fill(opposite: leftStopped, side: .left, canvas: canvas, gap: 10)
+        expect(rightFilled.minX - leftStopped.maxX == 10 && rightFilled.maxX == canvas.maxX,
+               "right neighbour fills to the far edge")
+        expectRect(Split.fill(opposite: left, side: .left, canvas: canvas, gap: 10), right,
+                   "fill matches the split frame when the step lands")
         expect(length(.leftSplit, .displays) == 1, "split never cycles")
         let screen = WindowPlacementEngine.Screen(
             id: 7, frame: canvas.insetBy(dx: -10, dy: -10),

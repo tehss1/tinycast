@@ -121,6 +121,14 @@ enum WindowPlacementEngine {
             return normalized((divider - canvas.minX) / canvas.width)
         }
 
+        /// The opposite side's slot: from one gap past `frame`'s inner edge to the far canvas edge.
+        /// An app's minimum size can stop `frame` short of its step, so the divider is where it landed.
+        static func fill(opposite frame: CGRect, side: Side, canvas: CGRect, gap: CGFloat) -> CGRect {
+            let left = side == .left ? frame.maxX + gap : canvas.minX
+            let right = side == .left ? canvas.maxX : frame.minX - gap
+            return rounded(CGRect(x: left, y: canvas.minY, width: max(0, right - left), height: canvas.height))
+        }
+
         static func isNeighbour(_ other: CGRect, of frame: CGRect, side: Side,
                                 canvas: CGRect, gap: CGFloat) -> Bool {
             let opposite: Side = side == .left ? .right : .left
