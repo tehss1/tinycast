@@ -158,12 +158,16 @@ final class WindowMover {
     /// Runs `command` against `target`'s focused window, returning whether anything changed.
     @discardableResult
     func perform(
-        _ command: WindowCommand.ID, target: WindowTarget?, gap: CGFloat, cycle: WindowCycle
+        _ command: WindowCommand.ID, target: WindowTarget?, gap: CGFloat, cycle: WindowCycle,
+        splitRatio: CGFloat = 0.5, saveSplitRatio: (CGFloat) -> Void = { _ in }
     ) -> Bool {
         guard let catalogued = WindowCommandCatalog.command(id: command),
             let focused = focusedWindow(of: target)
         else { return false }
 
+        if [.leftSplit, .rightSplit, .widenSplit, .narrowSplit].contains(command) {
+            return performSplit(command, focused: focused, gap: gap, ratio: splitRatio, save: saveSplitRatio)
+        }
         if catalogued.kind == .fullscreen {
             guard toggleFullScreen(focused.surface) else { return false }
             // The size chain is moot, but the pre-Tinycast frame is still the Restore target.
@@ -220,17 +224,31 @@ final class WindowMover {
         }
     }
 
+    @MainActor
+    private struct PlacementContext {
+        let geometry: AXGeometry
+        let screens: [WindowPlacementEngine.Screen]
+
+        init() {
+            let nativeScreens = NSScreen.screens
+            geometry = AXGeometry(screens: nativeScreens)
+            screens = AXScreens.converted(nativeScreens, geometry: geometry)
+        }
+    }
+
     /// The one decide → resolve → write → commit sequence every geometry press runs through.
     private func place(
         _ focused: FocusedWindow, command: WindowCommand.ID?, gap: CGFloat,
-        cycleLength: ([WindowPlacementEngine.Screen]) -> Int, resolve: Resolver
+        cycleLength: ([WindowPlacementEngine.Screen]) -> Int,
+        context: PlacementContext? = nil, resolve: Resolver
     ) -> Bool {
         let surface = focused.surface
-        let geometry = AXGeometry(screens: NSScreen.screens)
+        let context = context ?? PlacementContext()
+        let geometry = context.geometry
         // Tiling a natively fullscreen window fights the window server; leave it alone.
         guard !surface.isFullScreen, let current = surface.frame(in: geometry) else { return false }
 
-        let screens = AXScreens.converted(NSScreen.screens, geometry: geometry)
+        let screens = context.screens
         guard let host = WindowPlacementEngine.screen(containing: current, in: screens) else {
             return false
         }
@@ -268,6 +286,84 @@ final class WindowMover {
             key: focused.key, command: command, decision: decision, appliedFrame: applied,
             screenID: landedOn, now: now)
         return !applied.equalTo(current)
+    }
+
+    private func performSplit(
+        _ command: WindowCommand.ID, focused: FocusedWindow, gap: CGFloat,
+        ratio: CGFloat, save: (CGFloat) -> Void
+    ) -> Bool {
+        guard focused.surface.canResize else { return false }
+        let context = PlacementContext()
+        let adjusting = command == .widenSplit || command == .narrowSplit
+        var newRatio = ratio
+        var expected: CGRect?
+        var neighbour: (FocusedWindow, CGRect, WindowPlacementEngine.Placement)?
+        let changed = place(
+            focused, command: command, gap: gap, cycleLength: { _ in 1 }, context: context
+        ) { current, screens, _ in
+            guard let host = WindowPlacementEngine.screen(containing: current, in: screens) else { return nil }
+            let gap = WindowPlacementEngine.sanitizedGap(gap, in: host.visibleFrame)
+            let canvas = WindowPlacementEngine.canvas(host.visibleFrame, gap: gap)
+            guard canvas.width > 0, canvas.height > 0 else { return nil }
+            let side: WindowPlacementEngine.Split.Side
+            if adjusting {
+                guard let detected = WindowPlacementEngine.Split.side(of: current, canvas: canvas, gap: gap)
+                else { return nil }
+                side = detected
+                newRatio = WindowPlacementEngine.Split.stepped(
+                    WindowPlacementEngine.Split.ratio(of: current, side: side, canvas: canvas, gap: gap),
+                    side: side, wider: command == .widenSplit)
+                let inventory = WindowInventory.snapshot(positionableOnly: true)
+                for window in inventory.windows {
+                    guard WindowPlacementEngine.screen(containing: window.frame, in: screens)?.id == host.id,
+                        WindowPlacementEngine.Split.isNeighbour(
+                            window.frame, of: current, side: side, canvas: canvas, gap: gap),
+                        let element = inventory.elements[window.handle]
+                    else { continue }
+                    let key = WindowKey.external(ExternalKey(pid: element.app.processIdentifier, element: element.window))
+                    guard key != focused.key else { continue }
+                    let other = FocusedWindow(
+                        surface: .external(application: element.application, window: element.window), key: key)
+                    guard other.surface.canResize else { continue }
+                    let opposite: WindowPlacementEngine.Split.Side = side == .left ? .right : .left
+                    neighbour = (other, window.frame, Self.splitPlacement(side: opposite, ratio: newRatio,
+                                                          canvas: canvas, gap: gap, screenID: host.id))
+                    break
+                }
+            } else {
+                side = command == .leftSplit ? .left : .right
+            }
+            let placement = Self.splitPlacement(side: side, ratio: newRatio,
+                                                canvas: canvas, gap: gap, screenID: host.id)
+            expected = placement.frame
+            return placement
+        }
+        guard let expected, let actual = focused.surface.frame(in: context.geometry),
+            abs(actual.minX - expected.minX) <= 2, abs(actual.maxX - expected.maxX) <= 2,
+            abs(actual.minY - expected.minY) <= 2, abs(actual.maxY - expected.maxY) <= 2
+        else { return changed }
+        if adjusting {
+            save(newRatio)
+            if let (other, original, placement) = neighbour {
+                _ = place(other, command: nil, gap: gap, cycleLength: { _ in 1 }, context: context) { current, _, _ in
+                    guard abs(current.minX - original.minX) <= 2, abs(current.minY - original.minY) <= 2,
+                        abs(current.width - original.width) <= 2, abs(current.height - original.height) <= 2
+                    else { return nil }
+                    return placement
+                }
+            }
+        }
+        return changed
+    }
+
+    private static func splitPlacement(
+        side: WindowPlacementEngine.Split.Side, ratio: CGFloat, canvas: CGRect,
+        gap: CGFloat, screenID: Int
+    ) -> WindowPlacementEngine.Placement {
+        WindowPlacementEngine.Placement(
+            frame: WindowPlacementEngine.Split.frame(side: side, ratio: ratio, canvas: canvas, gap: gap),
+            screenID: screenID,
+            anchor: .init(horizontal: side == .left ? .min : .max, vertical: .min), resizes: true)
     }
 
     // MARK: - Fullscreen

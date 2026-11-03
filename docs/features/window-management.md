@@ -2,7 +2,7 @@
 
 Rectangle-style window actions — halves, quarters, fourths, thirds, sizing, nudging, display moves,
 native fullscreen and Space switching — searchable in the palette and bindable to global shortcuts.
-35 commands, plus any number of user-defined [custom sizes](#custom-sizes), no new dependencies and
+39 commands, plus any number of user-defined [custom sizes](#custom-sizes), no new dependencies and
 no new permission: they reuse the Accessibility grant clipboard paste already needs.
 
 Ships **off**. Settings › Window Management is the switch, and while it is off there are no launcher
@@ -65,8 +65,34 @@ overlay rather than in Foundation.
 
 Adding a command is four edits in `WindowCommand.swift` (a case in `ID`, plus `name`, `symbol` and
 `group` arms), an arm in `WindowPlacementEngine.placement` or `tileFractions`, and bumping
-`commands.count == 35` and its group count in the harness. A command opening a new family also needs
+`commands.count == 39` and its group count in the harness. A command opening a new family also needs
 a `Group` case and its `title` arm; `ID.allCases` stays in group order.
+
+## Adjustable split
+
+`Left split` and `Right split` place a full-height window on its current display using a global
+left-side ratio. `Widen split` and `Narrow split` change the focused side by ten percentage points
+of the gap-inset canvas, snapping the ratio to tenths between 0.2 and 0.8. The right side uses the
+complement. Both keep the outer edge and leave one configured gap at the divider.
+
+The global preference `windowManagementSplitRatio` defaults to 0.5 and mirrors to
+`windowManagement.splitRatio` in settings.json. One ratio keeps keyboard placement consistent
+across displays without storing display identities. The four commands ship without shortcuts and
+never cycle; existing halves retain their configured repeat behavior.
+
+Adjustments require a full-height window aligned to a left or right canvas edge, with a width in
+the supported range. Floating and maximized windows do nothing. Detection allows 12 points of
+edge drift, including custom sizes. The mover infers the ratio from the current divider rather
+than requiring a prior split command.
+
+For adjustments, `WindowMover` searches `WindowInventory` for one resizable standard window on the
+same display, aligned to the opposite edge and adjacent within 12 points of the configured gap.
+It fills the remainder after the focused window accepts its requested frame within two points.
+The ratio persists only after that readback. Application minimum sizes can still refuse a neighbour
+resize, so exact tiling depends on both applications accepting their slots. Restore records both
+windows through the normal `WindowActionMemory` path. Explicit placement commands move only the
+focused window. Geometry and detection live in `WindowPlacementEngine.Split` and are checked by
+`Tests/window-command-test.swift`.
 
 ## Coordinate space
 

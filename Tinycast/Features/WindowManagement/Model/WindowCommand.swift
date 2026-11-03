@@ -6,6 +6,10 @@ struct WindowCommand: Identifiable, Hashable, Sendable {
         case rightHalf = "right-half"
         case topHalf = "top-half"
         case bottomHalf = "bottom-half"
+        case leftSplit = "left-split"
+        case rightSplit = "right-split"
+        case widenSplit = "widen-split"
+        case narrowSplit = "narrow-split"
         case topLeftQuarter = "top-left-quarter"
         case topRightQuarter = "top-right-quarter"
         case bottomLeftQuarter = "bottom-left-quarter"
@@ -120,6 +124,10 @@ enum WindowCommandCatalog {
 
     private static func name(for id: WindowCommand.ID) -> LocalizedStringResource {
         switch id {
+        case .leftSplit: return "Left split"
+        case .rightSplit: return "Right split"
+        case .widenSplit: return "Widen split"
+        case .narrowSplit: return "Narrow split"
         case .leftHalf: return "Left Half"
         case .rightHalf: return "Right Half"
         case .topHalf: return "Top Half"
@@ -160,6 +168,10 @@ enum WindowCommandCatalog {
 
     private static func symbol(for id: WindowCommand.ID) -> String {
         switch id {
+        case .leftSplit: return "rectangle.lefthalf.filled"
+        case .rightSplit: return "rectangle.righthalf.filled"
+        case .widenSplit: return "arrow.left.and.right"
+        case .narrowSplit: return "arrow.right.and.line.vertical.and.arrow.left"
         case .leftHalf: return "rectangle.lefthalf.filled"
         case .rightHalf: return "rectangle.righthalf.filled"
         case .topHalf: return "rectangle.tophalf.filled"
@@ -207,7 +219,8 @@ enum WindowCommandCatalog {
 
     private static func group(for id: WindowCommand.ID) -> WindowCommand.Group {
         switch id {
-        case .leftHalf, .rightHalf, .topHalf, .bottomHalf:
+        case .leftHalf, .rightHalf, .topHalf, .bottomHalf,
+            .leftSplit, .rightSplit, .widenSplit, .narrowSplit:
             return .halves
         case .topLeftQuarter, .topRightQuarter, .bottomLeftQuarter, .bottomRightQuarter:
             return .quarters

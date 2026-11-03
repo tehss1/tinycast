@@ -85,6 +85,7 @@ enum SettingsFileKey: String, CaseIterable, Sendable {
     case windowManagementEnabled = "windowManagement.enabled"
     case windowManagementShowInLauncher = "windowManagement.showInLauncher"
     case windowGap = "windowManagement.gap"
+    case windowSplitRatio = "windowManagement.splitRatio"
     case windowCycle = "windowManagement.cycle"
     case windowLayoutsShowInLauncher = "windowManagement.layoutsShowInLauncher"
     case windowRoomsShowInLauncher = "windowManagement.roomsShowInLauncher"

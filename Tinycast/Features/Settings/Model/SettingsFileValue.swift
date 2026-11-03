@@ -53,6 +53,15 @@ extension Int: SettingsFileValue {
     var settingsJSON: SettingsFileJSON { .number(Double(self)) }
 }
 
+extension Double: SettingsFileValue {
+    init?(settingsJSON: SettingsFileJSON) {
+        guard case .number(let value) = settingsJSON, value.isFinite else { return nil }
+        self = value
+    }
+
+    var settingsJSON: SettingsFileJSON { .number(self) }
+}
+
 extension String: SettingsFileValue {
     init?(settingsJSON: SettingsFileJSON) {
         guard let value = settingsJSON.string else { return nil }
