@@ -85,9 +85,9 @@ the supported range. Floating and maximized windows do nothing. Detection allows
 edge drift, including custom sizes. The mover infers the ratio from the current divider rather
 than requiring a prior split command.
 
-For adjustments, `WindowMover` searches `WindowInventory` for one resizable standard window on the
-same display, aligned to the opposite edge and adjacent within 12 points of the configured gap.
-It fills the remainder after the focused window accepts its requested frame within two points.
+For adjustments, `WindowMover` searches `WindowInventory` for every resizable standard window on
+the same display, aligned to the opposite edge and adjacent within 12 points of the configured gap,
+so windows stacked behind the visible one follow the divider too. Each fills the remainder after the focused window accepts its requested frame within two points.
 The ratio persists only after that readback. Application minimum sizes can still refuse a neighbour
 resize, so exact tiling depends on both applications accepting their slots. Restore records both
 windows through the normal `WindowActionMemory` path. Explicit placement commands move only the

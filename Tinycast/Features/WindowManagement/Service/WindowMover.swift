@@ -297,7 +297,8 @@ final class WindowMover {
         let adjusting = command == .widenSplit || command == .narrowSplit
         var newRatio = ratio
         var expected: CGRect?
-        var neighbour: (FocusedWindow, CGRect, WindowPlacementEngine.Placement)?
+        // Every window docked against the divider follows it, not just the frontmost one.
+        var neighbours: [(FocusedWindow, CGRect, WindowPlacementEngine.Placement)] = []
         let changed = place(
             focused, command: command, gap: gap, cycleLength: { _ in 1 }, context: context
         ) { current, screens, _ in
@@ -326,9 +327,8 @@ final class WindowMover {
                         surface: .external(application: element.application, window: element.window), key: key)
                     guard other.surface.canResize else { continue }
                     let opposite: WindowPlacementEngine.Split.Side = side == .left ? .right : .left
-                    neighbour = (other, window.frame, Self.splitPlacement(side: opposite, ratio: newRatio,
-                                                          canvas: canvas, gap: gap, screenID: host.id))
-                    break
+                    neighbours.append((other, window.frame, Self.splitPlacement(side: opposite, ratio: newRatio,
+                                                          canvas: canvas, gap: gap, screenID: host.id)))
                 }
             } else {
                 side = command == .leftSplit ? .left : .right
@@ -344,7 +344,7 @@ final class WindowMover {
         else { return changed }
         if adjusting {
             save(newRatio)
-            if let (other, original, placement) = neighbour {
+            for (other, original, placement) in neighbours {
                 _ = place(other, command: nil, gap: gap, cycleLength: { _ in 1 }, context: context) { current, _, _ in
                     guard abs(current.minX - original.minX) <= 2, abs(current.minY - original.minY) <= 2,
                         abs(current.width - original.width) <= 2, abs(current.height - original.height) <= 2
