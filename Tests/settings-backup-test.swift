@@ -25,6 +25,8 @@ struct SettingsBackupTest {
         let allKeys = AppSettingsKey.allCases.map(\.rawValue)
         let mirroredKeys = mirrored.values.map(\.rawValue)
 
+        check("split ratio rides the settings backup", mirrored["windowSplitRatio"] == .windowSplitRatio)
+
         let uncovered = allKeys.filter { !mirroredKeys.contains($0) && excluded[$0] == nil }
         check(
             naming("every AppSettings key is backed up or deliberately excluded", uncovered),

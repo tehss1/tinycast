@@ -48,6 +48,7 @@ enum WindowPlacementEngine {
         var windowFrame: CGRect
         var screens: [Screen]
         var gap: CGFloat
+        var splitRatio: CGFloat
         /// Cycle position, supplied by `WindowActionMemory` so the geometry itself stays stateless.
         var step: Int
         var cycle: WindowCycle
@@ -61,11 +62,13 @@ enum WindowPlacementEngine {
         init(
             command: WindowCommand.ID, windowFrame: CGRect, screens: [Screen], gap: CGFloat = 0,
             step: Int = 0, cycle: WindowCycle = .off, originScreenID: Int? = nil,
-            restoreFrame: CGRect? = nil, lastTileCommand: WindowCommand.ID? = nil
+            restoreFrame: CGRect? = nil, lastTileCommand: WindowCommand.ID? = nil,
+            splitRatio: CGFloat = 0.5
         ) {
             self.command = command
             self.windowFrame = windowFrame
             self.screens = screens
+            self.splitRatio = splitRatio
             self.gap = gap
             self.step = step
             self.cycle = cycle
@@ -80,6 +83,51 @@ enum WindowPlacementEngine {
         var screenID: Int
         var anchor: Anchor
         var resizes: Bool
+    }
+
+    enum Split {
+        enum Side { case left, right }
+
+        static func normalized(_ ratio: CGFloat) -> CGFloat {
+            guard ratio.isFinite else { return 0.5 }
+            return min(0.8, max(0.2, (ratio * 10).rounded() / 10))
+        }
+
+        static func stepped(_ ratio: CGFloat, side: Side, wider: Bool) -> CGFloat {
+            normalized(normalized(ratio) + ((side == .left) == wider ? 0.1 : -0.1))
+        }
+
+        static func frame(side: Side, ratio: CGFloat, canvas: CGRect, gap: CGFloat) -> CGRect {
+            let divider = canvas.minX + canvas.width * normalized(ratio)
+            let left = side == .left ? canvas.minX : divider + gap / 2
+            let right = side == .left ? divider - gap / 2 : canvas.maxX
+            return rounded(CGRect(x: left, y: canvas.minY, width: right - left, height: canvas.height))
+        }
+
+        static func side(of frame: CGRect, canvas: CGRect, gap: CGFloat) -> Side? {
+            let tolerance: CGFloat = 12
+            guard abs(frame.minY - canvas.minY) <= tolerance,
+                abs(frame.maxY - canvas.maxY) <= tolerance,
+                frame.width >= canvas.width * 0.2 - gap / 2 - tolerance,
+                frame.width <= canvas.width * 0.8 - gap / 2 + tolerance
+            else { return nil }
+            if abs(frame.minX - canvas.minX) <= tolerance { return .left }
+            if abs(frame.maxX - canvas.maxX) <= tolerance { return .right }
+            return nil
+        }
+
+        static func ratio(of frame: CGRect, side: Side, canvas: CGRect, gap: CGFloat) -> CGFloat {
+            let divider = side == .left ? frame.maxX + gap / 2 : frame.minX - gap / 2
+            return normalized((divider - canvas.minX) / canvas.width)
+        }
+
+        static func isNeighbour(_ other: CGRect, of frame: CGRect, side: Side,
+                                canvas: CGRect, gap: CGFloat) -> Bool {
+            let opposite: Side = side == .left ? .right : .left
+            guard self.side(of: other, canvas: canvas, gap: gap) == opposite else { return false }
+            let distance = side == .left ? other.minX - frame.maxX : frame.minX - other.maxX
+            return abs(distance - gap) <= 12
+        }
     }
 
     // MARK: - Tuning
@@ -135,6 +183,22 @@ enum WindowPlacementEngine {
         let current = input.windowFrame
 
         switch input.command {
+        case .leftSplit, .rightSplit, .widenSplit, .narrowSplit:
+            let side: Split.Side
+            var ratio = input.splitRatio
+            if input.command == .leftSplit || input.command == .rightSplit {
+                side = input.command == .leftSplit ? .left : .right
+            } else {
+                guard let detected = Split.side(of: current, canvas: canvas, gap: gap) else { return nil }
+                side = detected
+                ratio = Split.stepped(Split.ratio(of: current, side: side, canvas: canvas, gap: gap),
+                                      side: side, wider: input.command == .widenSplit)
+            }
+            return Placement(
+                frame: Split.frame(side: side, ratio: ratio, canvas: canvas, gap: gap),
+                screenID: host.id,
+                anchor: Anchor(horizontal: side == .left ? .min : .max, vertical: .min), resizes: true)
+
         case .maximize:
             return Placement(
                 frame: canvas, screenID: host.id, anchor: .topLeading, resizes: true)

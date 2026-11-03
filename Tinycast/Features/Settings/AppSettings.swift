@@ -583,6 +583,10 @@ final class AppSettings {
         }
     }
 
+    var windowSplitRatio: Double {
+        didSet { defaults.set(windowSplitRatio, forKey: Key.windowSplitRatio.rawValue) }
+    }
+
     /// Points between tiled windows and the screen edge; `WindowPlacementEngine` caps it.
     var windowGap: Int {
         didSet { defaults.set(windowGap, forKey: Key.windowGap.rawValue) }
@@ -857,6 +861,8 @@ final class AppSettings {
         windowManagementShowInLauncher =
             defaults.object(forKey: Key.windowManagementShowInLauncher.rawValue) == nil
             || defaults.bool(forKey: Key.windowManagementShowInLauncher.rawValue)
+        windowSplitRatio = Double(WindowPlacementEngine.Split.normalized(
+            CGFloat(defaults.object(forKey: Key.windowSplitRatio.rawValue) as? Double ?? 0.5)))
         // Unset reads as 0, which is the intended default anyway — no gap.
         windowGap = defaults.integer(forKey: Key.windowGap.rawValue)
         windowCycle =

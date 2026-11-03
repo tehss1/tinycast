@@ -123,6 +123,10 @@ enum SettingsFileSchema {
             return bind(settings, \.windowGap) {
                 WindowPlacementEngine.gapRange.contains($0) ? $0 : nil
             }
+        case .windowSplitRatio:
+            return bind(settings, \.windowSplitRatio) {
+                (0.2...0.8).contains($0) ? Double(WindowPlacementEngine.Split.normalized(CGFloat($0))) : nil
+            }
         case .windowCycle: return bind(settings, \.windowCycle)
         case .windowLayoutsShowInLauncher: return bind(settings, \.windowLayoutsShowInLauncher)
         case .windowRoomsShowInLauncher: return bind(settings, \.windowRoomsShowInLauncher)

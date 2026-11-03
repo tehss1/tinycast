@@ -30,7 +30,8 @@ final class WindowCommandCoordinator {
         }
         windowMover.perform(
             id, target: handOffTarget(), gap: CGFloat(settings.windowGap),
-            cycle: settings.windowCycle)
+            cycle: settings.windowCycle, splitRatio: CGFloat(settings.windowSplitRatio),
+            saveSplitRatio: { self.settings.windowSplitRatio = Double($0) })
     }
 
     /// The same funnel for a custom size, so the feature switch gates it identically.

@@ -9,6 +9,10 @@ struct SettingsFileTest {
     static func main() async throws {
         testLayout()
         testValues()
+        check("split ratio key is in the mirror", SettingsFileKey.windowSplitRatio.rawValue == "windowManagement.splitRatio")
+        check("fractional preferences round trip", Double(settingsJSON: Double(0.4).settingsJSON) == 0.4)
+        check("fractional preferences reject text", Double(settingsJSON: .string("0.4")) == nil)
+        check("fractional preferences reject nonfinite values", Double(settingsJSON: .number(.nan)) == nil)
         testFormat()
         testParseIssues()
         try await testRepository()

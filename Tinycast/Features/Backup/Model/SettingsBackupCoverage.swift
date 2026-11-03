@@ -44,6 +44,7 @@ enum SettingsBackupCoverage {
         "menuSearchShowsAppleMenu": .menuSearchShowsAppleMenu,
         "windowManagementEnabled": .windowManagementEnabled,
         "windowManagementShowInLauncher": .windowManagementShowInLauncher,
+        "windowSplitRatio": .windowSplitRatio,
         "windowGap": .windowGap,
         "windowCycle": .windowCycle,
         "windowLayoutsShowInLauncher": .windowLayoutsShowInLauncher,

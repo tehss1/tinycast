@@ -94,6 +94,7 @@ struct WindowCommandTests {
     }
 
     static func main() {
+        testSplit()
         testCatalog()
         testConventionLock()
         testTiling()
@@ -113,11 +114,61 @@ struct WindowCommandTests {
         if failures > 0 { exit(1) }
     }
 
+    static func testSplit() {
+        typealias Split = WindowPlacementEngine.Split
+        let canvas = CGRect(x: -1430, y: 110, width: 1420, height: 880)
+        let left = Split.frame(side: .left, ratio: 0.4, canvas: canvas, gap: 10)
+        let right = Split.frame(side: .right, ratio: 0.4, canvas: canvas, gap: 10)
+        expectRect(left, CGRect(x: -1430, y: 110, width: 563, height: 880), "left split off origin")
+        expectRect(right, CGRect(x: -857, y: 110, width: 847, height: 880), "right split off origin")
+        expect(right.minX - left.maxX == 10, "split preserves inner gap")
+        expect(Split.stepped(0.4, side: .left, wider: true) == 0.5, "left widen")
+        expect(Split.stepped(0.4, side: .right, wider: true) == 0.3, "right widen")
+        expect(Split.stepped(0.4, side: .left, wider: false) == 0.3, "left narrow")
+        expect(Split.stepped(0.4, side: .right, wider: false) == 0.5, "right narrow")
+        expect(Split.stepped(0.8, side: .left, wider: true) == 0.8, "upper clamp")
+        expect(Split.stepped(0.2, side: .left, wider: false) == 0.2, "lower clamp")
+        expect(Split.normalized(0.43) == 0.4 && Split.normalized(.nan) == 0.5, "snap and invalid ratio")
+        expect(Split.isNeighbour(right, of: left, side: .left, canvas: canvas, gap: 10), "adjacent neighbour")
+        expect(!Split.isNeighbour(right.offsetBy(dx: 30, dy: 0), of: left,
+                                  side: .left, canvas: canvas, gap: 10), "reject separated window")
+        expect(Split.side(of: canvas, canvas: canvas, gap: 10) == nil, "maximized is no-op")
+        let nextLeft = Split.frame(side: .left, ratio: 0.5, canvas: canvas, gap: 10)
+        let nextRight = Split.frame(side: .right, ratio: 0.5, canvas: canvas, gap: 10)
+        expect(nextLeft.minX == left.minX && nextRight.maxX == right.maxX, "outer edges stay put")
+        expect(nextRight.minX - nextLeft.maxX == 10, "neighbour fills remainder")
+        expect(nextLeft.width - left.width == canvas.width * 0.1, "ten percent canvas step")
+        expect(Split.ratio(of: right, side: .right, canvas: canvas, gap: 10) == 0.4, "infer right ratio")
+        expect(length(.leftSplit, .displays) == 1, "split never cycles")
+        let screen = WindowPlacementEngine.Screen(
+            id: 7, frame: canvas.insetBy(dx: -10, dy: -10),
+            visibleFrame: canvas.insetBy(dx: -10, dy: -10))
+        let placed = WindowPlacementEngine.placement(for: .init(
+            command: .leftSplit, windowFrame: left, screens: [screen], gap: 10, splitRatio: 0.4))!
+        expectRect(placed.frame, left, "command entry point uses persisted ratio")
+        let widened = WindowPlacementEngine.placement(for: .init(
+            command: .widenSplit, windowFrame: right, screens: [screen], gap: 10))!
+        expectRect(widened.frame, Split.frame(side: .right, ratio: 0.3, canvas: canvas, gap: 10),
+                   "right command widens toward left")
+        expect(placement(.narrowSplit) == nil, "floating adjustment has no placement")
+        var memory = WindowActionMemory<Int>()
+        let before = CGRect(x: -1000, y: 200, width: 400, height: 300)
+        let now = Date(timeIntervalSince1970: 0)
+        let decision = memory.decide(key: 1, command: .leftSplit, currentFrame: before,
+                                     currentScreenID: 7, cycleLength: 1, now: now)
+        memory.commit(key: 1, command: .leftSplit, decision: decision, appliedFrame: left,
+                      screenID: 7, now: now)
+        let restore = memory.decide(key: 1, command: .restore, currentFrame: left,
+                                    currentScreenID: 7, cycleLength: 1, now: now)
+        expectRect(restore.restoreFrame, before, "split preserves restore target")
+
+    }
+
     // MARK: - Catalog
 
     static func testCatalog() {
         let commands = WindowCommandCatalog.all
-        expect(commands.count == 35, "catalog contains all 35 agreed commands")
+        expect(commands.count == 39, "catalog contains all 39 agreed commands")
         expect(commands.map(\.id) == WindowCommand.ID.allCases, "catalog covers every ID once")
         expect(
             Set(commands.map { $0.name.lowercased() }).count == commands.count, "names are unique")
@@ -175,7 +226,7 @@ struct WindowCommandTests {
         expect(
             grouped.map(\.group) == WindowCommand.Group.allCases,
             "every group is represented, in declaration order")
-        expect(grouped.first { $0.group == .halves }?.commands.count == 4, "four halves")
+        expect(grouped.first { $0.group == .halves }?.commands.count == 8, "halves and adjustable split")
         expect(grouped.first { $0.group == .quarters }?.commands.count == 4, "four quarters")
         expect(grouped.first { $0.group == .fourths }?.commands.count == 2, "two fourths")
         expect(grouped.first { $0.group == .thirds }?.commands.count == 5, "five thirds")
@@ -1124,6 +1175,7 @@ struct WindowCommandTests {
                                     command != .makeLarger, command != .makeSmaller, command != .moveLeft,
                                     command != .moveRight, command != .moveUp, command != .moveDown,
                                     command != .nextDisplay, command != .previousDisplay,
+                                    command != .widenSplit, command != .narrowSplit,
                                     again != rect
                                 {
                                     problems.append("drifts on repeat: \(label) — \(rect) then \(again)")

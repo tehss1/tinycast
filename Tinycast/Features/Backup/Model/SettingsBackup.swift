@@ -65,6 +65,7 @@ struct SettingsBackup: Codable {
         var menuSearchShowsAppleMenu: Bool?
         var windowManagementEnabled: Bool?
         var windowManagementShowInLauncher: Bool?
+        var windowSplitRatio: Double?
         var windowGap: Int?
         var windowCycle: String?
         var windowLayoutsShowInLauncher: Bool?
@@ -176,6 +177,7 @@ extension SettingsBackup {
             menuSearchShowsAppleMenu: s.menuSearchShowsAppleMenu,
             windowManagementEnabled: s.windowManagementEnabled,
             windowManagementShowInLauncher: s.windowManagementShowInLauncher,
+            windowSplitRatio: s.windowSplitRatio,
             windowGap: s.windowGap,
             windowCycle: s.windowCycle.rawValue,
             windowLayoutsShowInLauncher: s.windowLayoutsShowInLauncher,
@@ -474,6 +476,10 @@ extension SettingsBackup {
         }
         if let flag = s.windowManagementShowInLauncher {
             settings.windowManagementShowInLauncher = flag
+            count += 1
+        }
+        if let ratio = s.windowSplitRatio {
+            settings.windowSplitRatio = Double(WindowPlacementEngine.Split.normalized(CGFloat(ratio)))
             count += 1
         }
         if let gap = s.windowGap {
