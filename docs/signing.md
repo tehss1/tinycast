@@ -46,17 +46,12 @@ Now local builds (Xcode, VS Code F5, `xcodebuild`) sign with it, and you grant A
 
 ## 2. Generate the CI secrets
 
-The release workflow needs the same identity as two repo secrets. Export it, base64-encode it, and
-pick a password:
+The release workflow needs the same identity as two repo secrets. Export the identity alone, because
+`security export -t identities` bundles every identity in the keychain. In Keychain Access, open
+**My Certificates**, select `Tinycast Self-Signed`, choose **File → Export Items…** and save
+`/tmp/signing.p12` with a strong password. Then base64-encode it:
 
 ```sh
-# Pick a random password for the exported bundle.
-P12_PASSWORD="$(openssl rand -base64 24)"; echo "password: $P12_PASSWORD"
-
-# Export the identity (approve the keychain dialog if asked) and base64-encode it.
-security export -t identities -f pkcs12 \
-  -k ~/Library/Keychains/login.keychain-db \
-  -P "$P12_PASSWORD" -o /tmp/signing.p12
 base64 -i /tmp/signing.p12 | tr -d '\n' > /tmp/signing.p12.base64
 rm -f /tmp/signing.p12
 ```
@@ -66,14 +61,15 @@ UI under **Settings → Secrets and variables → Actions**):
 
 ```sh
 gh secret set SIGNING_P12_BASE64   --repo tehss1/tinycast < /tmp/signing.p12.base64
-gh secret set SIGNING_P12_PASSWORD --repo tehss1/tinycast --body "$P12_PASSWORD"
+gh secret set SIGNING_P12_PASSWORD --repo tehss1/tinycast --body "<password>"
 rm -f /tmp/signing.p12.base64   # holds your private key — delete it
 ```
 
 If you ever lose the secrets, just re-run this section — as long as the `Tinycast Self-Signed`
-identity is still in your keychain, the exported identity is the same, so users are unaffected. If you
-lose the identity entirely, recreate it (step 1) and re-do this; existing users will re-grant
-Accessibility once on their next update, then it's stable again.
+identity is still in your keychain, the exported identity is the same, so users are unaffected.
+Losing the identity itself breaks self-update: the updater pins the exact leaf certificate, so an
+installed copy rejects a build signed by a recreated one. Keep a private backup of the `.p12`; without
+it, every install has to be replaced by hand once.
 
 ## Hardened runtime
 
