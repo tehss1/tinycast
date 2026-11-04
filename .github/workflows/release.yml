@@ -328,7 +328,6 @@ jobs:
         run: ./Scripts/verify-signature.sh "$RUNNER_TEMP/DerivedData/Build/Products/Release/${DISPLAY_NAME}.app"
 
       - name: Package DMG and ZIP
-        env:
         run: |
           ./Scripts/package-release.sh "$RUNNER_TEMP/DerivedData/Build/Products/Release/${DISPLAY_NAME}.app" \
             "dist/Tinycast-Universal-${VERSION}.dmg" "dist/Tinycast-Universal-${VERSION}.zip"
