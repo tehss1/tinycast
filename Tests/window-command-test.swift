@@ -151,6 +151,24 @@ struct WindowCommandTests {
                "right neighbour fills to the far edge")
         expectRect(Split.fill(opposite: left, side: .left, canvas: canvas, gap: 10), right,
                    "fill matches the split frame when the step lands")
+        expect(Split.Side.left.opposite == .right && Split.Side.right.opposite == .left, "opposite side")
+        let narrowRight = Split.frame(side: .right, ratio: 0.3, canvas: canvas, gap: 10)
+        let stubbornLeft = CGRect(x: canvas.minX, y: canvas.minY, width: 600, height: canvas.height)
+        expect(Split.side(of: stubbornLeft, canvas: canvas, gap: 10) == .left
+               && stubbornLeft.maxX > narrowRight.minX, "overlapping left is still docked opposite")
+        let pulledIn = Split.yielded(narrowRight, side: .right, to: [stubbornLeft], canvas: canvas, gap: 10)
+        expectRect(pulledIn ?? .null, CGRect(x: canvas.minX + 610, y: canvas.minY,
+                                             width: canvas.width - 610, height: canvas.height),
+                   "focused split yields to a neighbour's minimum width")
+        let tighter = CGRect(x: canvas.minX, y: canvas.minY, width: 700, height: canvas.height)
+        expect(Split.yielded(narrowRight, side: .right, to: [stubbornLeft, tighter],
+                             canvas: canvas, gap: 10)?.minX == canvas.minX + 710,
+               "yield clears the neighbour reaching furthest in")
+        let leftFilled = Split.fill(opposite: narrowRight, side: .right, canvas: canvas, gap: 10)
+        expect(Split.yielded(narrowRight, side: .right, to: [leftFilled], canvas: canvas, gap: 10) == nil,
+               "no yield when the neighbour took its slot")
+        expect(Split.yielded(narrowRight, side: .right, to: [], canvas: canvas, gap: 10) == nil,
+               "no yield without neighbours")
         expect(length(.leftSplit, .displays) == 1, "split never cycles")
         let screen = WindowPlacementEngine.Screen(
             id: 7, frame: canvas.insetBy(dx: -10, dy: -10),
