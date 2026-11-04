@@ -674,6 +674,7 @@ struct QuickActionResultView: View {
                 editor.string = text
                 editor.undoManager?.removeAllActions()
                 editor.setSelectedRange(NSRange(location: text.utf16.count, length: 0))
+                context.coordinator.revealsCaret = true
             }
             editor.wantsFocus = focused
             editor.updateFocus()
@@ -695,17 +696,25 @@ struct QuickActionResultView: View {
                 }
             }
             editor.setFrameSize(NSSize(width: width, height: height))
+            // Dictation writes over Accessibility, which never scrolls the caret into view itself.
+            if context.coordinator.revealsCaret {
+                context.coordinator.revealsCaret = false
+                editor.scrollRangeToVisible(editor.selectedRange())
+            }
             return CGSize(width: width, height: min(line * 3, height))
         }
 
         @MainActor
         final class Coordinator: NSObject, NSTextViewDelegate {
             var input: RequestField
+            /// Set by an edit and spent once the editor has grown, so a re-layout never scrolls it.
+            var revealsCaret = false
             init(_ input: RequestField) { self.input = input }
 
             func textDidChange(_ notification: Notification) {
                 guard let editor = notification.object as? NSTextView else { return }
                 input.text = editor.string
+                revealsCaret = true
                 editor.invalidateIntrinsicContentSize()
             }
 
