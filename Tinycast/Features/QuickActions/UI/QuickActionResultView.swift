@@ -639,7 +639,8 @@ struct QuickActionResultView: View {
             editor.importsGraphics = false
             editor.allowsUndo = true
             editor.drawsBackground = false
-            editor.isVerticallyResizable = true
+            // sizeThatFits owns the height; self-sizing shrinks to the clip and drops the scroll.
+            editor.isVerticallyResizable = false
             editor.isHorizontallyResizable = false
             editor.autoresizingMask = [.width]
             editor.textContainer?.widthTracksTextView = true
@@ -684,8 +685,10 @@ struct QuickActionResultView: View {
             guard let width = proposal.width, width > 0,
                 let editor = scroll.documentView as? NSTextView, let font = editor.font
             else { return nil }
-            editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
             let line = ceil(font.ascender - font.descender + font.leading)
+            // A stack's flexibility probe; laying out at infinite width would spend the caret reveal.
+            guard width.isFinite else { return CGSize(width: width, height: line) }
+            editor.setFrameSize(NSSize(width: width, height: editor.frame.height))
             var height = line
             if let layout = editor.textLayoutManager {
                 layout.enumerateTextLayoutFragments(
@@ -696,12 +699,34 @@ struct QuickActionResultView: View {
                 }
             }
             editor.setFrameSize(NSSize(width: width, height: height))
+            let visible = min(line * 3, height)
             // Dictation writes over Accessibility, which never scrolls the caret into view itself.
             if context.coordinator.revealsCaret {
                 context.coordinator.revealsCaret = false
-                editor.scrollRangeToVisible(editor.selectedRange())
+                revealCaret(of: editor, in: scroll, visibleHeight: visible)
             }
-            return CGSize(width: width, height: min(line * 3, height))
+            return CGSize(width: width, height: visible)
+        }
+
+        /// Scrolls against the height the field is about to take, not the clip view's stale one.
+        private func revealCaret(of editor: NSTextView, in scroll: NSScrollView, visibleHeight: CGFloat) {
+            guard let layout = editor.textLayoutManager,
+                let caret = layout.location(
+                    layout.documentRange.location, offsetBy: editor.selectedRange().upperBound),
+                let range = NSTextRange(location: caret, end: caret)
+            else { return }
+            var caretFrame = CGRect.null
+            layout.enumerateTextSegments(in: range, type: .selection, options: .rangeNotRequired) { _, frame, _, _ in
+                caretFrame = frame
+                return false
+            }
+            guard !caretFrame.isNull else { return }
+            var top = scroll.contentView.bounds.minY
+            if caretFrame.maxY > top + visibleHeight { top = caretFrame.maxY - visibleHeight }
+            if caretFrame.minY < top { top = caretFrame.minY }
+            top = min(max(0, top), max(0, editor.frame.height - visibleHeight))
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: top))
+            scroll.reflectScrolledClipView(scroll.contentView)
         }
 
         @MainActor
