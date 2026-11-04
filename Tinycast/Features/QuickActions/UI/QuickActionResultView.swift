@@ -193,7 +193,6 @@ struct QuickActionResultView: View {
             .overlay(alignment: .top) { measured(header) { headerHeight = $0 } }
             .overlay(alignment: .bottom) { measured(footer) { footerHeight = $0 } }
         }
-        .frame(width: metrics.size.quickActionPanel, height: panelHeight)
     }
 
     private func measured(_ bar: some View, action: @escaping (CGFloat) -> Void) -> some View {

@@ -239,6 +239,7 @@ final class UpdateCoordinator {
     }
 
     private func recordReplacement(_ release: AvailableRelease) {
+        store.recordInstall(of: release.version)
         installation.didReplace(release.version)
         stage = .readyToRelaunch
     }

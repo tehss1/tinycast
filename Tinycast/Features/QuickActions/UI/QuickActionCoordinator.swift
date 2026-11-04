@@ -683,7 +683,7 @@ final class QuickActionCoordinator {
                 textTarget: target.text,
                 insertsAtCaret: state.insertsAtCaret,
                 screenshot: state.screenshot, screenshotOffset: state.screenshotOffset)
-        } catch is CancellationError {
+        } catch let error where error is CancellationError || Task.isCancelled {
             return
         } catch let error as TextTranslator.Failure where error.needsDownload {
             // A HUD cannot say where the download lives, so this has to become a panel.

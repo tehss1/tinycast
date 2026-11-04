@@ -23,8 +23,7 @@ enum BundleSignature {
             satisfiesDeveloperID(staticCode, flags: flags)
         { return true }
         // A copy installed before the switch knows only the leaf it was itself signed with.
-        guard let running = runningLeaf(), let candidate = leaf(of: staticCode) else { return false }
-        return running == candidate
+        return matchesLeaf(running: runningLeaf(), candidate: leaf(of: staticCode))
     }
 
     /// No `notarized`: its ticket lookup can hit the network, and the chain already proves ownership.
@@ -35,6 +34,11 @@ enum BundleSignature {
                 == errSecSuccess, let requirement
         else { return false }
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+    }
+
+    static func matchesLeaf(running: Data?, candidate: Data?) -> Bool {
+        guard let running, let candidate else { return false }
+        return running == candidate
     }
 
     private static func runningLeaf() -> Data? {

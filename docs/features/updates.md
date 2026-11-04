@@ -18,18 +18,12 @@ no appcast: the release feed the website already reads is the feed the app reads
   `-Universal-` one. Intel takes the universal zip and is offered *nothing* if it is missing, since a
   thin build would install and then refuse to launch; Apple silicon prefers the thin zip and falls
   back to universal.
-- **Nobody ever runs `xattr`.** An archive Tinycast fetched itself is not quarantined — macOS sets
-  that flag for sandboxed downloaders and for apps that opt in with `LSFileQuarantineEnabled`, and
-  Tinycast is neither. `Quarantine` checks anyway through `getxattr`/`removexattr` rather than the
-  `xattr` tool, and an app that still carries the flag is refused rather than installed.
+- **A downloaded update is never quarantined.** macOS sets that flag for sandboxed downloaders and
+  for apps that opt in with `LSFileQuarantineEnabled`, and Tinycast is neither. `Quarantine` checks
+  anyway, and an app that still carries the flag is refused rather than installed.
 - **The signature is the only integrity guarantee.** A downloaded bundle is trusted when its seal
-  validates, nested helper included, *and* it either satisfies the Developer ID requirement pinned in
-  `BundleSignature` or carries the byte-identical leaf certificate the running app does. The
-  requirement names the team, so a certificate renewal strands nobody; the leaf match is the path a
-  copy installed before the Developer ID switch has, and it goes away once none is left. A fork accepts only its running leaf certificate; it does not trust upstream
-  Developer ID signatures. `notarized`
-  is deliberately not in the requirement — it resolves the ticket through `syspolicyd` or the
-  network, so an offline Mac would refuse a bundle the chain already proves is ours.
+  validates, nested helper included, and its leaf certificate matches the running app's leaf.
+  Fork updates do not trust upstream Developer ID signatures.
 - **A build only ever updates within its own channel.** The channels are separate bundle ids installed
   side by side; crossing would mean installing a different app. `com.tinycast.app.dev` never updates
   at all, and does not advertise the command.
@@ -108,7 +102,7 @@ self-rescheduling pump, and one atomic JSON file.
 ~/Library/Caches/<bundle-id>/update-check.json
 ```
 
-It holds `lastCheckedAt`, the newest release seen, and the version the user dismissed. A cached
+It holds `lastCheckedAt`, the newest release seen, and the version the user dismissed, and the version just installed. A cached
 release is decoded only when its tag parses to the same version; the archive filename comes from
 the validated version, so a tampered tag cannot write outside the staging directory. Freshness is
 measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 24 h, dropping to
@@ -184,13 +178,18 @@ One route, whatever the install came from:
 3. Check quarantine natively; clear it if somehow present, and refuse the update if it survives.
 4. Verify the bundle id, the version, the update repository, and that the code signature is valid and proves the bundle is
    ours — by the running app's own leaf certificate, or, for an official build only, by the pinned
-   Developer ID requirement.
+   running app’s leaf certificate.
 5. Check cancellation after downloading and expanding, and again before replacing.
    `FileManager.replaceItemAt`. The staging folder is on the same volume as `/Applications`, which is
    what lets this be atomic. A non-writable `/Applications` is reported, not worked around; there is
    no privileged helper.
 6. Offer Relaunch, which spawns a detached waiter that reopens the app once this process exits —
    `open` on a bundle id that is still running would only re-activate the instance on its way out.
+
+A successful install records its version as `installedVersion`. The first launch running that
+version takes it and shows an "Updated to Tinycast <version>" HUD, whether it came from Relaunch or a
+later quit and reopen. A launch of any other version only clears it, so a brew or DMG install never
+reports.
 
 Nothing here touches `~/Library/Preferences`, `~/Library/Caches` or `Application Support`, so no
 setting, clipboard entry, note or snippet is affected by an update, by `brew upgrade`, or by both.

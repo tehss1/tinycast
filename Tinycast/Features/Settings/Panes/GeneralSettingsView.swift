@@ -84,13 +84,16 @@ struct GeneralSettingsView: View {
                 } label: {
                     SettingsRowTitle(.generalAppearance, "Appearance")
                 }
+                Toggle(isOn: $settings.animationsEnabled) {
+                    SettingsRowTitle(.generalAppearance, "Show animations")
+                }
                 InterfaceSizeRow()
                 WindowModeRow()
-                Toggle(isOn: $settings.showFavoritesInCompactMode) {
-                    SettingsRowTitle(.generalAppearance, "Show favorites in compact mode")
-                    Text("Launch them with ⌘1–⌘5.")
-                }
-                .settingsEnabled(settings.compactMode)
+                    .background {
+                        if !settings.compactMode {
+                            Color.clear.settingsAnchor(.generalCompactShortcuts)
+                        }
+                    }
                 Toggle(isOn: $settings.openOnCursorScreen) {
                     SettingsRowTitle(.generalAppearance, "Follow the cursor across displays")
                 }
@@ -101,6 +104,8 @@ struct GeneralSettingsView: View {
             } header: {
                 SettingsSectionHeader(.generalAppearance)
             }
+
+            if settings.compactMode { CompactShortcutsSection() }
 
             HyperKeySettingsSection()
 
@@ -143,6 +148,8 @@ struct GeneralSettingsView: View {
             } header: {
                 SettingsSectionHeader(.generalSearch)
             }
+
+            AllowedDeepLinksSection()
         }
         .formStyle(.grouped)
         .settingsScrollTarget(.general)

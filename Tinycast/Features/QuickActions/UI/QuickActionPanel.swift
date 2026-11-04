@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Keys go through `sendEvent`, so ↵, ⌘C and Esc need no focused subview to reach the panel.
-final class QuickActionPanel: NSPanel, UpdateWorkWindow {
+final class QuickActionPanel: NSPanel, UpdateWorkWindow, AnimatedPanel {
     enum Key {
         case replace
         case copy
@@ -29,7 +29,7 @@ final class QuickActionPanel: NSPanel, UpdateWorkWindow {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        animationBehavior = .documentWindow
+        followMotion()
         isReleasedWhenClosed = false
         isRestorable = false
         contentView = content
