@@ -277,6 +277,8 @@ run language-test          Tinycast/Features/Settings/AppLanguage.swift
 run localized-resource-test Tinycast/Platform/LocalizedResource.swift
 run exclusive onboarding-test Tinycast/Features/Onboarding/OnboardingCoordinator.swift \
                            Tinycast/Windows/AppWindowController.swift \
+                           Tinycast/Features/Updates/Model/UpdateWindowKind.swift \
+                           Tinycast/Features/Updates/UI/UpdateWorkWindow.swift \
                            Tinycast/DesignSystem/Interaction/Motion.swift \
                            Tinycast/Windows/WindowChrome.swift Tinycast/Platform/ActivationPolicy.swift
 run relaunch-test          Tinycast/App/AppDelegate.swift Tinycast/Platform/RelaunchRunner.swift
@@ -946,6 +948,7 @@ run composer-screenshot-test Tinycast/DesignSystem/Interaction/Motion.swift \
                            Tinycast/Features/Updates/Model/UpdateWindowKind.swift \
                            Tinycast/Features/Updates/UI/UpdateWorkWindow.swift \
                            Tinycast/Features/QuickActions/UI/QuickActionPanel.swift \
+                           Tinycast/Platform/LocalizedResource.swift \
                            Tinycast/Platform/PasteboardFiles.swift
 run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \
                            Tinycast/Features/AI/Model/AITool.swift \
@@ -965,7 +968,8 @@ run composer-test          Tinycast/Features/AI/Model/JSONValue.swift \
                            Tinycast/Features/QuickActions/Service/RewriteHistoryStore.swift \
                            Tinycast/Platform/NotificationToken.swift \
                            Tinycast/Features/QuickActions/Model/TextDiffEngine.swift \
-                           Tinycast/Features/QuickActions/UI/QuickActionPanelState.swift
+                           Tinycast/Features/QuickActions/UI/QuickActionPanelState.swift \
+                           Tinycast/Platform/LocalizedResource.swift
 run apple-intelligence-test Tinycast/Features/Settings/AppSettingsKey.swift \
                            Tinycast/Features/AI/Model/*.swift \
                            Tinycast/Features/AI/Service/AIProvider.swift \
