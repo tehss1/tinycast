@@ -61,7 +61,7 @@ UI under **Settings → Secrets and variables → Actions**):
 
 ```sh
 gh secret set SIGNING_P12_BASE64   --repo tehss1/tinycast < /tmp/signing.p12.base64
-gh secret set SIGNING_P12_PASSWORD --repo tehss1/tinycast --body "<password>"
+gh secret set SIGNING_P12_PASSWORD --repo tehss1/tinycast   # prompts, so the password stays out of history
 rm -f /tmp/signing.p12.base64   # holds your private key — delete it
 ```
 
