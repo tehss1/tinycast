@@ -60,7 +60,7 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
             )
             .environment(\.metrics, metrics)
             .environment(coordinator)
-            .environment(palette))
+            .environment(palette).motionScope())
         // The controller owns the frame; without this the top edge drifts as the reply grows.
         hosting.sizingOptions = []
         // Its tallest, so the first frame is never short; the view reports the real height at once.

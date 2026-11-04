@@ -29,6 +29,7 @@ final class UpdateCheckStore {
     private let repository: String
     @ObservationIgnored private let fetch: @Sendable () async -> ReleaseFeed.Response
     private var skippedVersion: AppVersion?
+    private var installedVersion: AppVersion?
     /// At most one uninvited appearance per version per launch.
     @ObservationIgnored private var announcedVersion: AppVersion?
     @ObservationIgnored private var withheldRetries = 0
@@ -56,6 +57,7 @@ final class UpdateCheckStore {
         latest = cache.latest
         lastCheckedAt = cache.lastCheckedAt
         skippedVersion = cache.skippedVersion
+        installedVersion = cache.installedVersion
     }
 
     deinit { pump?.cancel() }
@@ -129,6 +131,19 @@ final class UpdateCheckStore {
         persist()
     }
 
+    func recordInstall(of version: AppVersion) {
+        installedVersion = version
+        persist()
+    }
+
+    /// Taken once, so a later launch, or a version that came from elsewhere, reports nothing.
+    func takeInstalledVersion() -> AppVersion? {
+        guard let installed = installedVersion else { return nil }
+        installedVersion = nil
+        persist()
+        return installed == runningVersion ? installed : nil
+    }
+
     private func advance() async -> TimeInterval {
         // Clamped, so a future-stamped check can't park the loop past one interval.
         let age = max(0, lastCheckedAt.map { Date().timeIntervalSince($0) } ?? .infinity)
@@ -158,7 +173,7 @@ final class UpdateCheckStore {
     private func persist() {
         let cache = Cache(
             repository: repository, lastCheckedAt: lastCheckedAt, latest: latest,
-            skippedVersion: skippedVersion)
+            skippedVersion: skippedVersion, installedVersion: installedVersion)
         guard let data = try? JSONEncoder().encode(cache) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
@@ -168,6 +183,7 @@ final class UpdateCheckStore {
         var lastCheckedAt: Date?
         var latest: AvailableRelease?
         var skippedVersion: AppVersion?
+        var installedVersion: AppVersion?
     }
 
     /// Cacheless, never `URLSession.shared`, so the snapshot on disk stays the only copy.

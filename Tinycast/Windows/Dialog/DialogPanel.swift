@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// One dialog's panel; keys go through `sendEvent`, so Esc/↵ need no focused subview.
-final class DialogPanel: NSPanel, UpdateWorkWindow {
+final class DialogPanel: NSPanel, UpdateWorkWindow, AnimatedPanel {
     /// What the panel saw, not what it means: how far a step moves is the caller's business.
     enum Key {
         case cancel
@@ -32,7 +32,7 @@ final class DialogPanel: NSPanel, UpdateWorkWindow {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
-        animationBehavior = .documentWindow
+        followMotion()
         isReleasedWhenClosed = false
         content.wantsLayer = true
         content.layer?.cornerRadius = cornerRadius

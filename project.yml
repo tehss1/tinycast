@@ -19,9 +19,12 @@ settings:
     TINYCAST_UPDATE_REPOSITORY: "tehss1/tinycast"
     SWIFT_STRICT_CONCURRENCY: complete
     TINYCAST_BUNDLE_IDENTIFIER: com.tinycast.app
+    TINYCAST_URL_SCHEME: tinycast
   configs:
     Debug:
       TINYCAST_BUNDLE_IDENTIFIER: com.tinycast.app.dev
+      # Its own scheme too, so a link never lands in whichever channel macOS happens to pick.
+      TINYCAST_URL_SCHEME: tinycast-dev
       DICTATION_EXECUTABLE_NAME: Tinycast Dev Dictation
     Release:
       DICTATION_EXECUTABLE_NAME: Tinycast Dictation
@@ -117,6 +120,7 @@ targets:
       - Tinycast/Features/FileSearch/Model/FileSearchIgnoreList.swift
       - Tinycast/Features/FileSearch/Model/FileSearchPolicy.swift
       - Tinycast/Features/FileSearch/Model/FileSearchQuery.swift
+      - Tinycast/Features/FileSearch/Model/FileSearchResult.swift
       - Tinycast/Features/FileSearch/Model/FileSearchScope.swift
       - Tinycast/Features/FileSearch/Service/FileIndexCrawler.swift
       - Tinycast/Features/FileSearch/Service/FileIndexSnapshot.swift

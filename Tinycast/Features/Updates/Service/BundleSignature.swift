@@ -6,7 +6,7 @@ enum BundleSignature {
     /// The team, not the certificate — a leaf is reissued on renewal and on a rename.
     static let developerID = """
         anchor apple generic \
-        and certificate leaf[subject.OU] = "SPBUD83MLU" \
+        and certificate leaf[subject.OU] = "J656U8XZ93" \
         and certificate 1[field.1.2.840.113635.100.6.2.6] exists \
         and certificate leaf[field.1.2.840.113635.100.6.1.13] exists
         """
@@ -23,8 +23,7 @@ enum BundleSignature {
             satisfiesDeveloperID(staticCode, flags: flags)
         { return true }
         // A copy installed before the switch knows only the leaf it was itself signed with.
-        guard let running = runningLeaf(), let candidate = leaf(of: staticCode) else { return false }
-        return running == candidate
+        return matchesLeaf(running: runningLeaf(), candidate: leaf(of: staticCode))
     }
 
     /// No `notarized`: its ticket lookup can hit the network, and the chain already proves ownership.
@@ -35,6 +34,11 @@ enum BundleSignature {
                 == errSecSuccess, let requirement
         else { return false }
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+    }
+
+    static func matchesLeaf(running: Data?, candidate: Data?) -> Bool {
+        guard let running, let candidate else { return false }
+        return running == candidate
     }
 
     private static func runningLeaf() -> Data? {
