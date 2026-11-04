@@ -298,9 +298,8 @@ final class WindowMover {
         let adjusting = command == .widenSplit || command == .narrowSplit
         var newRatio = ratio
         var layout: (side: Split.Side, canvas: CGRect, gap: CGFloat, screenID: Int)?
-        // Every window docked against the divider follows it, not just the frontmost one.
         var neighbours: [(FocusedWindow, CGRect)] = []
-        let changed = place(
+        var changed = place(
             focused, command: command, gap: gap, cycleLength: { _ in 1 }, context: context
         ) { current, screens, _ in
             guard let host = WindowPlacementEngine.screen(containing: current, in: screens) else { return nil }
@@ -314,44 +313,75 @@ final class WindowMover {
                 newRatio = Split.stepped(
                     Split.ratio(of: current, side: side, canvas: canvas, gap: gap),
                     side: side, wider: command == .widenSplit)
-                let inventory = WindowInventory.snapshot(positionableOnly: true)
-                for window in inventory.windows {
-                    guard WindowPlacementEngine.screen(containing: window.frame, in: screens)?.id == host.id,
-                        Split.isNeighbour(window.frame, of: current, side: side, canvas: canvas, gap: gap),
-                        let element = inventory.elements[window.handle]
-                    else { continue }
-                    let key = WindowKey.external(ExternalKey(pid: element.app.processIdentifier, element: element.window))
-                    guard key != focused.key else { continue }
-                    let other = FocusedWindow(
-                        surface: .external(application: element.application, window: element.window), key: key)
-                    guard other.surface.canResize else { continue }
-                    neighbours.append((other, window.frame))
-                }
             } else {
                 side = command == .leftSplit ? .left : .right
+            }
+            // A placement claims the whole far side, so a window it overlaps fills the rest too.
+            neighbours = Self.splitNeighbours(excluding: focused.key, on: host.id, screens: screens) {
+                adjusting
+                    ? Split.isNeighbour($0, of: current, side: side, canvas: canvas, gap: gap)
+                    : Split.side(of: $0, canvas: canvas, gap: gap) == side.opposite
             }
             layout = (side, canvas, gap, host.id)
             return Self.splitPlacement(side: side, ratio: newRatio, canvas: canvas, gap: gap, screenID: host.id)
         }
-        guard adjusting, let layout, let actual = focused.surface.frame(in: context.geometry),
+        guard let layout, var actual = focused.surface.frame(in: context.geometry),
             Split.side(of: actual, canvas: layout.canvas, gap: layout.gap) == layout.side
         else { return changed }
-        // An app's minimum width can stop the focused window short of the step. The divider is
-        // wherever it actually landed, so the ratio and the neighbours follow that edge, never a gap.
-        save(Split.ratio(of: actual, side: layout.side, canvas: layout.canvas, gap: layout.gap))
+        // The divider is wherever the focused window actually landed, never where it was asked to.
         let fill = WindowPlacementEngine.Placement(
             frame: Split.fill(opposite: actual, side: layout.side, canvas: layout.canvas, gap: layout.gap),
             screenID: layout.screenID,
             anchor: .init(horizontal: layout.side == .left ? .max : .min, vertical: .min), resizes: true)
+        var landed: [CGRect] = []
         for (other, original) in neighbours {
-            _ = place(other, command: nil, gap: gap, cycleLength: { _ in 1 }, context: context) { current, _, _ in
+            var wrote = false
+            let moved = place(other, command: nil, gap: gap, cycleLength: { _ in 1 }, context: context) {
+                current, _, _ in
                 guard abs(current.minX - original.minX) <= 2, abs(current.minY - original.minY) <= 2,
                     abs(current.width - original.width) <= 2, abs(current.height - original.height) <= 2
                 else { return nil }
+                wrote = true
                 return fill
             }
+            changed = changed || moved
+            if wrote, let frame = other.surface.frame(in: context.geometry) { landed.append(frame) }
+        }
+        if let yielded = Split.yielded(
+            actual, side: layout.side, to: landed, canvas: layout.canvas, gap: layout.gap)
+        {
+            _ = place(focused, command: command, gap: gap, cycleLength: { _ in 1 }, context: context) { _, _, _ in
+                WindowPlacementEngine.Placement(
+                    frame: yielded, screenID: layout.screenID,
+                    anchor: .init(horizontal: layout.side == .left ? .min : .max, vertical: .min),
+                    resizes: true)
+            }
+            actual = focused.surface.frame(in: context.geometry) ?? actual
+        }
+        // Only an adjustment saves: one app's minimum width must not move every other split.
+        if adjusting {
+            save(Split.ratio(of: actual, side: layout.side, canvas: layout.canvas, gap: layout.gap))
         }
         return changed
+    }
+
+    /// Every resizable window on `screenID`, other than `focused`, whose frame `matches`.
+    private static func splitNeighbours(
+        excluding focused: WindowKey, on screenID: Int, screens: [WindowPlacementEngine.Screen],
+        matching matches: (CGRect) -> Bool
+    ) -> [(FocusedWindow, CGRect)] {
+        let inventory = WindowInventory.snapshot(positionableOnly: true)
+        return inventory.windows.compactMap { window in
+            guard WindowPlacementEngine.screen(containing: window.frame, in: screens)?.id == screenID,
+                matches(window.frame), let element = inventory.elements[window.handle],
+                !element.app.isHidden
+            else { return nil }
+            let key = WindowKey.external(ExternalKey(pid: element.app.processIdentifier, element: element.window))
+            guard key != focused else { return nil }
+            let other = FocusedWindow(
+                surface: .external(application: element.application, window: element.window), key: key)
+            return other.surface.canResize ? (other, window.frame) : nil
+        }
     }
 
     private static func splitPlacement(

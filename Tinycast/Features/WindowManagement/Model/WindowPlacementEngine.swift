@@ -86,7 +86,11 @@ enum WindowPlacementEngine {
     }
 
     enum Split {
-        enum Side { case left, right }
+        enum Side {
+            case left, right
+
+            var opposite: Side { self == .left ? .right : .left }
+        }
 
         static func normalized(_ ratio: CGFloat) -> CGFloat {
             guard ratio.isFinite else { return 0.5 }
@@ -131,10 +135,19 @@ enum WindowPlacementEngine {
 
         static func isNeighbour(_ other: CGRect, of frame: CGRect, side: Side,
                                 canvas: CGRect, gap: CGFloat) -> Bool {
-            let opposite: Side = side == .left ? .right : .left
-            guard self.side(of: other, canvas: canvas, gap: gap) == opposite else { return false }
+            guard self.side(of: other, canvas: canvas, gap: gap) == side.opposite else { return false }
             let distance = side == .left ? other.minX - frame.maxX : frame.minX - other.maxX
             return abs(distance - gap) <= 12
+        }
+
+        /// A neighbour's minimum width wins: `frame` stops one gap short of the furthest one in.
+        static func yielded(_ frame: CGRect, side: Side, to neighbours: [CGRect],
+                            canvas: CGRect, gap: CGFloat) -> CGRect? {
+            let slots = neighbours.map { fill(opposite: $0, side: side.opposite, canvas: canvas, gap: gap) }
+            guard let tightest = slots.min(by: { $0.width < $1.width }),
+                tightest.width > 0, tightest.width < frame.width - 2
+            else { return nil }
+            return tightest
         }
     }
 

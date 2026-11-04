@@ -85,14 +85,21 @@ the supported range. Floating and maximized windows do nothing. Detection allows
 edge drift, including custom sizes. The mover infers the ratio from the current divider rather
 than requiring a prior split command.
 
-For adjustments, `WindowMover` searches `WindowInventory` for every resizable standard window on the
-same display, aligned to the opposite edge and adjacent within 12 points of the configured gap, so
-windows stacked behind the visible one follow the divider too. After the write, the mover reads the
-focused window back. An application minimum width can stop it short of the step, so the divider is
-wherever it actually landed: each neighbour fills from one gap past that edge to the far canvas edge
-(`Split.fill`), and the persisted ratio is the landed divider snapped to tenths. A neighbour's own
-minimum width can still refuse its slot. Restore records both windows through the normal
-`WindowActionMemory` path. Explicit placement commands move only the focused window. Geometry and
+Every split command also resizes the windows on the other side of the divider. `WindowMover`
+searches `WindowInventory` for resizable standard windows of visible apps on the same display, so
+windows stacked behind the visible one follow too. An adjustment takes only windows docked at the
+divider: aligned to the opposite edge and adjacent within 12 points of the configured gap. `Left
+split` and `Right split` take every full-height window docked to the opposite edge, wherever its
+inner edge is, because a window that overlaps or leaves a gap is exactly what the placement fixes.
+
+After the write, the mover reads the focused window back. An application minimum width can stop it
+short of its slot, so the divider is wherever it actually landed: each neighbour fills from one gap
+past that edge to the far canvas edge (`Split.fill`). Each neighbour is then read back too. When
+one refused its slot, the focused window gives way and stops one gap short of the neighbour that
+reaches furthest in (`Split.yielded`), so the two never overlap unless both minimum widths together
+exceed the canvas. Only an adjustment persists the ratio, as the final divider snapped to tenths: a
+placement leaves it alone so one app's minimum width does not move every other pair's split.
+Restore records every moved window through the normal `WindowActionMemory` path. Geometry and
 detection live in `WindowPlacementEngine.Split` and are checked by
 `Tests/window-command-test.swift`.
 
