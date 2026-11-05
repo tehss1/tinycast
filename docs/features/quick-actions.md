@@ -203,7 +203,11 @@ selectable Markdown renderer with AI Chat.
   and quoted thread, or the native editor identity when no thread exists; recipient order and
   completeness do not affect it. Each record also remembers its Outlook editor, and that editor's own
   conversation wins over any other, even after its subject changes. In a reply it needs the same
-  snapshot or a shared quoted message. In a new email it is refused only when both fully captured
+  snapshot or a shared quoted message. A conversation first captured without email context can
+  acquire it in the same native editor when its nonempty trailing draft boundary still matches;
+  changed boundaries or another editor refuse that match. The refreshed envelope and fingerprints
+  are saved on resume. An old record without editor identity cannot be matched safely this way.
+  In a new email it is refused only when both fully captured
   recipient lists share no address, because Outlook can hand a new email a closed editor's identity.
   Another editor continues a drafted conversation when its quote shares a message and the subject,
   so a new reply that changes the snapshot stays in the conversation, but never when both fully
@@ -211,11 +215,10 @@ selectable Markdown renderer with AI Chat.
   difference between those lists also refuses it unless the selection is its latest draft, so a
   private reply and a reply-all to one message stay separate, while a reopened draft that gained a Cc
   resumes when its draft is selected. Among matches, a conversation addressed to exactly the same
-  fully captured recipients comes first, then the one with the most messages, then the latest
-  revision. If older records contain duplicates for the same editor, the first matching run keeps
-  that preferred transcript and removes the other rows. A
-  row found only through a shared quote, or owned by another editor, is never removed. Reopening does
-  not extend retention because only a revision updates the record's
+  fully captured recipients comes first, then the latest revision. Matching keeps older transcripts
+  in history. New Conversation in the header or conversation menu captures this target afresh and
+  saves its new record immediately, so it wins over an older matching conversation on the next press.
+  Reopening does not extend retention because only a revision updates the record's
   timestamp. Input autosaves after 350 milliseconds and flushes when the panel closes.
   Typing does not extend retention, and typing in a conversation that expired while its panel was
   open or dismissed never saves it again; only a conversation that was never saved, such as a
@@ -225,12 +228,20 @@ selectable Markdown renderer with AI Chat.
   Matching text alone in another app never restores an Outlook conversation.
   Sidebar subjects hide repeated leading Re, Fw and Fwd prefixes for display only; stored subjects
   and conversation matching keep the full subject.
-  The sidebar can display and copy an older draft, but only the active Composer conversation
-  can refine, change its audience or replace the current target. Right-clicking a sidebar row,
+  The sidebar can display, copy and deliver an older completed draft into the active target.
+  Only the active conversation can refine or change its audience and model controls. Saved drafts
+  with screenshot attachments cannot deliver because history does not keep the image. Generation,
+  screenshot reads and target replacement issues also disable saved delivery. After successful
+  delivery, the shown conversation adopts the active target's envelope, editor and draft boundary;
+  an empty fresh conversation is discarded, while an unrelated active transcript stays in history.
+  Right-clicking a sidebar row,
   or pressing ⌘⌫ while the request field is not being edited, opens the shown conversation's
-  Delete Conversation action, which VoiceOver also offers on each row. Deleting the active
-  conversation also closes its panel, even when history could not be saved. Reopening a
-  conversation that ran without Outlook context starts afresh once that context is enabled.
+  conversation menu, with New Conversation and Delete Conversation. VoiceOver also offers deletion
+  on each row. Deleting the active conversation also closes its panel, even when history could not
+  be saved. Composer captures the Outlook editor and draft boundary even with email context off;
+  headers and quoted messages are not added to the model request in that mode, and history is
+  not resumed then, since an editor identity alone cannot tell a new email from a closed one. The
+  capture happens before the first-use Keychain wait so its prompt cannot steal the editor focus.
 - **Composer's fixed rules stay outside its editable style.** Selected-text Composer prepends
   `boundary` and its meaning, register and approximate-length rewrite restrictions; caret-first
   composition and its refinements never add them. A selected-text refinement may change the length
@@ -406,9 +417,8 @@ that same conversation with the bounded Outlook snapshot as its opening context,
 can refer to an earlier version. A left sidebar lists the active Composer conversation and the last
 seven days of saved transcripts. It starts collapsed and remembers the reader's last choice across
 Composer sessions. The icon at the left of the Composer header opens it, and its own header hides
-it again, returning to the active conversation. Older entries are view and copy only. Nothing
-reaches the target app until Insert or
-Replace. Generation errors appear in the transcript, and the failed request returns to
+it again, returning to the active conversation. Older completed text drafts also offer Insert or
+Replace for the active target. Nothing reaches the target app until Insert or Replace. Generation errors appear in the transcript, and the failed request returns to
 the input field. Retrying excludes failed turns from the model conversation. Stop keeps the last
 completed draft available for Copy, Insert or Replace, except when a different Outlook selection is
 awaiting its first successful rewrite. That selection remains source text and cannot be delivered.

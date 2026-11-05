@@ -303,6 +303,15 @@ struct QuickActionResultView: View {
                     Spacer(minLength: metrics.spacing.md)
                 }
                 .windowDraggable(true)
+                if state.action == .rewrite {
+                    Button("New Conversation", systemImage: "square.and.pencil") {
+                        coordinator.newComposerConversation(from: state)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .help("New Conversation")
+                    .disabled(state.isRunning || state.isAttachingScreenshot)
+                }
                 if state.action == .translate, !languages.isEmpty { languageMenu }
             }
             if state.action == .rewrite {
@@ -455,7 +464,7 @@ struct QuickActionResultView: View {
                 Button(state.deliveryActionTitle, action: onReplace)
                     .buttonStyle(.modalAction(.primary, fillsWidth: false))
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!state.canDeliver(isViewingActive: isViewingActive))
+                    .disabled(!state.canDeliver(isViewingActive: isViewingActive, savedRecord: viewedRecord))
             }
         }
         .padding(.horizontal, metrics.spacing.xxl)

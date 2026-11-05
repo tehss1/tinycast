@@ -19,7 +19,7 @@ enum OutlookComposeContextReader {
         let target: ComposerTextTarget
     }
 
-    static func read(in app: NSRunningApplication?) -> Capture? {
+    static func read(in app: NSRunningApplication?, includesContext: Bool = true) -> Capture? {
         guard let app, isOutlook(app) else { return nil }
         let started = ContinuousClock.now
         var access = Access(deadline: started + QuickActionContext.OutlookCaptureBudget.total)
@@ -29,6 +29,12 @@ enum OutlookComposeContextReader {
             let selectedRange = access.selectedRange(in: editor), Range(selectedRange, in: body) != nil
         else { return nil }
 
+        guard includesContext else {
+            return Capture(
+                context: QuickActionContext(recipient: nil, subject: nil, recentThread: nil,
+                    documentIdentity: editorIdentity(in: app, editor: editor)),
+                target: ComposerTextTarget(editor: editor, body: body, selectedRange: selectedRange))
+        }
         let window = access.element(application, attribute: kAXFocusedWindowAttribute)
             ?? access.element(application, attribute: kAXMainWindowAttribute)
         let fields: [(identifier: String, element: AXUIElement)]
@@ -52,14 +58,17 @@ enum OutlookComposeContextReader {
         let recipient = QuickActionContext.outlookRecipients(
             from: candidates, captureComplete: !recipientFields.isEmpty && access.complete)
 
-        let documentIdentity = "\(app.processIdentifier):\(app.launchDate?.timeIntervalSince1970 ?? 0):"
-            + "\(CFHash(editor))"
+        let documentIdentity = editorIdentity(in: app, editor: editor)
         let context = QuickActionContext.outlook(
             body: body, selectedRange: selectedRange, recipient: recipient, subject: subject,
             documentIdentity: documentIdentity)
         return Capture(
             context: context,
             target: ComposerTextTarget(editor: editor, body: body, selectedRange: selectedRange))
+    }
+
+    private static func editorIdentity(in app: NSRunningApplication, editor: AXUIElement) -> String {
+        "\(app.processIdentifier):\(app.launchDate?.timeIntervalSince1970 ?? 0):\(CFHash(editor))"
     }
 
     @MainActor

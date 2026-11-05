@@ -189,13 +189,13 @@ final class RewriteHistoryStore {
     }
 
     func resumableRecord(
-        selection: String, context: QuickActionContext?
+        selection: String, context: QuickActionContext?, body: String? = nil
     ) -> RewriteHistoryRecord? {
         prune()
         guard let context, let identity = context.historyIdentity else { return nil }
         let selected = Self.normalized(selection)
         let matches = records.filter {
-            Self.matches($0, selection: selected, context: context)
+            Self.matches($0, selection: selected, context: context, body: body)
         }
         let editor = context.documentIdentity
         let sameEditor = matches.filter { editor != nil && $0.editorIdentity == editor }
@@ -209,7 +209,8 @@ final class RewriteHistoryStore {
             id: preferred.id, createdAt: preferred.createdAt, updatedAt: preferred.updatedAt,
             subject: context.subject ?? preferred.subject,
             recipient: context.recipient ?? preferred.recipient,
-            contextIdentity: identity, contextFingerprints: context.historyFingerprints,
+            contextIdentity: context.isEmpty ? preferred.contextIdentity : identity,
+            contextFingerprints: context.isEmpty ? preferred.contextFingerprints : context.historyFingerprints,
             editorIdentity: editor ?? preferred.editorIdentity,
             original: preferred.original,
             messages: preferred.messages,
@@ -217,20 +218,8 @@ final class RewriteHistoryStore {
             originalIsWritingInstruction: preferred.originalIsWritingInstruction,
             draftAnchor: preferred.draftAnchor,
             audienceOverride: preferred.audienceOverride, screenshotAttached: preferred.screenshotAttached)
-        // Another editor's row, or one found only through a shared quote, may be a separate reply.
-        let duplicates = candidates.filter { record in
-            record.id != preferred.id
-                && (record.editorIdentity == nil || record.editorIdentity == editor)
-                && (record.contextIdentity == nil || record.contextIdentity == identity)
-        }
-        guard !duplicates.isEmpty || resumed != preferred else { return resumed }
-
-        let replaced = Set(duplicates.map(\.id)).union([preferred.id])
-        var updated = records.filter { !replaced.contains($0.id) }
-        updated.append(resumed)
-        updated = Self.retained(updated, now: now())
-        guard persist(updated) else { return preferred }
-        records = updated
+        guard resumed != preferred else { return resumed }
+        guard save(resumed) else { return preferred }
         return resumed
     }
 
@@ -325,10 +314,17 @@ final class RewriteHistoryStore {
     }
 
     private static func matches(
-        _ record: RewriteHistoryRecord, selection: String, context: QuickActionContext?
+        _ record: RewriteHistoryRecord, selection: String, context: QuickActionContext?, body: String? = nil
     ) -> Bool {
         guard let context, let identity = context.historyIdentity else { return false }
         if let editor = context.documentIdentity, record.editorIdentity == editor {
+            guard !addressesDisjoint(record, context: context) else { return false }
+            if record.contextFingerprints?.isEmpty != false
+                && record.subject == nil && record.recipient == nil
+            {
+                guard let anchor = record.draftAnchor, let body else { return false }
+                return anchor.suffixLength > 0 && anchor.range(in: body) != nil
+            }
             guard context.recentThread == nil else {
                 return record.contextIdentity == identity || sharesThread(record, context: context)
             }
@@ -428,9 +424,6 @@ final class RewriteHistoryStore {
         let firstAddressed = addressed != nil && addresses(in: first.recipient) == addressed
         let secondAddressed = addressed != nil && addresses(in: second.recipient) == addressed
         if firstAddressed != secondAddressed { return secondAddressed }
-        if first.messages.count != second.messages.count {
-            return first.messages.count < second.messages.count
-        }
         return first.updatedAt < second.updatedAt
     }
 }

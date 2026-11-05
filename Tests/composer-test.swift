@@ -165,6 +165,7 @@ struct ComposerTests {
     }
 
     static func main() throws {
+        try savedDraftDeliveryAndResume()
         try historySubjectDisplay()
         try replacementBoundaries()
         repeatedDeliveryKeepsSignatureSpacing()
@@ -206,6 +207,71 @@ struct ComposerTests {
         try screenshotConversations()
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
+    }
+
+    static func savedDraftDeliveryAndResume() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ComposerContextless-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = RewriteHistoryStore(directory: directory, key: { historyKey })
+        let body = "\nSignature\nFrom: Alice\nQuestion"
+        let anchor = ComposerDraftAnchor(body: body, range: NSRange(location: 0, length: 0))
+        let state = QuickActionPanelState(action: .rewrite, original: "Request",
+            targetLanguage: .init(identifier: "en"), editorIdentity: "outlook-editor")
+        state.draftAnchor = anchor
+        state.finish("Completed draft")
+        var record = state.historyRecord()!
+        record.updatedAt = Date().addingTimeInterval(-60)
+        expect(store.save(record), "contextless record saved")
+        let context = QuickActionContext(recipient: "alice@example.com", subject: "Reply",
+            recentThread: "From: Alice\nQuestion", documentIdentity: "outlook-editor")
+        let resumed = store.resumableRecord(selection: "", context: context, body: body)
+        expect(resumed?.id == record.id && resumed?.subject == "Reply"
+            && resumed?.contextFingerprints == context.historyFingerprints,
+            "same editor with unchanged boundaries backfills missing email context")
+        let other = QuickActionContext(recipient: "alice@example.com", subject: "Reply",
+            recentThread: "From: Alice\nQuestion", documentIdentity: "other-editor")
+        let isolated = RewriteHistoryStore(directory: directory.appendingPathComponent("isolated"),
+            key: { historyKey })
+        expect(isolated.save(record), "isolated record saved")
+        expect(isolated.resumableRecord(selection: "", context: other, body: body) == nil,
+            "contextless conversation never follows another editor")
+        expect(isolated.resumableRecord(selection: "", context: context, body: "Other email") == nil,
+            "reused editor without matching boundaries never acquires unrelated context")
+        expect(isolated.resumableRecord(selection: "", context: nil, body: body) == nil,
+            "notes and non-Outlook apps cannot resume email history")
+        let fresh = QuickActionPanelState(action: .rewrite, original: "", context: context,
+            targetLanguage: .init(identifier: "en"), awaitsWritingInstruction: true)
+        fresh.draftAnchor = anchor
+        expect(store.save(fresh.historyRecord()!), "explicit new conversation saved before first send")
+        expect(store.resumableRecord(selection: "", context: context, body: body)?.id == fresh.historyID,
+            "new empty conversation wins over the older completed transcript")
+        expect(store.records.contains { $0.id == record.id }, "starting fresh preserves old transcript")
+        expect(fresh.canDeliver(isViewingActive: false, savedRecord: record),
+            "shown saved draft delivers through an empty active session")
+        let adopted = fresh.adoptingSavedDraft(record)
+        expect(adopted.historyID == record.id && adopted.output == "Completed draft"
+            && adopted.insertsAtCaret && adopted.historyRecord()?.subject == "Reply"
+            && adopted.historyRecord()?.editorIdentity == "outlook-editor" && adopted.draftAnchor == nil,
+            "saved delivery adopts target identity without carrying an old draft anchor")
+        expect(fresh.output.isEmpty && fresh.conversation.isEmpty,
+            "adoption never assigns another transcript's draft to the active conversation")
+        fresh.isAttachingScreenshot = true
+        expect(!fresh.canDeliver(isViewingActive: false, savedRecord: record),
+            "saved delivery waits for active screenshot reads")
+        fresh.isAttachingScreenshot = false
+        expect(!fresh.canDeliver(isViewingActive: false), "deleted history cannot deliver")
+        record.screenshotAttached = true
+        expect(!fresh.canDeliver(isViewingActive: false, savedRecord: record),
+            "saved screenshot cannot deliver without its image")
+        record.screenshotAttached = false
+        fresh.replacementIssue = "Target changed"
+        expect(!fresh.canDeliver(isViewingActive: false, savedRecord: record),
+            "saved draft respects active target replacement issue")
+        fresh.replacementIssue = nil
+        fresh.restart()
+        expect(!fresh.canDeliver(isViewingActive: false, savedRecord: record),
+            "saved delivery cannot race running generation")
     }
 
     static func replacementBoundaries() throws {

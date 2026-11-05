@@ -108,7 +108,6 @@ final class QuickActionPanelState {
     /// A replacement issue asks the reader to reopen, so pressing again must capture afresh.
     var reopensFromSource: Bool { !isRunning && replacementIssue == nil }
 
-    /// A saved conversation on screen is view and copy only, so it hides the active one's controls.
     var isViewingActive: Bool { viewedHistoryID == nil || viewedHistoryID == historyID }
 
     /// Without a known range, or with different text there, the same field is a new request.
@@ -133,8 +132,22 @@ final class QuickActionPanelState {
         action == .rewrite && insertsAtCaret ? "Insert" : "Replace"
     }
 
-    func canDeliver(isViewingActive: Bool) -> Bool {
-        isViewingActive && canReplace
+    func canDeliver(isViewingActive: Bool, savedRecord: RewriteHistoryRecord? = nil) -> Bool {
+        if isViewingActive { return canReplace }
+        return !isRunning && !isAttachingScreenshot && replacementIssue == nil
+            && savedRecord?.latestDraft != nil && savedRecord?.screenshotAttached != true
+    }
+
+    func adoptingSavedDraft(_ saved: RewriteHistoryRecord) -> QuickActionPanelState {
+        var record = saved
+        record.subject = historySubject
+        record.recipient = historyRecipient
+        record.contextIdentity = historyContextIdentity
+        record.contextFingerprints = historyContextFingerprints
+        record.editorIdentity = historyEditorIdentity
+        record.draftAnchor = nil
+        return QuickActionPanelState(restoring: record, context: context,
+            targetLanguage: targetLanguage, insertsAtCaret: insertsAtCaret)
     }
 
     var needsInitialRequest: Bool { isAwaitingInstruction || isInitialFailure }
@@ -165,7 +178,7 @@ final class QuickActionPanelState {
     init(
         action: QuickAction, original: String, context: QuickActionContext? = nil,
         targetLanguage: Locale.Language, historyID: UUID = UUID(), createdAt: Date = Date(),
-        awaitsWritingInstruction: Bool = false
+        awaitsWritingInstruction: Bool = false, editorIdentity: String? = nil
     ) {
         self.action = action
         self.original = original
@@ -179,7 +192,7 @@ final class QuickActionPanelState {
         historyRecipient = context?.recipient
         historyContextIdentity = context?.historyIdentity
         historyContextFingerprints = context?.historyFingerprints ?? []
-        historyEditorIdentity = context?.documentIdentity
+        historyEditorIdentity = context?.documentIdentity ?? editorIdentity
         if awaitsWritingInstruction { phase = .awaitingInstruction }
     }
 
