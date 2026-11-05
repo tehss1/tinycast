@@ -123,6 +123,9 @@ struct ComposerToolbar: View {
             }
         case .history(let id):
             return [PopoverMenuItem(
+                title: String(localized: "New Conversation"), systemImage: "square.and.pencil",
+                isEnabled: !state.isRunning && !state.isAttachingScreenshot
+            ) { coordinator.newComposerConversation(from: state) }, PopoverMenuItem(
                 title: "Delete Conversation", systemImage: "trash", isDestructive: true
             ) { coordinator.deleteComposerConversation(id, from: state) }]
         case .context, nil: return []

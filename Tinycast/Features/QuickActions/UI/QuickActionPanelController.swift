@@ -10,7 +10,6 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
     private var onRetranslate: ((Locale.Language) -> Void)?
     private var onDismiss: (() -> Void)?
     private var selectedOutput = ""
-    private var isViewingActiveConversation = true
 
     /// Clear of the pointer, so the panel never opens under the hand that summoned it.
     private static let cursorOffset: CGFloat = 12
@@ -46,11 +45,10 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
                 onRefine: onRefine,
                 onStop: onStop,
                 onInstructionChange: onInstructionChange,
-                onReplace: { [weak self] in self?.replace(state.output) },
+                onReplace: { [weak self] in self?.replaceShownDraft(history: history) },
                 onCopy: { [weak self] in self?.copyOutput($0) },
-                onSelectionChange: { [weak self] text, isViewingActive in
+                onSelectionChange: { [weak self] text, _ in
                     self?.selectedOutput = text
-                    self?.isViewingActiveConversation = isViewingActive
                 },
                 onCancel: { [weak self] in self?.dismiss() },
                 onRetranslate: { [weak self] in self?.onRetranslate?($0) },
@@ -78,12 +76,10 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         }
         panel.delegate = self
         panel.onKey = { [weak self] key in
-            guard let self, let state = self.state else { return }
+            guard let self else { return }
             switch key {
             case .replace:
-                if state.canDeliver(isViewingActive: self.isViewingActiveConversation) {
-                    self.replace(state.output)
-                }
+                self.replaceShownDraft(history: history)
             case .copy: self.copyOutput(self.selectedOutput)
             case .cancel: self.dismiss()
             }
@@ -108,7 +104,6 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
         onRetranslate = nil
         onDismiss = nil
         selectedOutput = ""
-        isViewingActiveConversation = true
         closing.delegate = nil
         closing.onKey = nil
         closing.onAccessoryKey = nil
@@ -125,6 +120,13 @@ final class QuickActionPanelController: NSObject, NSWindowDelegate {
     private func openLanguageSettings() {
         dismiss()
         AppLauncher.openSettingsPane(bundleID: Self.languageSettingsPane)
+    }
+
+    private func replaceShownDraft(history: RewriteHistoryStore) {
+        guard let state else { return }
+        let record = history.records.first { $0.id == state.viewedHistoryID }
+        guard state.canDeliver(isViewingActive: state.isViewingActive, savedRecord: record) else { return }
+        replace(state.isViewingActive ? state.output : record?.latestDraft ?? "")
     }
 
     private func replace(_ text: String) {

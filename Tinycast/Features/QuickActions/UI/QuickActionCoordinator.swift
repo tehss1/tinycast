@@ -465,9 +465,10 @@ final class QuickActionCoordinator {
 
     /// Read after the ⌘C fallback's wait, so it counts only from the field the shortcut found.
     private static func outlookCapture(
-        in app: NSRunningApplication?, pressedIn field: ComposerTextTarget?
+        in app: NSRunningApplication?, pressedIn field: ComposerTextTarget?,
+        includesContext: Bool = true
     ) -> OutlookComposeContextReader.Capture? {
-        guard let capture = OutlookComposeContextReader.read(in: app) else { return nil }
+        guard let capture = OutlookComposeContextReader.read(in: app, includesContext: includesContext) else { return nil }
         guard let field else { return capture }
         guard CFEqual(field.editor, capture.target.editor),
             case .focusedField(let selection) = field.scope,
@@ -531,7 +532,9 @@ final class QuickActionCoordinator {
     private static let keychainNotice =
         "Composer is waiting for Keychain. Allow access to your history."
 
-    private func begin(_ action: QuickAction, target invoked: Target) async {
+    private func begin(
+        _ action: QuickAction, target invoked: Target, startsNewConversation: Bool = false
+    ) async {
         var target = invoked
         let previousComposer = action == .rewrite ? activeComposer : nil
         let input: QuickActionRunner.Input
@@ -550,6 +553,13 @@ final class QuickActionCoordinator {
             return
         }
         guard !Task.isCancelled else { return }
+        // A note opens over whatever app is frontmost, which must lend it no email context.
+        let readsOutlook = action == .rewrite && target.note == nil
+            && store.settings.usesOutlookContextForRewrite
+        let capture = action == .rewrite && target.note == nil
+            ? Self.outlookCapture(in: target.app, pressedIn: target.text, includesContext: readsOutlook) : nil
+        let context = readsOutlook ? capture?.context : nil
+        if let capture { target.text = capture.target }
         if action == .rewrite {
             // After an update this is where Keychain prompts; Composer opens once it is answered.
             let notice = Task { [weak self] in
@@ -567,13 +577,6 @@ final class QuickActionCoordinator {
             guard !Task.isCancelled else { return }
             forgetComposer()
         }
-        // A note opens over whatever app is frontmost, which must lend it no email context.
-        let readsOutlook = action == .rewrite && target.note == nil
-            && store.settings.usesOutlookContextForRewrite
-        let capture = readsOutlook
-            ? Self.outlookCapture(in: target.app, pressedIn: target.text) : nil
-        let context = capture?.context
-        if let capture { target.text = capture.target }
         if let note = target.note {
             target.frame = note.editor.window?.frame
         } else if action == .rewrite {
@@ -584,9 +587,9 @@ final class QuickActionCoordinator {
         case .selection(let text): text
         case .insertionPoint: ""
         }
-        // A match needs captured context, so a resumed record always has its Outlook capture.
-        if action == .rewrite,
-            let record = history.resumableRecord(selection: selection, context: context),
+        if action == .rewrite, !startsNewConversation,
+            let record = history.resumableRecord(
+                selection: selection, context: capture?.context, body: capture?.target.body),
             let capture
         {
             capture.target.restore(record, insertsAtCaret: input == .insertionPoint)
@@ -619,7 +622,8 @@ final class QuickActionCoordinator {
         let state = QuickActionPanelState(
             action: action, original: selection, context: context,
             targetLanguage: targetLanguage,
-            awaitsWritingInstruction: input == .insertionPoint)
+            awaitsWritingInstruction: input == .insertionPoint,
+            editorIdentity: capture?.context?.documentIdentity)
         if action == .rewrite {
             state.supportsScreenshotDelivery = target.note == nil
         }
@@ -628,6 +632,7 @@ final class QuickActionCoordinator {
             state.replacementIssue =
                 "Couldn't capture this Outlook draft. Reopen Composer to try again."
         }
+        if startsNewConversation { saveHistory(state) }
         if input == .insertionPoint {
             present(state, target: target)
             return
@@ -846,16 +851,25 @@ final class QuickActionCoordinator {
             onDismiss: { [weak self] in self?.savePendingInstruction(state) },
             onReplace: { [weak self] text in
                 guard let self else { return }
-                // Forgotten only once it lands: after a failure the same press reopens it to retry.
+                let saved = state.isViewingActive ? nil
+                    : history.records.first { $0.id == state.viewedHistoryID }
+                guard state.canDeliver(isViewingActive: state.isViewingActive, savedRecord: saved) else { return }
+                let deliveredState = saved.map { state.adoptingSavedDraft($0) } ?? state
                 deliver(
                     text, replacing: state.original, to: target, action: state.action,
                     textTarget: target.text,
                     insertsAtCaret: state.insertsAtCaret,
-                    screenshot: state.screenshot, screenshotOffset: state.screenshotOffset,
+                    screenshot: deliveredState.screenshot, screenshotOffset: deliveredState.screenshotOffset,
                     onDelivered: { [weak self] in
                         guard let self else { return }
                         if state === activeComposer { forgetComposer() }
-                        retarget(state, to: target.text)
+                        if saved != nil {
+                            saveHistory(deliveredState)
+                            if state.conversation.isEmpty && state.refinementInstruction.isEmpty {
+                                if !history.remove(id: state.historyID) { reportHistoryFailure() }
+                            }
+                        }
+                        retarget(deliveredState, to: target.text)
                     })
             })
     }
@@ -869,6 +883,21 @@ final class QuickActionCoordinator {
         guard let record = state.historyRecord(now: saved ?? Date()) else { return }
         state.lastHistorySaveFailed = !history.save(record)
         if state.lastHistorySaveFailed { reportHistoryFailure() }
+    }
+
+    func newComposerConversation(from state: QuickActionPanelState) {
+        guard activeComposer === state, !state.isRunning, !state.isAttachingScreenshot,
+            var target = composerApp, running == nil else { return }
+        if target.note == nil {
+            guard let app = target.app, target.text?.isFocused(in: app) == true else { return }
+            target.text = ComposerTextTarget.focusedField(in: app)
+        }
+        panels.dismiss()
+        savePendingInstruction(state)
+        forgetComposer()
+        start { [weak self] in
+            await self?.begin(.rewrite, target: target, startsNewConversation: true)
+        }
     }
 
     func deleteComposerConversation(_ id: UUID, from state: QuickActionPanelState) {

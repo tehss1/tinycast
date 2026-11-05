@@ -4,12 +4,12 @@ struct RewriteHistoryRecord: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let createdAt: Date
     var updatedAt: Date
-    let subject: String?
-    let recipient: String?
-    let contextIdentity: String?
+    var subject: String?
+    var recipient: String?
+    var contextIdentity: String?
     var contextFingerprints: [String]?
     /// Optional so history written before per-editor matching still decodes.
-    let editorIdentity: String?
+    var editorIdentity: String?
     let original: String
     var messages: [RewriteConversationMessage]
     var pendingInstruction: String?

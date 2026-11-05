@@ -1472,21 +1472,21 @@ struct QuickActionTests {
         let resumed = legacyStore.resumableRecord(
             selection: simpleLegacy.original, context: context)
         expect(
-            resumed?.id == richerLegacy.id,
-            "the richer existing conversation wins over a newer duplicate")
+            resumed?.id == simpleLegacy.id,
+            "the latest conversation wins over an older longer transcript")
         expect(
             resumed?.contextIdentity == context.historyIdentity,
             "a legacy conversation adopts the Outlook email identity")
         expect(
-            legacyStore.records.map(\.id) == [richerLegacy.id],
-            "duplicate rows for the same email collapse into one conversation")
+            Set(legacyStore.records.map(\.id)) == Set([simpleLegacy.id, richerLegacy.id]),
+            "older matching conversations remain in history")
 
         let reopenedLegacy = RewriteHistoryStore(
             directory: directory.appendingPathComponent("legacy"), key: { historyKey })
         reopenedLegacy.load()
         expect(
-            reopenedLegacy.records.map(\.id) == [richerLegacy.id],
-            "the consolidated email conversation survives a relaunch")
+            Set(reopenedLegacy.records.map(\.id)) == Set([simpleLegacy.id, richerLegacy.id]),
+            "separate matching conversations survive a relaunch")
 
         let otherAppStore = RewriteHistoryStore(
             directory: directory.appendingPathComponent("other-app"), key: { historyKey })
