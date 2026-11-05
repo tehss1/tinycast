@@ -432,7 +432,9 @@ window and never reads Outlook context or history, even with Outlook frontmost.
 `ComposerPanelPlacement` chooses the source display and keeps the panel clear of its edges. Other Quick Actions open near the pointer.
 Resizing uses the panel's current display, so moving the pointer cannot move Composer to another screen.
 
-Click-away dismisses like every other borderless surface. The panel is anchored by its **top-left**
+Click-away dismisses like every other borderless surface. Only the header's title run drags it:
+the panel clears `isMovableByWindowBackground`, so a drag across the transcript selects text.
+The panel is anchored by its **top-left**
 and re-measured as the reply arrives. A Composer panel may grow while it is open, but it keeps the
 largest height it has reached when the reader switches between saved conversations. Its larger
 minimum body leaves room for the first writing request before a transcript exists. Centring on every

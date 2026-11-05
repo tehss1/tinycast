@@ -23,7 +23,8 @@ final class QuickActionPanel: NSPanel, UpdateWorkWindow, AnimatedPanel {
         // Above the palette, below a dialog: a failure report must still land on top of it.
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isMovableByWindowBackground = true
+        // Only the title drags: a drag across the transcript must select text, not move the panel.
+        isMovableByWindowBackground = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isOpaque = false
