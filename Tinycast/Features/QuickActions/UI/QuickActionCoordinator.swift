@@ -589,7 +589,7 @@ final class QuickActionCoordinator {
         }
         if action == .rewrite, !startsNewConversation,
             let record = history.resumableRecord(
-                selection: selection, context: capture?.context, body: capture?.target.body),
+                selection: selection, context: context, body: capture?.target.body),
             let capture
         {
             capture.target.restore(record, insertsAtCaret: input == .insertionPoint)

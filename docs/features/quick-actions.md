@@ -239,8 +239,9 @@ selectable Markdown renderer with AI Chat.
   conversation menu, with New Conversation and Delete Conversation. VoiceOver also offers deletion
   on each row. Deleting the active conversation also closes its panel, even when history could not
   be saved. Composer captures the Outlook editor and draft boundary even with email context off;
-  headers and quoted messages are not added to the model request in that mode. The capture happens
-  before the first-use Keychain wait so its prompt cannot steal the editor focus.
+  headers and quoted messages are not added to the model request in that mode, and history is
+  not resumed then, since an editor identity alone cannot tell a new email from a closed one. The
+  capture happens before the first-use Keychain wait so its prompt cannot steal the editor focus.
 - **Composer's fixed rules stay outside its editable style.** Selected-text Composer prepends
   `boundary` and its meaning, register and approximate-length rewrite restrictions; caret-first
   composition and its refinements never add them. A selected-text refinement may change the length
