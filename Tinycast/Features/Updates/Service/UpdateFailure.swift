@@ -5,7 +5,6 @@ enum UpdateFailure: LocalizedError, Equatable {
     case accessRefused
     case feedMissing
     case rateLimited
-    case checkInProgress
     case extractFailed(String)
     case noAppInArchive
     case quarantined
@@ -25,8 +24,6 @@ enum UpdateFailure: LocalizedError, Equatable {
             return String(localized: "GitHub has no public releases for this build.")
         case .rateLimited:
             return String(localized: "GitHub is limiting update checks from this network.")
-        case .checkInProgress:
-            return String(localized: "Tinycast is already checking for updates.")
         case .extractFailed(let detail):
             return String(localized: "The downloaded archive could not be expanded. \(detail)")
         case .noAppInArchive:
@@ -72,8 +69,6 @@ enum UpdateFailure: LocalizedError, Equatable {
                 localized: "If its repository is private, add an update token in Settings › General.")
         case .rateLimited:
             return String(localized: "Try again later, or add an update token in Settings › General.")
-        case .checkInProgress:
-            return String(localized: "Try again in a moment.")
         default:
             return nil
         }

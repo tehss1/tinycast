@@ -3,13 +3,13 @@ import Foundation
 struct AvailableRelease: Codable, Hashable, Sendable {
     let version: AppVersion
     let tag: String
-    let notes: String
     let assetURL: URL
     let assetSize: Int64
+    let signatureURL: URL?
     let publishedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case version, tag, notes, assetURL, assetSize, publishedAt
+        case version, tag, assetURL, assetSize, signatureURL, publishedAt
     }
 }
 
@@ -23,9 +23,10 @@ extension AvailableRelease {
                 forKey: .tag, in: values, debugDescription: "Release tag does not match its version")
         }
         self.init(
-            version: version, tag: tag, notes: try values.decode(String.self, forKey: .notes),
+            version: version, tag: tag,
             assetURL: try values.decode(URL.self, forKey: .assetURL),
             assetSize: try values.decode(Int64.self, forKey: .assetSize),
+            signatureURL: try values.decodeIfPresent(URL.self, forKey: .signatureURL),
             publishedAt: try values.decodeIfPresent(Date.self, forKey: .publishedAt))
     }
 }
@@ -36,7 +37,7 @@ enum ReleaseFeed {
     static let fallbackRepository = "tehss1/tinycast"
     static let repositoryInfoKey = "TinycastUpdateRepository"
 
-    /// Info.plist names a fork's own; every `@handle` and `#304` in release notes points at it.
+    /// Info.plist names a fork's own.
     static var repository: String { repository(in: Bundle.main.infoDictionary) }
 
     static func repository(in info: [String: Any]?) -> String {
@@ -118,12 +119,9 @@ enum ReleaseFeed {
             .max { $0.version < $1.version }
     }
 
-    /// The release worth offering: strictly newer than what runs, and not skipped.
-    static func offer(
-        _ release: AvailableRelease?, running: AppVersion, skipped: AppVersion?
-    ) -> AvailableRelease? {
+    /// The release worth offering: strictly newer than what runs.
+    static func offer(_ release: AvailableRelease?, running: AppVersion) -> AvailableRelease? {
         guard let release, release.version > running else { return nil }
-        if let skipped, release.version <= skipped { return nil }
         return release
     }
 
@@ -139,9 +137,9 @@ enum ReleaseFeed {
         return AvailableRelease(
             version: version,
             tag: entry.tagName,
-            notes: ReleaseNotes.summary(of: entry.body ?? ""),
             assetURL: asset.url,
             assetSize: asset.size,
+            signatureURL: entry.assets.first { $0.name == asset.name + ".sig" }?.url,
             publishedAt: entry.publishedAt.flatMap { try? Date($0, strategy: .iso8601) })
     }
 
@@ -161,13 +159,12 @@ enum ReleaseFeed {
         let tagName: String
         let prerelease: Bool
         let draft: Bool
-        let body: String?
         let publishedAt: String?
         let assets: [Asset]
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
-            case prerelease, draft, body, assets
+            case prerelease, draft, assets
             case publishedAt = "published_at"
         }
 

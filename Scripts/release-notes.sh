@@ -53,22 +53,13 @@ CHANGELOG="$(printf '%s\n' "$GENERATED" | sed -E \
     if [ -n "$COMPARE_URL" ]; then printf ' [Full changelog](%s)' "$COMPARE_URL"; fi
     printf '\n\n'
     if [ "$REPO" = "$UPSTREAM_REPO" ]; then
-        printf '%s\n' "**Recommended:** install via Homebrew. It clears the quarantine flag automatically on every install and update:"
-        printf '```sh\nbrew trust --tap abue-ammar/tinycast\nbrew install --cask abue-ammar/tinycast/%s\n```\n' "$CASK"
-        # The stable DMG is arm64-only; macOS 26 is the last release that boots on Intel.
-        if [ "$CHANNEL" = "stable" ]; then
-            printf '%s\n' "On an **Intel** Mac, install \`abue-ammar/tinycast/tinycast-universal\` instead. It is the same app built with both slices."
-        fi
+        printf 'Install via Homebrew, or open the DMG below and drag %s to Applications:\n' "$DISPLAY_NAME"
+        printf '```sh\nbrew install --cask %s\n```\n' "$CASK"
     else
-        printf '%s\n' "This customized build updates through Tinycast's in-app updater. Install releases from this repository so the custom features and signing identity remain intact."
+        printf '%s\n' "This customized build updates through Tinycast's in-app updater. Install releases from this repository so the custom features and signing identity stay together."
+        printf '%s\n' "This build is self-signed. The first time you install from the DMG, macOS will refuse to open it until you clear the quarantine flag once:"
+        printf '```sh\nxattr -dr com.apple.quarantine "/Applications/%s.app"\n```\n' "$DISPLAY_NAME"
     fi
-    if [ "$REPO" = "$UPSTREAM_REPO" ]; then
-        DIRECT_DOWNLOAD="If you download the DMG directly instead of using Homebrew"
-    else
-        DIRECT_DOWNLOAD="The first time you install from the DMG"
-    fi
-    printf '%s\n' "This build is self-signed. ${DIRECT_DOWNLOAD}, macOS will refuse to open it until you clear the quarantine flag once:"
-    printf '```sh\nxattr -dr com.apple.quarantine "/Applications/%s.app"\n```\n' "$DISPLAY_NAME"
 } > "$BODY_OUT"
 
 printf '%s\n' "$CHANGELOG" | awk -v budget="$DISCORD_BUDGET" -v bullets="$DISCORD_BULLETS" '

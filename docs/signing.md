@@ -110,6 +110,17 @@ missing its entitlement ships a permission that can never be granted.
 
 ## Update trust
 
-Fork releases use the same self-signed identity as the installed app. The updater verifies the
-bundle and nested code, then requires the candidate leaf certificate to match the running app's leaf.
-A different identity requires a separately planned trust transition. Fork releases are not notarized.
+Fork releases use the same self-signed identity as the installed app. The updater checks the bundle
+and nested code under strict validation, then requires the candidate to satisfy the running copy's
+own designated requirement, which for this identity pins the `Tinycast Self-Signed` leaf certificate.
+A different identity requires a separately planned trust transition.
+
+This fork ships no release key. `Info.plist` has no `TinycastUpdatePublicKey` and release zips carry
+no `.sig`, so the upstream key route never applies; it also needs a Developer ID signature, which this
+fork does not have. `Scripts/sign-update.swift` and `Scripts/check-update-path.sh` stay in the tree to
+keep upstream merges small, and nothing here runs them. Fork releases are not notarized.
+
+## Quarantine
+
+A local `build-dmg.sh` DMG is self-signed and never notarized, so it is for testing on the Mac that
+built it, not for sharing.

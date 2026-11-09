@@ -8,10 +8,7 @@ final class UpdateCheckStore {
     private static let refreshInterval: TimeInterval = 24 * 3600
     /// Shorter retry, so a machine offline at launch sees a release soon after it reconnects.
     private static let retryInterval: TimeInterval = 2 * 3600
-    /// A withheld prompt is re-offered this often, this many times, then left to the daily check.
-    private static let withheldInterval: TimeInterval = 120
-    private static let withheldRetryLimit = 15
-    /// Keeps the first check, and any window it raises, clear of the login rush.
+    /// Keeps the first check clear of the login rush.
     private static let startupDelay = Duration.seconds(30)
 
     let channel: ReleaseChannel
@@ -20,19 +17,17 @@ final class UpdateCheckStore {
     /// The newest release on this channel, whether or not it is newer than what is running.
     private(set) var latest: AvailableRelease?
     private(set) var lastCheckedAt: Date?
-    private(set) var isChecking = false
+    var isChecking: Bool { checksInFlight > 0 }
 
-    /// Raised on an unskipped release; `false` answers that the prompt was withheld and is owed.
-    @ObservationIgnored var onUpdateAvailable: (@MainActor (AvailableRelease) -> Bool)?
+    @ObservationIgnored var onUpdateAvailable: (@MainActor (AvailableRelease) -> Void)?
 
     private let fileURL: URL
     private let repository: String
     @ObservationIgnored private let fetch: @Sendable () async -> ReleaseFeed.Response
-    private var skippedVersion: AppVersion?
     private var installedVersion: AppVersion?
+    private var checksInFlight = 0
     /// At most one uninvited appearance per version per launch.
     @ObservationIgnored private var announcedVersion: AppVersion?
-    @ObservationIgnored private var withheldRetries = 0
     @ObservationIgnored private var pump: Task<Void, Never>?
 
     init(
@@ -56,22 +51,15 @@ final class UpdateCheckStore {
         else { return }
         latest = cache.latest
         lastCheckedAt = cache.lastCheckedAt
-        skippedVersion = cache.skippedVersion
         installedVersion = cache.installedVersion
     }
 
     deinit { pump?.cancel() }
 
-    /// Newer than what is running. What the window offers, including a version already skipped.
+    /// Newer than what is running.
     var update: AvailableRelease? {
         guard let runningVersion else { return nil }
-        return ReleaseFeed.offer(latest, running: runningVersion, skipped: nil)
-    }
-
-    /// The same, minus anything dismissed. Only this may interrupt the user.
-    var unskippedUpdate: AvailableRelease? {
-        guard let runningVersion else { return nil }
-        return ReleaseFeed.offer(latest, running: runningVersion, skipped: skippedVersion)
+        return ReleaseFeed.offer(latest, running: runningVersion)
     }
 
     func start(after delay: Duration = UpdateCheckStore.startupDelay) {
@@ -91,7 +79,6 @@ final class UpdateCheckStore {
     func stop() {
         pump?.cancel()
         pump = nil
-        withheldRetries = 0
     }
 
     enum Outcome: Sendable, Equatable {
@@ -100,16 +87,14 @@ final class UpdateCheckStore {
         case missing
         case limited
         case unreachable
-        case busy
     }
 
     /// The manual path: ignores freshness, and reports what GitHub made of the request.
     @discardableResult
     func check() async -> Outcome {
         guard channel.updatesItself else { return .unreachable }
-        guard !isChecking else { return .busy }
-        isChecking = true
-        defer { isChecking = false }
+        checksInFlight += 1
+        defer { checksInFlight -= 1 }
         let response = await fetch()
         guard !Task.isCancelled else { return .unreachable }
         switch response {
@@ -125,23 +110,24 @@ final class UpdateCheckStore {
         }
     }
 
-    /// Dismissing a version is what stops it asking again; a later one still will.
-    func skip(_ release: AvailableRelease) {
-        skippedVersion = release.version
-        persist()
-    }
-
     func recordInstall(of version: AppVersion) {
         installedVersion = version
         persist()
     }
 
-    /// Taken once, so a later launch, or a version that came from elsewhere, reports nothing.
-    func takeInstalledVersion() -> AppVersion? {
+    enum InstallReport: Equatable {
+        case installed(AppVersion)
+        case notInstalled(AppVersion)
+    }
+
+    /// Taken once. A newer version running came from elsewhere, so it reports nothing.
+    func takeInstallReport() -> InstallReport? {
         guard let installed = installedVersion else { return nil }
         installedVersion = nil
         persist()
-        return installed == runningVersion ? installed : nil
+        guard let runningVersion else { return nil }
+        if installed == runningVersion { return .installed(installed) }
+        return installed > runningVersion ? .notInstalled(installed) : nil
     }
 
     private func advance() async -> TimeInterval {
@@ -151,29 +137,21 @@ final class UpdateCheckStore {
         if wait <= 0 {
             wait = await check() == .answered ? Self.refreshInterval : Self.retryInterval
         }
-        if announce() {
-            withheldRetries = 0
-        } else if withheldRetries < Self.withheldRetryLimit {
-            // A launch straight into the palette must not spend the day's only announcement.
-            withheldRetries += 1
-            wait = min(wait, Self.withheldInterval)
-        }
+        announce()
         return wait
     }
 
-    /// `false` only when a pending release was withheld, so the pump comes back for it.
-    private func announce() -> Bool {
-        guard !Task.isCancelled else { return true }
-        guard let release = unskippedUpdate, announcedVersion != release.version else { return true }
-        guard onUpdateAvailable?(release) ?? true else { return false }
+    private func announce() {
+        guard !Task.isCancelled, let release = update, announcedVersion != release.version
+        else { return }
         announcedVersion = release.version
-        return true
+        onUpdateAvailable?(release)
     }
 
     private func persist() {
         let cache = Cache(
             repository: repository, lastCheckedAt: lastCheckedAt, latest: latest,
-            skippedVersion: skippedVersion, installedVersion: installedVersion)
+            installedVersion: installedVersion)
         guard let data = try? JSONEncoder().encode(cache) else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
@@ -182,7 +160,6 @@ final class UpdateCheckStore {
         var repository: String?
         var lastCheckedAt: Date?
         var latest: AvailableRelease?
-        var skippedVersion: AppVersion?
         var installedVersion: AppVersion?
     }
 

@@ -46,6 +46,7 @@ struct QuickActionResultView: View {
     var body: some View {
         panelContent
             .frame(width: panelWidth, height: panelHeight)
+            .background(Theme.Colors.panelScrim)
             .background(GlassEffectView())
             .overlay {
                 if state.accessory != nil {
