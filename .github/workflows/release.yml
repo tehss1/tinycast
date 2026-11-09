@@ -164,7 +164,6 @@ jobs:
           gh release create "$TAG" --target "$GITHUB_SHA" \
             "dist/${{ steps.meta.outputs.dmg_file }}" \
             "dist/${{ steps.meta.outputs.zip_file }}" \
-            "dist/${{ steps.meta.outputs.zip_file }}.sig" \
             --title "${{ steps.meta.outputs.display_name }} ${{ steps.meta.outputs.full_version }}" \
             --notes-file "$RUNNER_TEMP/notes.md" \
             $PRERELEASE_FLAG
@@ -313,8 +312,7 @@ jobs:
         run: |
           gh release upload "v${VERSION}" \
             "dist/Tinycast-Universal-${VERSION}.dmg" \
-            "dist/Tinycast-Universal-${VERSION}.zip" \
-            "dist/Tinycast-Universal-${VERSION}.zip.sig"
+            "dist/Tinycast-Universal-${VERSION}.zip"
 
       - name: Update Homebrew cask
         if: github.repository == 'abue-ammar/tinycast'

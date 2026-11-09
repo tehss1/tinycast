@@ -11,18 +11,15 @@ import Foundation
     var holdPrepare = false
     var idle = true
     var scheduled = 0
+    var holdFetch = false
+    var heldFetches: [CheckedContinuation<Void, Never>] = []
     var releasePrepare: CheckedContinuation<Void, Never>?
     var queued: (@MainActor () -> Bool)?
     var finishRelaunch: CheckedContinuation<Bool, Never>?
     private(set) lazy var store = UpdateCheckStore(
         repository: "tehss1/tinycast", channel: .stable, runningVersion: AppVersion("1.0.0"),
         fileURL: file,
-        fetch: {
-            .body(Data("""
-            [{"tag_name":"v1.1.0","prerelease":false,"draft":false,"body":"", "assets":[
-            {"name":"Tinycast-1.1.0.zip","url":"https://api.github.com/assets/1","size":100}]}]
-            """.utf8))
-        })
+        fetch: { [unowned self] in await respond() })
     private(set) lazy var coordinator = UpdateCoordinator(
         store: store, core: core,
         prepare: { [unowned self] _, _ in
@@ -42,6 +39,14 @@ import Foundation
         },
         isIdle: { [unowned self] in idle })
     var pills: Int { core.paletteCoordinator.shown }
+
+    func respond() async -> ReleaseFeed.Response {
+        if holdFetch { await withCheckedContinuation { heldFetches.append($0) } }
+        return .body(Data("""
+        [{"tag_name":"v1.1.0","prerelease":false,"draft":false,"body":"", "assets":[
+        {"name":"Tinycast-1.1.0.zip","url":"https://api.github.com/assets/1","size":100}]}]
+        """.utf8))
+    }
 
     func publish() { coordinator.releasePublished(bundlePath: "/Applications/Tinycast.app") }
     deinit { try? FileManager.default.removeItem(at: file) }
@@ -65,6 +70,7 @@ import Foundation
         try await stagingDoesNotWaitForIdle()
         try await turningUpdatesOffStopsTheRelaunch()
         try await failedStagingStaysSilent()
+        try await manualCheckKeepsUnattendedWorkOut()
         print("Coordinator takeover, queued cancellation, Later, idle gating and exactly-once staging passed")
     }
 
@@ -158,6 +164,22 @@ import Foundation
         off.publish()
         try await settle()
         require(off.prepares == 0, "A disabled updater ignores release notifications")
+    }
+
+    static func manualCheckKeepsUnattendedWorkOut() async throws {
+        let h = Harness()
+        h.holdFetch = true
+        h.coordinator.checkForUpdates()
+        await wait { h.heldFetches.count == 1 }
+        h.publish()
+        try await settle()
+        require(h.heldFetches.count == 1, "A notification waits out a manual check already asking")
+        require(h.prepares == 0, "A manual check is never raced by unattended staging")
+        h.holdFetch = false
+        h.heldFetches.removeFirst().resume()
+        await wait { h.pills == 1 }
+        guard case .available = h.coordinator.stage else { fatalError("Manual check offers the release") }
+        require(h.queued == nil, "A manual check never schedules a relaunch")
     }
 
     static func failedStagingStaysSilent() async throws {

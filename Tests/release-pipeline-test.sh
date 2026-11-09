@@ -64,6 +64,11 @@ if "$scratch/repo/Scripts/check-composer-retention.sh" "$base" > "$scratch/delet
 coordinator=Tinycast/Features/QuickActions/UI/QuickActionCoordinator.swift
 sed '/history.loadOnFirstUse()/d' "$root/$coordinator" > "$scratch/repo/$coordinator"
 if "$scratch/repo/Scripts/check-composer-retention.sh" > "$scratch/ownership.log" 2>&1; then exit 1; fi
+# The fork signs no zips, so the workflow must upload only what package-release.sh makes.
+if grep -q '\.zip\.sig' "$root/.github/workflows/release.yml" "$root/Scripts/package-release.sh"; then
+    echo "The fork's release must not publish or expect a zip signature" >&2
+    exit 1
+fi
 echo "Release metadata and Composer deletion/ownership regression fixtures passed."
 
 # Run the shipped entry point with all external work confined to this fixture.

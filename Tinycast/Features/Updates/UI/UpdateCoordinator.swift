@@ -195,8 +195,8 @@ final class UpdateCoordinator {
                 repository: ReleaseFeed.repository, channel: store.channel,
                 bundlePath: bundlePath,
                 enabled: core.settings.automaticallyCheckForUpdates,
-                inFlight: releaseTask != nil || isInstalling || staged != nil
-                    || manualRequestInFlight,
+                inFlight: releaseTask != nil || isInstalling || stage == .checking
+                    || staged != nil || manualRequestInFlight,
                 now: Date(), lastAttempt: lastReleaseAttempt)
         else { return }
         lastReleaseAttempt = Date()
@@ -298,6 +298,10 @@ final class UpdateCoordinator {
         Task { [weak self] in
             guard let self else { return }
             let outcome = await store.check()
+            guard stage == .checking else {
+                core.hideProgress()
+                return
+            }
             if let release = store.update {
                 core.hideProgress()
                 stage = .available(release)
