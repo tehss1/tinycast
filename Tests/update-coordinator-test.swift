@@ -71,6 +71,7 @@ import Foundation
         try await turningUpdatesOffStopsTheRelaunch()
         try await failedStagingStaysSilent()
         try await manualCheckKeepsUnattendedWorkOut()
+        try await dismissingAnOfferStopsSilentStaging()
         print("Coordinator takeover, queued cancellation, Later, idle gating and exactly-once staging passed")
     }
 
@@ -180,6 +181,23 @@ import Foundation
         await wait { h.pills == 1 }
         guard case .available = h.coordinator.stage else { fatalError("Manual check offers the release") }
         require(h.queued == nil, "A manual check never schedules a relaunch")
+    }
+
+    static func dismissingAnOfferStopsSilentStaging() async throws {
+        let h = Harness()
+        h.holdPrepare = true
+        h.coordinator.offer(AvailableRelease(
+            version: AppVersion("1.1.0")!, tag: "v1.1.0",
+            assetURL: URL(string: "https://api.github.com/assets/1")!, assetSize: 100,
+            signatureURL: nil, publishedAt: nil))
+        h.publish()
+        await wait { h.enteredPrepare }
+        guard case .available = h.coordinator.stage else { fatalError("The offer stays on screen") }
+        h.coordinator.dismiss()
+        h.releasePrepare?.resume()
+        try await settle()
+        require(h.coordinator.stage == .idle, "Dismissing an offer stops staging behind it")
+        require(h.queued == nil, "Dismissing an offer stops the relaunch behind it")
     }
 
     static func failedStagingStaysSilent() async throws {

@@ -152,6 +152,8 @@ final class UpdateCoordinator {
             cancelUnattended()
             stage = .idle
         case .available, .failed:
+            // Silent staging may be under way behind this pill, and hiding it means not now.
+            cancelUnattended()
             stage = .idle
         case .idle, .checking:
             break

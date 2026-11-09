@@ -65,7 +65,7 @@ coordinator=Tinycast/Features/QuickActions/UI/QuickActionCoordinator.swift
 sed '/history.loadOnFirstUse()/d' "$root/$coordinator" > "$scratch/repo/$coordinator"
 if "$scratch/repo/Scripts/check-composer-retention.sh" > "$scratch/ownership.log" 2>&1; then exit 1; fi
 # The fork signs no zips, so the workflow must upload only what package-release.sh makes.
-if grep -q '\.zip\.sig' "$root/.github/workflows/release.yml" "$root/Scripts/package-release.sh"; then
+if grep -Eq '\.sig([^[:alpha:]]|$)' "$root/.github/workflows/release.yml" "$root/Scripts/package-release.sh"; then
     echo "The fork's release must not publish or expect a zip signature" >&2
     exit 1
 fi
