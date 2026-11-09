@@ -308,7 +308,10 @@ screens hold (see [palette.md](palette.md)).
   The feature's own fills live in `ExtensionColors` — never in `Theme`.
 - **Form** — label-left/control-right rows. Field values live in the extension (React owns them); every
   edit dispatches `onTinycastChange` and the resulting re-render is what updates the control, so
-  `defaultValue`, a controlled `value`, and `ref.reset()` all behave. **A form takes the whole
+  `defaultValue`, a controlled `value`, and `ref.reset()` all behave. `Action.SubmitForm` saves each
+  `storeValue` field to `ExtensionStorage.formValues`, keyed by command and field id, and the launch
+  context hands them back so the field starts from the saved value on its first render; a controlled
+  `value` always wins. **A form takes the whole
   keyboard**: its fields _are_ the palette's rows, so the search field is hidden and the header left
   empty. `ExtensionFormField` says what each `Form.*` node is —
   which of them focus lands on, which keys the control keeps, and which need a focus ring drawn — and
@@ -720,7 +723,8 @@ session that refuses to start fails immediately; duplicate or late callbacks can
 **Node built-ins** — `path`, `fs` (+ `fs/promises`, `createReadStream`/`createWriteStream`, a snapshot-backed `opendir`, and
 the descriptor calls `tar` unpacks through), `os` (`networkInterfaces` reports every MAC as zeros),
 `child_process` (`exec`, `execFile`, `execSync`, `execFileSync`, `spawnSync`, and a streaming `spawn`,
-each async form reporting the child's real `pid` for `process.kill` — Timers pauses that way),
+each async form reporting the child's real `pid` for `process.kill` — Timers pauses that way; an
+`fs.openSync` descriptor in `spawn` or `spawnSync`'s `stdio` replaces that stream's pipe),
 `crypto` (hashes, HMAC, PBKDF2, AES-CBC/ECB, AES-GCM with 16-byte tags and nonces of 12 bytes or
 more — CryptoKit's limits, narrower than Node's — random, UUID), `zlib` (gzip/zlib/raw deflate, both
 directions, plus `create*` streams that buffer until `end`), `http`/`https` (`request`, `get` and `Agent`, buffered over the same URLSession bridge

@@ -1,5 +1,6 @@
-import AppKit
-import SwiftUI
+import Foundation
+
+enum DialogTone { case success, neutral, danger }
 
 @MainActor final class AppCore {
     final class Settings { var automaticallyCheckForUpdates = true }
@@ -7,29 +8,28 @@ import SwiftUI
     enum Command { case checkForUpdates }
     final class QuickActions { var blocksUnattendedUpdate = false }
     final class Dictation { var isBusyForUpdate = false }
+    enum PaletteMode { case launcher }
+    final class Palette {
+        var isVisible = false
+        var shown = 0
+        func showPalette(mode: PaletteMode, restoreAnyMode: Bool) { shown += 1 }
+    }
     let settings = Settings()
     let appIndex = Index()
     let quickActionCoordinator = QuickActions()
     let dictationCoordinator = Dictation()
+    let paletteCoordinator = Palette()
     var currentActivity = UpdateActivity()
-    var activationPolicy = 0
+    var messages: [String] = []
+    func showMessage(_ message: String, tone: DialogTone = .success) { messages.append(message) }
+    func showProgress(_ message: String, onCancel: (() -> Void)? = nil) {}
+    func hideProgress() {}
+    func reportFailure(title: String, message: String, symbol: String, recovery: String?) async -> Bool {
+        false
+    }
     func relaunch() { fatalError("Unexpected real relaunch") }
     func relaunchInBackgroundIfIdle(whenReady: @escaping @MainActor () -> Bool) async -> Bool {
         fatalError("Tests must inject the scheduler")
     }
-}
-@MainActor final class AppWindowController {
-    init(title: String, contentSize: CGSize, activation: Int) {}
-    func focus() -> Bool { false }
-    func fitContent(width: CGFloat, height: CGFloat) {}
-    func close() {}
-    func show<Content: View>(@ViewBuilder _ content: () -> Content) {
-        fatalError("Tests must inject presentation")
-    }
-}
-struct UpdateWindowView: View {
-    static let initialSize = CGSize(width: 400, height: 300)
-    static let width: CGFloat = 400
-    var body: some View { EmptyView() }
 }
 enum UpdateToken { static func read() -> String? { nil } }

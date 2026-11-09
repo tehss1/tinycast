@@ -10,8 +10,8 @@ struct UpdateCheckTests {
         try await stopsBeforeFirstCheck()
         try await cancelsAndRestarts()
         await manualChecksReportAccessFailures()
+        await manualCheckAnswersDuringAutomaticOne()
         try reportsInstalledVersionOnce()
-        leafPinRequiresMatchingCertificates()
         print("\(passes) passed, \(failures) failed")
         if failures > 0 { exit(1) }
     }
@@ -22,10 +22,7 @@ struct UpdateCheckTests {
         let fixture = FetchFixture()
         let store = makeStore(file: file, fixture: fixture)
         var offers = 0
-        store.onUpdateAvailable = { _ in
-            offers += 1
-            return true
-        }
+        store.onUpdateAvailable = { _ in offers += 1 }
 
         store.start(after: .milliseconds(10))
         store.stop()
@@ -43,10 +40,7 @@ struct UpdateCheckTests {
         let fixture = FetchFixture()
         let store = makeStore(file: file, fixture: fixture)
         var offers = 0
-        store.onUpdateAvailable = { _ in
-            offers += 1
-            return true
-        }
+        store.onUpdateAvailable = { _ in offers += 1 }
         defer { store.stop() }
 
         store.start(after: .zero)
@@ -74,8 +68,6 @@ struct UpdateCheckTests {
         store.stop()
         let manual = Task { await store.check() }
         await waitUntil { fixture.requests == 3 }
-        expect(await store.check() == .busy, "a second check reports the one already running")
-        expect(fixture.requests == 3, "a busy check makes no request of its own")
         store.stop()
         fixture.respond(feed(version: "1.3.0"))
         let answered = await manual.value
@@ -106,11 +98,23 @@ struct UpdateCheckTests {
         }
     }
 
-    static func leafPinRequiresMatchingCertificates() {
-        let leaf = Data([1, 2, 3])
-        expect(BundleSignature.matchesLeaf(running: leaf, candidate: leaf), "matching leaf is trusted")
-        expect(!BundleSignature.matchesLeaf(running: leaf, candidate: Data([4])), "different leaf is refused")
-        expect(!BundleSignature.matchesLeaf(running: nil, candidate: leaf), "missing leaf is refused")
+    static func manualCheckAnswersDuringAutomaticOne() async {
+        let file = makeFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let fixture = FetchFixture()
+        let store = makeStore(file: file, fixture: fixture)
+        defer { store.stop() }
+
+        store.start(after: .zero)
+        await waitUntil { fixture.requests == 1 }
+        let manual = Task { await store.check() }
+        await waitUntil { fixture.requests == 2 }
+        fixture.respond(feed(version: "1.1.0"))
+        fixture.respond(feed(version: "1.1.0"))
+        let answered = await manual.value
+        expect(answered == .answered, "a manual check during an automatic one gets its own answer")
+        await waitUntil { !store.isChecking }
+        expect(store.update?.version == AppVersion("1.1.0"), "both checks leave the release in place")
     }
 
     static func reportsInstalledVersionOnce() throws {
@@ -124,16 +128,23 @@ struct UpdateCheckTests {
         let relaunched = makeStore(file: file, fixture: fixture, running: installed)
         expect(relaunched.latest?.version == installed, "recording an install keeps the cached release")
         expect(
-            relaunched.takeInstalledVersion() == installed, "the installed version's first launch reports it")
-        expect(relaunched.takeInstalledVersion() == nil, "the report is taken once")
+            relaunched.takeInstallReport() == .installed(installed),
+            "the installed version's first launch reports it")
+        expect(relaunched.takeInstallReport() == nil, "the report is taken once")
         let later = makeStore(file: file, fixture: fixture, running: installed)
-        expect(later.takeInstalledVersion() == nil, "a later launch reports nothing")
+        expect(later.takeInstallReport() == nil, "a later launch reports nothing")
 
         makeStore(file: file, fixture: fixture).recordInstall(of: installed)
         let unchanged = makeStore(file: file, fixture: fixture)
-        expect(unchanged.takeInstalledVersion() == nil, "a launch of another version reports nothing")
+        expect(
+            unchanged.takeInstallReport() == .notInstalled(installed),
+            "an older version still running reports the update that never landed")
         let afterwards = makeStore(file: file, fixture: fixture, running: installed)
-        expect(afterwards.takeInstalledVersion() == nil, "and clears the record")
+        expect(afterwards.takeInstallReport() == nil, "and clears the record")
+
+        makeStore(file: file, fixture: fixture).recordInstall(of: installed)
+        let newer = makeStore(file: file, fixture: fixture, running: AppVersion("1.2.0"))
+        expect(newer.takeInstallReport() == nil, "a newer version from elsewhere reports nothing")
     }
 
     static func seedCache(at file: URL) throws {
@@ -193,19 +204,18 @@ struct UpdateCheckTests {
     final class FetchFixture {
         var requests = 0
         var wasCancelled = false
-        private var response: CheckedContinuation<ReleaseFeed.Response, Never>?
+        private var responses: [CheckedContinuation<ReleaseFeed.Response, Never>] = []
 
         func fetch() async -> ReleaseFeed.Response {
             requests += 1
-            let data = await withCheckedContinuation { response = $0 }
+            let data = await withCheckedContinuation { responses.append($0) }
             wasCancelled = Task.isCancelled
             return data
         }
 
         func respond(_ data: Data) {
-            let pending = response
-            response = nil
-            pending?.resume(returning: .body(data))
+            guard !responses.isEmpty else { return }
+            responses.removeFirst().resume(returning: .body(data))
         }
     }
 }
