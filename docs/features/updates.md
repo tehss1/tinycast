@@ -90,11 +90,14 @@ the header row. It cannot reuse `ExtensionToastPill`, because extension views st
 
 `ReleaseChannel` is derived from the bundle id, and nothing else:
 
-| Bundle id               | Channel        | Takes       |
-| ----------------------- | -------------- | ----------- |
+| Bundle id                     | Channel        | Takes       |
+| ----------------------------- | -------------- | ----------- |
 | `com.tinycast.app`      | `.stable`      | releases    |
 | `com.tinycast.app.beta` | `.beta`        | prereleases |
-| anything else           | `.development` | nothing     |
+| anything else                 | `.development` | nothing     |
+
+The fork retains these bundle identifiers and ships no handoff. The retained `-Handoff` asset filter
+keeps upstream transition assets out of normal update selection.
 
 `AppVersion` parses `MAJOR.MINOR.PATCH`, `MAJOR.MINOR.PATCH-beta.N`, and customized stable
 `MAJOR.MINOR.PATCH-composer.N` versions. Ordering is beta, official stable, then Composer for one

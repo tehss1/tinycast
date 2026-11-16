@@ -760,4 +760,4 @@ providers.
   message and newest quoted messages),
   `composer-screenshot-test` (isolated pasteboards, file/icon precedence, bitmap/file/promise capture,
   rich HTML/RTFD dimensions and ordering, and initial/refinement image requests), and
-  `text-diff-test` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).
+  `TextDiffTests` (exact chunks, coalescing, Unicode, ties, token boundaries and fast paths).

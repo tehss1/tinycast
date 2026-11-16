@@ -48,6 +48,7 @@ targets:
           - Features/Clipboard/Service/ClipboardTextHelper.swift
           - Features/Dictation/Helper
           - Features/FileSearch/Helper
+          - Migrations/Handoff
           - Resources/EmojiKeywords
       # A folder reference keeps the packs in their own directory, which `EmojiIndex` lists.
       - path: Tinycast/Resources/EmojiKeywords

@@ -69,6 +69,14 @@ if grep -Eq '\.sig([^[:alpha:]]|$)' "$root/.github/workflows/release.yml" "$root
     echo "The fork's release must not publish or expect a zip signature" >&2
     exit 1
 fi
+if grep -Eiq 'handoff|notarytool|sign-update' "$root/.github/workflows/release.yml" "$root/Scripts/package-release.sh" "$root/Scripts/release-local.sh"; then
+    echo "The fork release pipeline must not build or publish a handoff or notarize" >&2
+    exit 1
+fi
+if grep -q 'TinycastHandoff:' "$root/project.yml" || grep -q TINYCAST_LEGACY_BUNDLE_IDENTIFIER "$root/project.yml"; then
+    echo "The fork project must not build a handoff or configure a legacy identity" >&2
+    exit 1
+fi
 echo "Release metadata and Composer deletion/ownership regression fixtures passed."
 
 # Run the shipped entry point with all external work confined to this fixture.

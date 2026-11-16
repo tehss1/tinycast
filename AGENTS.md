@@ -134,9 +134,9 @@ feature's doc, under its own `## Invariants`.
   constant or type instead. Cap 100 characters, delete rather than update, and never comment a change
   you just made. Nothing lints this; get it right the first time.
   Full rules: [standards.md#comments](docs/standards.md#comments).
-- **Debug builds are their own channel** — `Tinycast Dev.app` / `com.tinycast.app.dev` — so a local run
-  never shares prefs, caches, TCC grants or the login item with an installed copy. Anything newly
-  persisted must stay keyed by `Bundle.main.bundleIdentifier`.
+- **Debug builds are their own channel** — `Tinycast Dev.app` / `com.tinycast.app.dev` — so a
+  local run never shares prefs, caches, TCC grants or the login item with an installed copy. Anything
+  newly persisted must stay keyed by `Bundle.main.bundleIdentifier`.
 - **XcodeGen owns the project.** `Tinycast.xcodeproj` is committed but generated from `project.yml`;
   after editing it, run `xcodegen generate` and commit both. No SwiftPM, and never `Bundle.module`.
 
@@ -149,3 +149,7 @@ Each item is explained in [testing.md](docs/testing.md#definition-of-done).
 - `./Scripts/lint.sh` is clean.
 - `grep -rln 'import AppKit\|import SwiftUI\|import Cocoa' Tinycast/Features/*/Model/` returns nothing.
 - Any doc your change made wrong is fixed in the same commit.
+
+The fork retains `com.tinycast.app` (and `.beta` / `.dev`), including helper, Keychain and URL-scheme
+identities. It ships no bundle identifier handoff. `BundleIdentifierMigration` is disabled because
+there is no legacy namespace; see [migrations.md](docs/migrations.md).

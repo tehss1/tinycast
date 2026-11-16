@@ -22,9 +22,8 @@ details in [signing.md](signing.md).
 
 ## How the in-app updater consumes a release
 
-Every release publishes three assets from one build: `Tinycast-<version>.dmg`, which people download
-by hand and which the cask installs, `Tinycast-<version>.zip`, which the in-app updater installs, and
-`Tinycast-<version>.zip.sig`, the zip's signature by the release key. The zip is produced with
+Every fork release publishes two assets from one build: `Tinycast-<version>.dmg`, which people download
+by hand and which the cask installs, `Tinycast-<version>.zip`, which the in-app updater installs. The zip is produced with
 `ditto -c -k --keepParent --sequesterRsrc` — the only zip that leaves the code signature verifiable,
 which matters because the updater refuses any bundle it cannot prove is ours.
 
@@ -161,14 +160,9 @@ also keeps the Apple silicon download from silently gaining a slice it never nee
 inside a universal app is the quiet form of the same bug: the app boots on Intel and only clipboard
 OCR or dictation stops working.
 
-Both jobs run in the `release` environment, which holds the signing and notary secrets and deploys
-from `main` only ([signing.md](signing.md#2-the-release-secrets)). After `verify-signature.sh`,
-`Scripts/package-release.sh` packs and signs the DMG, submits it once with `notarytool --wait`, and
-staples the ticket to the DMG and to the app before zipping it, so the updater's zip is stapled too.
-Any status but `Accepted` prints Apple's log and stops the run before anything is published.
-`Scripts/sign-update.swift` then signs the zip, and fails the run if the built app trusts a different
-update key. `Scripts/check-update-path.sh` runs just before notarizing, and fails the run unless the
-last release on the channel would install this build ([signing.md](signing.md#update-trust)).
+Fork releases use `Scripts/release-local.sh` and the existing `Tinycast Self-Signed` identity.
+`Scripts/package-release.sh` creates the DMG and zip without notarization or detached signatures.
+The retained Actions workflow uses `Scripts/release-metadata.sh` and uploads only those assets.
 
 Channel builds override `TINYCAST_BUNDLE_IDENTIFIER`, not the target-wide `PRODUCT_BUNDLE_IDENTIFIER`.
 The Dictation helper derives its own identifier with a `.dictation` suffix; signature verification
@@ -201,6 +195,13 @@ Two details the script exists for:
 The Discord announcement carries the same changelog, truncated to fit Discord's component limit, and
 pings `@everyone`.
 
+### Bundle identity
+
+The fork retains `com.tinycast.app`, `com.tinycast.app.beta` and `com.tinycast.app.dev`. It ships no
+handoff app or zip. The migration is disabled; see [migrations.md](migrations.md). Its updater trusts
+the running copy's designated requirement, so preserving the identifier and self-signed leaf
+certificate preserves the update chain and macOS permission identity.
+
 ### Homebrew casks
 
 `tinycast` and `tinycast@beta` are in [homebrew/cask](https://github.com/Homebrew/homebrew-cask),
@@ -217,6 +218,6 @@ on the tap repo. Without the secret the step logs a warning and skips; the relea
 The `sed` is anchored to `^  version` / `^  sha256`, so a cask's two-space indent on those lines is
 load-bearing.
 
-Both stable casks install `Tinycast.app` under `com.tinycast.app`, so `tinycast-universal` declares
-`conflicts_with cask: "tinycast"`. `tinycast` requires `arch: :arm64`; `tinycast-universal` installs
-on any Mac.
+Both stable casks install `Tinycast.app` under `com.tinycast.app`, so `tinycast-universal`
+declares `conflicts_with cask: "tinycast"`. `tinycast` requires `arch: :arm64`; `tinycast-universal`
+installs on any Mac.

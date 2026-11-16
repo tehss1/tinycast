@@ -124,3 +124,6 @@ keep upstream merges small, and nothing here runs them. Fork releases are not no
 
 A local `build-dmg.sh` DMG is self-signed and never notarized, so it is for testing on the Mac that
 built it, not for sharing.
+
+The fork retains `com.tinycast.app` and its beta and dev channel identifiers. It ships no handoff
+app or zip and does not run a bundle identifier migration. See [migrations.md](migrations.md).
