@@ -15,7 +15,8 @@ so the codebase never carries a history of its past formats.
   tidies. A value a later release depends on is never left to one.
 - **Except a dated row.** When no later release can work without the migration, its row names a
   `YYYY-MM-DD` instead, and the check fails from that day rather than at the first stable tag. The
-  bundle id move is the one case: without it a copy opens empty, its data still under the old id.
+  bundle id move is the one case upstream: without it a copy opens empty, its data still under the old
+  id. This fork keeps `com.tinycast.app`, so its row is disabled (see below).
 - **Idempotent and silent.** It runs on every launch of its release, does nothing when there is
   nothing to repair, and reports nothing.
 - **Every live migration has a row below.** The check fails for a file the table does not name.

@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 import os
 
-/// Carries what a `com.tinycast.app` channel left behind over to this build's bundle id.
+/// Upstream moves a `com.tinycast.app` copy's data to its new id; this fork keeps the id, so it never runs.
 enum BundleIdentifierMigration {
     /// The handoff writes it under the old id, so it arrives here with the old preferences.
     static let launchAtLoginKey = "BundleIdentifierHandoff.launchAtLogin"

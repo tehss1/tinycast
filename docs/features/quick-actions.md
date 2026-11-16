@@ -55,7 +55,7 @@ selectable Markdown renderer with AI Chat.
   `AIStreamEvent.outputLimitReached` fails the run with "The reply hit the model's length limit",
   so part of a long selection can never overwrite all of it. Only a selection-sized budget adds
   "Select less text"; the others ask for a shorter reply.
-- **`Model/` stays Foundation-only.** `quick-action-test` compiles that folder standalone, which is
+- **`Model/` stays Foundation-only.** `QuickActionTests` compiles that folder standalone, which is
   what keeps `FoundationModels`, `Translation` and `NaturalLanguage` in `Service/` and `UI/`.
 - **Quick Actions route themselves.** `quickActionModel` is a second routing decision, defaulting to
   Apple Intelligence and falling back to chat's model. A shortcut pressed all day should not bill an
@@ -753,7 +753,7 @@ providers.
   Korean, the language that is actually missing.
 - Revoke Accessibility while enabled: a shortcut press shows the system prompt and a dialog that
   opens Accessibility settings, instead of failing silently.
-- Harnesses: `quick-action-test` (action metadata, prompt boundaries, Outlook context trimming,
+- Harnesses: `QuickActionTests` (action metadata, prompt boundaries, Outlook context trimming,
   seven-day Composer history, preview choices, routes and their repair),
   `composer-test` (replacement boundaries, manual edits, failures, interrupted requests, which
   conversations reopen, resumed delivery targets, scoped history matching, separate replies to one

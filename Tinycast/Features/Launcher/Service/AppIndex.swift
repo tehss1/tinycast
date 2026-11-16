@@ -816,7 +816,7 @@ final class AppIndex {
         }
     }
 
-    private static let ownBundlePrefix = "com.tinycast.app"
+    private static let ownBundlePrefix = "com.tinycast."
 
     private func signals(
         for entry: AppEntry, usage: LauncherRankingStore.Snapshot
