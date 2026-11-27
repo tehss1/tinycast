@@ -24,29 +24,28 @@ enum TextTranslator {
         }
     }
 
+    private static let readerLanguageOdds = 20.0
+
     /// `TranslationSession(installedSource:)` needs a language; availability reports only a status.
-    static func sourceLanguage(of text: String) -> Locale.Language? {
+    private static func sourceLanguage(of text: String) -> Locale.Language? {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
-        guard let dominant = recognizer.dominantLanguage, dominant != .undetermined else {
-            return nil
-        }
-        return Locale.Language(identifier: dominant.rawValue)
-    }
-
-    /// The detector says `en`, a regional Mac says `en-GB`, and Apple offers no `en` → `en-GB` pair,
-    /// so one language in one script is already translated. `zh-Hans` and `zh-Hant` are not the same.
-    static func writesTheSame(_ source: Locale.Language, as target: Locale.Language) -> Bool {
-        if source.isEquivalent(to: target) { return true }
-        guard source.languageCode == target.languageCode else { return false }
-        let sourceScript = Locale.Language(identifier: source.maximalIdentifier).script
-        return sourceScript == Locale.Language(identifier: target.maximalIdentifier).script
+        let readerLanguages = SystemLanguages.preferred.map(Locale.Language.init(identifier:))
+        let weighted = recognizer.languageHypotheses(withMaximum: .max)
+            .filter { $0.key != .undetermined }
+            .map { code, probability in
+                let language = Locale.Language(identifier: code.rawValue)
+                let isReaders = readerLanguages.contains { isSameLanguage($0, language) }
+                let odds = isReaders ? readerLanguageOdds : 1
+                return (language: language, weight: probability * odds)
+            }
+        return weighted.max { $0.weight < $1.weight }?.language
     }
 
     /// Installed pairs only: a missing language is downloaded in System Settings, never from here.
     static func translate(_ text: String, to target: Locale.Language) async throws -> String {
         guard let source = sourceLanguage(of: text) else { throw Failure.undetectableSource }
-        guard !writesTheSame(source, as: target) else { return text }
+        guard !isSameLanguage(source, target) else { return text }
         let availability = LanguageAvailability()
         switch await availability.status(from: source, to: target) {
         case .installed:
@@ -97,6 +96,13 @@ enum TextTranslator {
             }
         }
         return nil
+    }
+
+    /// A region is not a language: the translator calls Egyptian into Saudi Arabic an unsupported pair.
+    private static func isSameLanguage(_ lhs: Locale.Language, _ rhs: Locale.Language) -> Bool {
+        let lhs = Locale.Language(identifier: lhs.maximalIdentifier)
+        let rhs = Locale.Language(identifier: rhs.maximalIdentifier)
+        return lhs.languageCode == rhs.languageCode && lhs.script == rhs.script
     }
 
     /// Region may move, since one English is another's asset, but a different script is a language.

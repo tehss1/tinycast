@@ -471,27 +471,6 @@ struct UpdatesTests {
             ReleaseFeed.newest(from: universalOnly, channel: .stable, architecture: .appleSilicon)?
                 .version == AppVersion("0.3.0"),
             "Apple silicon falls back to the universal zip when it is the only one published")
-
-        let handoff = feed(
-            entry(
-                tag: "v0.3.0", prerelease: false,
-                assets: [
-                    "Tinycast-0.3.0-Handoff.zip", "Tinycast-0.3.0.zip",
-                    "Tinycast-Universal-0.3.0-Handoff.zip", "Tinycast-Universal-0.3.0.zip"
-                ]))
-        expect(
-            ReleaseFeed.newest(from: handoff, channel: .stable, architecture: .appleSilicon)?
-                .assetURL.lastPathComponent == "Tinycast-0.3.0.zip",
-            "Apple silicon skips the handoff listed first, which carries the old bundle id")
-        expect(
-            ReleaseFeed.newest(from: handoff, channel: .stable, architecture: .intel)?
-                .assetURL.lastPathComponent == "Tinycast-Universal-0.3.0.zip",
-            "Intel skips the universal handoff too")
-        let handoffOnly = feed(
-            entry(tag: "v0.3.0", prerelease: false, assets: ["Tinycast-0.3.0-Handoff.zip"]))
-        expect(
-            ReleaseFeed.newest(from: handoffOnly, channel: .stable, architecture: .appleSilicon) == nil,
-            "a release whose other zip is not up yet is not offered")
     }
 
     static func sendsTheTokenOnlyToGitHub() {

@@ -141,6 +141,13 @@ struct NoteEditorView: NSViewRepresentable {
         }
 
         func textView(
+            _ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange,
+            toCharacterRange newRange: NSRange
+        ) -> NSRange {
+            renderer.restingCaret(newRange, from: oldRange)
+        }
+
+        func textView(
             _ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any],
             toAttributes newTypingAttributes: [NSAttributedString.Key: Any]
         ) -> [NSAttributedString.Key: Any] {
@@ -228,6 +235,8 @@ struct NoteEditorView: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.smartInsertDeleteEnabled = false
         textView.usesFindBar = true
+        // Its affordance is a child window that drags a closed note back on screen.
+        textView.writingToolsBehavior = .none
         textView.allowsUndo = true
         textView.linkTextAttributes = [.foregroundColor: NSColor.linkColor, .cursor: NSCursor.pointingHand]
         textView.typingAttributes = NoteMarkdownStyler.literal

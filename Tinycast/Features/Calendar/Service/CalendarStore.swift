@@ -119,6 +119,7 @@ final class CalendarStore {
     /// `EKEventStore` is not `Sendable`, so this stays on main; only pure values leave.
     func reload() {
         defer { refreshDetails() }
+        lastReloadAt = Date()
         refreshAccess()
         guard access == .granted else {
             publish([])
@@ -127,7 +128,6 @@ final class CalendarStore {
         let store = eventStore ?? EKEventStore()
         eventStore = store
         observeStoreChanges()
-        lastReloadAt = Date()
 
         let sources = store.calendars(for: .event)
         calendars =
@@ -292,5 +292,13 @@ final class CalendarStore {
         }
         defaults.set(Array(hiddenCalendarIDs), forKey: hiddenKey)
         reload()
+    }
+
+    /// Adopts the switches another process stored, without writing them back.
+    func reloadHiddenCalendars() {
+        let stored = Set(defaults.stringArray(forKey: hiddenKey) ?? [])
+        guard stored != hiddenCalendarIDs else { return }
+        hiddenCalendarIDs = stored
+        if eventStore != nil { reload() }
     }
 }

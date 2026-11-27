@@ -71,29 +71,57 @@ Losing the identity itself breaks self-update: the updater pins the exact leaf c
 installed copy rejects a build signed by a recreated one. Keep a private backup of the `.p12`; without
 it, every install has to be replaced by hand once.
 
+## iCloud Sync
+
+CloudKit and push are restricted entitlements: macOS refuses to launch a build claiming them unless an
+embedded provisioning profile authorizes them. So a build claims them only when it names a profile:
+
+- **By default**, `TINYCAST_ENTITLEMENTS` is `Tinycast/Tinycast.entitlements` and no profile is named.
+  A contributor's self-signed build is unchanged, and its iCloud Sync pane says it needs a signed
+  build.
+- **Releases** pass `Tinycast/TinycastCloud.entitlements` and the channel's Developer ID profile,
+  committed in `Config/Profiles/` (a profile holds no secret). `verify-signature.sh` asserts the
+  profile, the `iCloud.<bundle id>` container, Production and production push.
+- **The Dev build** signs with Apple Development and the Dev profile through a gitignored
+  `Config/Local.xcconfig`, which every target's Debug configuration includes:
+
+  ```
+  CODE_SIGN_IDENTITY = Apple Development
+  DEVELOPMENT_TEAM = J656U8XZ93
+  TINYCAST_ENTITLEMENTS = Tinycast/TinycastCloud.entitlements
+  TINYCAST_PROVISIONING_PROFILE = Tinycast Dev Development
+  ```
+
+  Install the profile once with `./Scripts/install-provisioning-profile.sh <file>`. It names this
+  Mac's UDID, so another Mac needs registering and the profile remaking. The new identity asks for
+  Accessibility again once.
+
+`TinycastCloud.entitlements` repeats the base keys: keep the two files in step. A capability change on
+an App ID invalidates its profiles; remake them and replace the files.
+
 ## Hardened runtime
 
 **Release only**, on both targets: `ENABLE_HARDENED_RUNTIME: YES`, which notarization requires. Debug
-must stay without it — hardened runtime turns on library validation, and Xcode's
+must stay without it: hardened runtime turns on library validation, and Xcode's
 `Tinycast Dev.debug.dylib` is refused at launch because a self-signed identity carries no Team ID for
 the loader to match. The flag is not part of the designated requirement, so turning it on costs no
 Accessibility grant. Each entitlement in `Tinycast/Tinycast.entitlements` earns its place:
 
-| Entitlement | Without it |
-| --- | --- |
-| `com.apple.security.cs.allow-jit` | JavaScriptCore cannot JIT, and every extension command runs on the interpreter |
-| `com.apple.security.automation.apple-events` | Every Apple event is refused with `-1743` and no prompt — Get Info, the Finder selection an extension reads, and the System Events–driven system actions all die silently |
-| `com.apple.security.device.camera` | The camera prompt never appears and access resolves as denied |
-| `com.apple.security.personal-information.calendars` | `requestFullAccessToEvents()` returns `false` in milliseconds with no dialog, and Tinycast never appears under System Settings › Calendars |
+| Entitlement                                         | Without it                                                                                                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `com.apple.security.cs.allow-jit`                   | JavaScriptCore cannot JIT, and every extension command runs on the interpreter                                                                                           |
+| `com.apple.security.automation.apple-events`        | Every Apple event is refused with `-1743` and no prompt; Get Info, the Finder selection an extension reads, and the System Events–driven system actions all die silently |
+| `com.apple.security.device.camera`                  | The camera prompt never appears and access resolves as denied                                                                                                            |
+| `com.apple.security.personal-information.calendars` | `requestFullAccessToEvents()` returns `false` in milliseconds with no dialog, and Tinycast never appears under System Settings › Calendars                               |
 
 **A usage string is not enough under the hardened runtime.** `tccd` checks the matching entitlement
-*before* it prompts, and without it logs "requires entitlement … but it is missing" and denies on the
-spot — no dialog, no error, status still `.notDetermined`. A grant saved before the hardened runtime
+_before_ it prompts, and without it logs "requires entitlement … but it is missing" and denies on the
+spot: no dialog, no error, status still `.notDetermined`. A grant saved before the hardened runtime
 arrived keeps working, since `tccd` does not re-check it, which is why this surfaces only on fresh
-installs. Adding a protected resource therefore means adding its usage string *and* its entitlement.
+installs. Adding a protected resource therefore means adding its usage string _and_ its entitlement.
 
 `RESOURCE_ENTITLEMENTS` in `Scripts/verify-signature.sh` maps every protected resource's usage string
-to its entitlement, including resources Tinycast does not use. That grants nothing — only
+to its entitlement, including resources Tinycast does not use. That grants nothing; only
 `Tinycast.entitlements` does, and a row whose usage string `Info.plist` doesn't declare is skipped. It
 is there so a future feature that adds the usage string but forgets the entitlement fails the release
 instead of shipping a prompt that can never appear.
@@ -102,11 +130,12 @@ Nothing else is needed: the only `dlopen` is Apple's own IOBluetooth, so library
 on, and `node`, `ray` and shell commands are separate processes it never reaches. Bluetooth has no
 hardened-runtime entitlement.
 
-`./Scripts/verify-signature.sh <path-to-.app>` asserts all of this — the runtime flag on the app *and*
-on `Contents/Helpers/ClipboardTextHelper`, an intact nested seal, no `get-task-allow`, and an
+`./Scripts/verify-signature.sh <path-to-.app>` asserts all of this: the runtime flag and
+`Tinycast Self-Signed` signature on the app _and_ every helper (`ClipboardTextHelper`,
+`FileIndexHelper`, `Tinycast Dictation`), an intact nested seal, no `get-task-allow`, and an
 entitlement for every usage string `Info.plist` declares. Both release jobs run it before packaging:
-a nested binary missing the runtime flag is the most common notarization rejection, and a usage string
-missing its entitlement ships a permission that can never be granted.
+a nested binary missing the runtime flag is the most common rejection, and a usage string missing
+its entitlement ships a permission that can never be granted.
 
 ## Update trust
 
@@ -118,7 +147,8 @@ A different identity requires a separately planned trust transition.
 This fork ships no release key. `Info.plist` has no `TinycastUpdatePublicKey` and release zips carry
 no `.sig`, so the upstream key route never applies; it also needs a Developer ID signature, which this
 fork does not have. `Scripts/sign-update.swift` and `Scripts/check-update-path.sh` stay in the tree to
-keep upstream merges small, and nothing here runs them. Fork releases are not notarized.
+keep upstream merges small, and nothing here runs them. Fork releases are self-signed, not notarized,
+and do not embed an iCloud provisioning profile.
 
 ## Quarantine
 

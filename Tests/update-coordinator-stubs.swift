@@ -8,6 +8,7 @@ enum DialogTone { case success, neutral, danger }
     enum Command { case checkForUpdates }
     final class QuickActions { var blocksUnattendedUpdate = false }
     final class Dictation { var isBusyForUpdate = false }
+    final class SettingsSurface { var isOpen = false }
     enum PaletteMode { case launcher }
     final class Palette {
         var isVisible = false
@@ -18,6 +19,7 @@ enum DialogTone { case success, neutral, danger }
     let appIndex = Index()
     let quickActionCoordinator = QuickActions()
     let dictationCoordinator = Dictation()
+    let settingsCoordinator = SettingsSurface()
     let paletteCoordinator = Palette()
     var currentActivity = UpdateActivity()
     var messages: [String] = []

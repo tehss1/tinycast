@@ -8,8 +8,8 @@ discussion.
 
 ## Why we say no
 
-**Tinycast is not a copy of Raycast.** We don't add a feature only because Raycast has it. If
-Raycast already does what you need, it may be the better app for you, and that's fine.
+**Tinycast is not a copy of another launcher.** We don't add a feature only because another app has
+it. If another app already does what you need, it may be the better app for you, and that's fine.
 
 **Simple, light and fast comes first.** Each new option makes the app heavier and harder to keep
 working. So we keep fewer settings and fewer special cases.
@@ -214,8 +214,6 @@ Tinycast is an all-in-one launcher, not a full window manager. Its window tools 
 - **Read selected text in every app.** Many apps and websites don't share it. ([#1492](https://github.com/abue-ammar/tinycast/issues/1492), [#1420](https://github.com/abue-ammar/tinycast/issues/1420))
 - **Another app's Quick Look plugin takes your keys** (like Obsidian's). ([#1607](https://github.com/abue-ammar/tinycast/issues/1607))
 - **Duplicate images with Clop running.** ([#1582](https://github.com/abue-ammar/tinycast/issues/1582))
-- **Notes opening again after you close it** with text selected. Apple's Writing Tools cause this.
-  ([#1164](https://github.com/abue-ammar/tinycast/issues/1164))
 - **One-time-password extensions that paste for you.** ([#829](https://github.com/abue-ammar/tinycast/issues/829))
 
 ## Not now, but maybe later
@@ -233,7 +231,7 @@ These are on hold, not ruled out.
 
 1. Check this page first.
 2. Ask yourself: does it keep Tinycast simple, light and fast?
-3. If Raycast already does it well, Raycast may suit you better.
+3. If another app already does it well, it may suit you better.
 4. Want it anyway? Fork Tinycast and make it yours.
 
 Thank you for your ideas and your understanding.

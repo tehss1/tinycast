@@ -414,6 +414,7 @@ main() {
     step "Asserting the build is arm64-only"
     local bin slices
     for bin in "$app/Contents/MacOS/${DISPLAY_NAME}" "$app/Contents/Helpers/ClipboardTextHelper" \
+        "$app/Contents/Helpers/FileIndexHelper" \
         "$app/Contents/Helpers/Tinycast Dictation.app/Contents/MacOS/Tinycast Dictation"; do
         slices="$(lipo -archs "$bin")"
         [ "$slices" = "arm64" ] || die "${bin##*/}: expected arm64 alone, got '$slices'"

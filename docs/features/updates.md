@@ -1,6 +1,6 @@
 # Updates
 
-By default, Tinycast checks GitHub Releases once a day and offers the newest release for its own
+By default, Tinycast checks GitHub Releases twice a day and offers the newest release for its own
 channel in a pill in the palette, then installs it at the next relaunch or quit. There is no Sparkle
 and no appcast: the release feed the website already reads is the feed the app reads.
 
@@ -8,7 +8,7 @@ and no appcast: the release feed the website already reads is the feed the app r
 
 - **Tinycast installs its own updates, and Homebrew stays out of the way.** Every cask declares
   `auto_updates true`, which is Homebrew's own flag for an app that manages its own version. `brew
-update && brew upgrade` therefore skips Tinycast entirely — it is never reported outdated, never
+update && brew upgrade` therefore skips Tinycast entirely: it is never reported outdated, never
   re-downloaded, and a self-updated copy is never trashed or rolled back. `brew install`, `brew
 uninstall` and `brew list` keep working unchanged.
 - **The archive is a zip, never the DMG.** A zip expands with `ditto`; a DMG would have to be mounted,
@@ -25,7 +25,7 @@ uninstall` and `brew list` keep working unchanged.
   trusted when its seal passes strict validation, nested helpers included, and it satisfies the
   running copy's own designated requirement, which pins the `Tinycast Self-Signed` leaf certificate.
   This fork ships no release key, so the zip's `.sig` route never applies. Fork updates do not trust
-  upstream Developer ID signatures. `notarized` is deliberately not checked — it resolves the ticket
+  upstream Developer ID signatures. `notarized` is deliberately not checked: it resolves the ticket
   through `syspolicyd` or the network, so an offline Mac would refuse a bundle the signature already
   proves is ours.
 - **A build only ever updates within its own channel.** The channels are separate bundle ids installed
@@ -121,12 +121,14 @@ self-rescheduling pump, and one atomic JSON file.
 It holds `lastCheckedAt`, the newest release seen, and the version just installed. A cached release
 is decoded only when its tag parses to the same version; the archive filename comes from the
 validated version, so a tampered tag cannot write outside the staging directory. Freshness is
-measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 24 h, dropping to
+measured from `lastCheckedAt`, so relaunching never re-asks GitHub; the interval is 12 h, dropping to
 2 h after a failed attempt, and the first check waits 30 s so it never lands in the login rush. The
-request carries a `User-Agent`, which the GitHub API rejects requests without, and the update token
-as a bearer credential when one is stored. The download sends the token only when the asset address
-is `https` on `api.github.com`, since that address is read back from this file, and drops it on the
-redirect to signed storage.
+wait carries a 15 s tolerance so macOS can coalesce the wake with other timers. A check holds the
+~200 KB response only while parsing it, and the sleeping task holds nothing. The request carries a
+`User-Agent`, which the GitHub API rejects requests without, and the update token as a bearer
+credential when one is stored. The download sends the token only when the asset address is `https`
+on `api.github.com`, since that address is read back from this file, and drops it on the redirect
+to signed storage.
 
 GitHub answers 401 for a bad token and 404 for a private repository the request may not read. Both
 are a refusal rather than an outage: Check for Updates reports that access was refused and points at
@@ -146,7 +148,13 @@ than what is running, unless an update is already downloading or waiting for qui
 update instead, since offering it again would discard the download or the staged copy.
 
 Check for Updates reports in a HUD: progress while it asks, then up to date or unreachable. When there
-is an update, it opens the palette so the pill shows.
+is an update, it opens the palette so the pill shows. It is reachable from the palette's app menu,
+the menu bar menu, the launcher, and Settings → About.
+
+Settings → About gives it a row of its own with a Check Now button and one status line: a local
+build says it does not update; otherwise the line reads checking, the newer version on offer, "Last
+checked" with a relative time that ticks once a minute, or not checked yet. It reads
+`UpdateCoordinator`'s status properties, never `stage`.
 
 ## Local release notification
 
@@ -195,7 +203,7 @@ One route, whatever the install came from:
 1. Stream the zip into `~/Library/Caches/<bundle-id>/Updates/`, with real byte progress and a Cancel
    that actually aborts the transfer. The address is the asset's API `url`, asked for as
    `application/octet-stream`, because the browser download address cannot serve a private asset.
-2. `ditto -x -k` it into a staging folder, and take whatever `.app` lands there — the bundle is named
+2. `ditto -x -k` it into a staging folder, and take whatever `.app` lands there; the bundle is named
    for its channel, so it is `Tinycast Beta.app` on beta.
 3. Check quarantine natively; clear it if somehow present, and refuse the update if it survives.
 4. Verify the bundle id, the version, the update repository, and that the code signature is valid
@@ -205,7 +213,7 @@ One route, whatever the install came from:
    it in. The staging folder is on the same volume as `/Applications`, which is what lets this be
    atomic. A copy Tinycast cannot write is reported before the download starts, not worked around;
    there is no privileged helper.
-6. Relaunch spawns a detached waiter that reopens the app once this process exits — `open` on a
+6. Relaunch spawns a detached waiter that reopens the app once this process exits; `open` on a
    bundle id that is still running would only re-activate the instance on its way out.
 
 A successful install records its version as `installedVersion`. The first launch running that
@@ -222,19 +230,19 @@ setting, clipboard entry, note or snippet is affected by an update, by `brew upg
 `.github/workflows/release.yml` publishes two assets from one build: the DMG people download by hand
 and the cask installs, and `Tinycast-<version>.zip` for the updater. A stable run adds a
 `Tinycast-Universal-<version>` pair from its `universal` job, uploaded second so the thin zip stays
-first in the asset list — builds predating architecture-aware selection take whichever comes first.
+first in the asset list: builds predating architecture-aware selection take whichever comes first.
 The zip is made with
 
 ```sh
 ditto -c -k --keepParent --sequesterRsrc "$APP" "dist/$ZIP_FILE"
 ```
 
-which is the only zip that leaves the code signature verifiable — plain `zip` drops symlinks and
+which is the only zip that leaves the code signature verifiable: plain `zip` drops symlinks and
 breaks the seal, and the signature check above would then reject every update.
 
 The body it publishes is composed by `Scripts/release-notes.sh`: GitHub's generated changelog first,
 then `<!-- tinycast:install -->`, then the install text. The app does not read the body. Anything a
-release wants the website's changelog to show has to go above that marker — see
+release wants the website's changelog to show has to go above that marker; see
 [release.md](../release.md#release-notes).
 
 **Every cask must declare `auto_updates true`**, in homebrew/cask and in the tap. Without it Homebrew
